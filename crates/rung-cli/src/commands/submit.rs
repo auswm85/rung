@@ -242,16 +242,36 @@ fn print_summary(created: usize, updated: usize) {
 }
 
 /// Generate PR body with stack navigation links.
+///
+/// Only includes branches in the same chain as the current branch
+/// (ancestors and descendants), not unrelated sibling branches.
 fn generate_pr_body(branches: &[StackBranch], current_idx: usize) -> String {
+    let current = &branches[current_idx];
+
+    // Build the chain: find ancestors and descendants of current branch
+    let chain = build_branch_chain(branches, &current.name);
+
+    // If chain has only one branch (the current one), skip stack section
+    if chain.len() <= 1 {
+        return String::from("*Managed by [rung](https://github.com/auswm85/rung)*\n");
+    }
+
     let mut body = String::from("## Stack\n\n");
 
-    for (i, branch) in branches.iter().enumerate() {
-        let marker = if i == current_idx { "→" } else { " " };
-
-        if let Some(pr_num) = branch.pr {
-            let _ = writeln!(body, "{marker} #{pr_num} - `{}`", branch.name);
+    for branch_name in &chain {
+        let marker = if branch_name == &current.name {
+            "→"
         } else {
-            let _ = writeln!(body, "{marker} (pending) - `{}`", branch.name);
+            " "
+        };
+
+        // Find the branch to get its PR number
+        if let Some(branch) = branches.iter().find(|b| &b.name == branch_name) {
+            if let Some(pr_num) = branch.pr {
+                let _ = writeln!(body, "{marker} #{pr_num} - `{branch_name}`");
+            } else {
+                let _ = writeln!(body, "{marker} (pending) - `{branch_name}`");
+            }
         }
     }
 
@@ -259,4 +279,48 @@ fn generate_pr_body(branches: &[StackBranch], current_idx: usize) -> String {
     body.push_str("*Managed by [rung](https://github.com/auswm85/rung)*\n");
 
     body
+}
+
+/// Build a chain of branches from root ancestor to all descendants.
+///
+/// Returns branch names in order from oldest ancestor to newest descendant.
+fn build_branch_chain(branches: &[StackBranch], current_name: &str) -> Vec<String> {
+    // Find all ancestors (walk up the parent chain)
+    let mut ancestors = vec![];
+    let mut current = current_name.to_string();
+
+    loop {
+        if let Some(branch) = branches.iter().find(|b| b.name == current) {
+            if let Some(ref parent) = branch.parent {
+                // Check if parent is in the stack
+                if branches.iter().any(|b| b.name == *parent) {
+                    ancestors.push(parent.clone());
+                    current = parent.clone();
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    // Reverse to get oldest ancestor first
+    ancestors.reverse();
+
+    // Start chain with ancestors, then current
+    let mut chain = ancestors;
+    chain.push(current_name.to_string());
+
+    // Find all descendants (branches whose parent is in our chain)
+    let mut i = 0;
+    while i < chain.len() {
+        let parent_name = &chain[i].clone();
+        for branch in branches {
+            if branch.parent.as_ref() == Some(parent_name) && !chain.contains(&branch.name) {
+                chain.push(branch.name.clone());
+            }
+        }
+        i += 1;
+    }
+
+    chain
 }
