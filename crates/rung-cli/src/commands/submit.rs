@@ -289,8 +289,8 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
     // Build the chain for this branch
     let chain = build_branch_chain(branches, current_name);
 
-    // Build stack list in markdown format
-    for branch_name in &chain {
+    // Build stack list in markdown format (newest at top, so iterate in reverse)
+    for branch_name in chain.iter().rev() {
         let branch = branches.iter().find(|b| &b.name == branch_name);
         let is_current = branch_name == current_name;
 
