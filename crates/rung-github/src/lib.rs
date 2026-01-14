@@ -12,5 +12,6 @@ pub use auth::Auth;
 pub use client::GitHubClient;
 pub use error::{Error, Result};
 pub use types::{
-    CheckRun, CheckStatus, CreatePullRequest, PullRequest, PullRequestState, UpdatePullRequest,
+    CheckRun, CheckStatus, CreatePullRequest, MergeMethod, MergePullRequest, MergeResult,
+    PullRequest, PullRequestState, UpdatePullRequest,
 };

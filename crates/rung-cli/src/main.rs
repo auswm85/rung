@@ -22,6 +22,7 @@ fn main() {
         } => commands::sync::run(dry_run, continue_, abort, base.as_deref()),
         Commands::Submit { draft, force } => commands::submit::run(draft, force),
         Commands::Undo => commands::undo::run(),
+        Commands::Merge { method, no_delete } => commands::merge::run(&method, no_delete),
         Commands::Nxt => commands::navigate::run_next(),
         Commands::Prv => commands::navigate::run_prev(),
     };

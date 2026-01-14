@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 
 pub mod create;
 pub mod init;
+pub mod merge;
 pub mod navigate;
 pub mod status;
 pub mod submit;
@@ -96,6 +97,21 @@ pub enum Commands {
     /// Restores all branches to their state before the last sync.
     #[command(alias = "un")]
     Undo,
+
+    /// Merge the current branch's PR and clean up.
+    ///
+    /// Merges the PR via GitHub API, deletes the remote branch,
+    /// removes it from the stack, and checks out the parent.
+    #[command(alias = "m")]
+    Merge {
+        /// Merge method: squash (default), merge, or rebase.
+        #[arg(long, short, default_value = "squash")]
+        method: String,
+
+        /// Don't delete the remote branch after merge.
+        #[arg(long)]
+        no_delete: bool,
+    },
 
     /// Navigate to the next branch in the stack (child).
     #[command(alias = "n")]

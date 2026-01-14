@@ -6,7 +6,9 @@ use serde::de::DeserializeOwned;
 
 use crate::auth::Auth;
 use crate::error::{Error, Result};
-use crate::types::{CheckRun, CreatePullRequest, PullRequest, UpdatePullRequest};
+use crate::types::{
+    CheckRun, CreatePullRequest, MergePullRequest, MergeResult, PullRequest, UpdatePullRequest,
+};
 
 /// GitHub API client.
 pub struct GitHubClient {
@@ -101,6 +103,59 @@ impl GitHubClient {
             .await?;
 
         self.handle_response(response).await
+    }
+
+    /// Make a PUT request.
+    async fn put<T: DeserializeOwned, B: serde::Serialize + Sync>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .client
+            .put(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .json(body)
+            .send()
+            .await?;
+
+        self.handle_response(response).await
+    }
+
+    /// Make a DELETE request.
+    async fn delete(&self, path: &str) -> Result<()> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .client
+            .delete(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .send()
+            .await?;
+
+        let status = response.status();
+        if status.is_success() || status.as_u16() == 204 {
+            return Ok(());
+        }
+
+        let status_code = status.as_u16();
+        match status_code {
+            401 => Err(Error::AuthenticationFailed),
+            403 if response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .is_some_and(|v| v == "0") =>
+            {
+                Err(Error::RateLimited)
+            }
+            _ => {
+                let text = response.text().await.unwrap_or_default();
+                Err(Error::ApiError {
+                    status: status_code,
+                    message: text,
+                })
+            }
+        }
     }
 
     /// Handle API response.
@@ -370,6 +425,37 @@ impl GitHubClient {
                 details_url: cr.details_url,
             })
             .collect())
+    }
+
+    // === Merge Operations ===
+
+    /// Merge a pull request.
+    ///
+    /// # Errors
+    /// Returns error if merge fails.
+    pub async fn merge_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        merge: MergePullRequest,
+    ) -> Result<MergeResult> {
+        self.put(
+            &format!("/repos/{owner}/{repo}/pulls/{number}/merge"),
+            &merge,
+        )
+        .await
+    }
+
+    // === Ref Operations ===
+
+    /// Delete a git reference (branch).
+    ///
+    /// # Errors
+    /// Returns error if deletion fails.
+    pub async fn delete_ref(&self, owner: &str, repo: &str, ref_name: &str) -> Result<()> {
+        self.delete(&format!("/repos/{owner}/{repo}/git/refs/heads/{ref_name}"))
+            .await
     }
 }
 
