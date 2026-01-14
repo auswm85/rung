@@ -90,6 +90,10 @@ pub enum Commands {
         /// Force push even if lease check fails.
         #[arg(long)]
         force: bool,
+
+        /// Custom PR title for current branch (overrides auto-generated title).
+        #[arg(long, short)]
+        title: Option<String>,
     },
 
     /// Undo the last sync operation.
