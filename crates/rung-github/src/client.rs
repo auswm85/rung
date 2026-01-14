@@ -7,8 +7,65 @@ use serde::de::DeserializeOwned;
 use crate::auth::Auth;
 use crate::error::{Error, Result};
 use crate::types::{
-    CheckRun, CreatePullRequest, MergePullRequest, MergeResult, PullRequest, UpdatePullRequest,
+    CheckRun, CreatePullRequest, MergePullRequest, MergeResult, PullRequest, PullRequestState,
+    UpdatePullRequest,
 };
+
+// === Internal API response types (shared across methods) ===
+
+/// Internal representation of a PR from the GitHub API.
+#[derive(serde::Deserialize)]
+struct ApiPullRequest {
+    number: u64,
+    title: String,
+    body: Option<String>,
+    state: String,
+    draft: bool,
+    html_url: String,
+    head: ApiBranch,
+    base: ApiBranch,
+}
+
+/// Internal representation of a branch ref from the GitHub API.
+#[derive(serde::Deserialize)]
+struct ApiBranch {
+    #[serde(rename = "ref")]
+    ref_name: String,
+}
+
+impl ApiPullRequest {
+    /// Convert API response to domain type, parsing state string.
+    fn into_pull_request(self) -> PullRequest {
+        PullRequest {
+            number: self.number,
+            title: self.title,
+            body: self.body,
+            state: match self.state.as_str() {
+                "open" => PullRequestState::Open,
+                "merged" => PullRequestState::Merged,
+                _ => PullRequestState::Closed,
+            },
+            draft: self.draft,
+            head_branch: self.head.ref_name,
+            base_branch: self.base.ref_name,
+            html_url: self.html_url,
+        }
+    }
+
+    /// Convert API response to domain type with a known state.
+    fn into_pull_request_with_state(self, state: PullRequestState) -> PullRequest {
+        PullRequest {
+            number: self.number,
+            title: self.title,
+            body: self.body,
+            state,
+            draft: self.draft,
+            head_branch: self.head.ref_name,
+            base_branch: self.base.ref_name,
+            html_url: self.html_url,
+        }
+    }
+}
 
 /// GitHub API client.
 pub struct GitHubClient {
@@ -196,42 +253,11 @@ impl GitHubClient {
     /// # Errors
     /// Returns error if PR not found or API call fails.
     pub async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest> {
-        #[derive(serde::Deserialize)]
-        struct ApiPr {
-            number: u64,
-            title: String,
-            body: Option<String>,
-            state: String,
-            draft: bool,
-            html_url: String,
-            head: Branch,
-            base: Branch,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct Branch {
-            #[serde(rename = "ref")]
-            ref_name: String,
-        }
-
-        let api_pr: ApiPr = self
+        let api_pr: ApiPullRequest = self
             .get(&format!("/repos/{owner}/{repo}/pulls/{number}"))
             .await?;
 
-        Ok(PullRequest {
-            number: api_pr.number,
-            title: api_pr.title,
-            body: api_pr.body,
-            state: match api_pr.state.as_str() {
-                "open" => crate::types::PullRequestState::Open,
-                "merged" => crate::types::PullRequestState::Merged,
-                _ => crate::types::PullRequestState::Closed,
-            },
-            draft: api_pr.draft,
-            head_branch: api_pr.head.ref_name,
-            base_branch: api_pr.base.ref_name,
-            html_url: api_pr.html_url,
-        })
+        Ok(api_pr.into_pull_request())
     }
 
     /// Find a PR for a branch.
@@ -244,42 +270,17 @@ impl GitHubClient {
         repo: &str,
         branch: &str,
     ) -> Result<Option<PullRequest>> {
-        #[derive(serde::Deserialize)]
-        struct ApiPr {
-            number: u64,
-            title: String,
-            body: Option<String>,
-            #[allow(dead_code)]
-            state: String,
-            draft: bool,
-            html_url: String,
-            head: Branch,
-            base: Branch,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct Branch {
-            #[serde(rename = "ref")]
-            ref_name: String,
-        }
-
         // We only query open PRs, so state is always Open
-        let prs: Vec<ApiPr> = self
+        let prs: Vec<ApiPullRequest> = self
             .get(&format!(
                 "/repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open"
             ))
             .await?;
 
-        Ok(prs.into_iter().next().map(|api_pr| PullRequest {
-            number: api_pr.number,
-            title: api_pr.title,
-            body: api_pr.body,
-            state: crate::types::PullRequestState::Open,
-            draft: api_pr.draft,
-            head_branch: api_pr.head.ref_name,
-            base_branch: api_pr.base.ref_name,
-            html_url: api_pr.html_url,
-        }))
+        Ok(prs
+            .into_iter()
+            .next()
+            .map(|api_pr| api_pr.into_pull_request_with_state(PullRequestState::Open)))
     }
 
     /// Create a pull request.
@@ -292,40 +293,12 @@ impl GitHubClient {
         repo: &str,
         pr: CreatePullRequest,
     ) -> Result<PullRequest> {
-        #[derive(serde::Deserialize)]
-        struct ApiPr {
-            number: u64,
-            title: String,
-            body: Option<String>,
-            #[allow(dead_code)]
-            state: String,
-            draft: bool,
-            html_url: String,
-            head: Branch,
-            base: Branch,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct Branch {
-            #[serde(rename = "ref")]
-            ref_name: String,
-        }
-
         // Newly created PRs are always open
-        let api_pr: ApiPr = self
+        let api_pr: ApiPullRequest = self
             .post(&format!("/repos/{owner}/{repo}/pulls"), &pr)
             .await?;
 
-        Ok(PullRequest {
-            number: api_pr.number,
-            title: api_pr.title,
-            body: api_pr.body,
-            state: crate::types::PullRequestState::Open,
-            draft: api_pr.draft,
-            head_branch: api_pr.head.ref_name,
-            base_branch: api_pr.base.ref_name,
-            html_url: api_pr.html_url,
-        })
+        Ok(api_pr.into_pull_request_with_state(PullRequestState::Open))
     }
 
     /// Update a pull request.
@@ -339,42 +312,11 @@ impl GitHubClient {
         number: u64,
         update: UpdatePullRequest,
     ) -> Result<PullRequest> {
-        #[derive(serde::Deserialize)]
-        struct ApiPr {
-            number: u64,
-            title: String,
-            body: Option<String>,
-            state: String,
-            draft: bool,
-            html_url: String,
-            head: Branch,
-            base: Branch,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct Branch {
-            #[serde(rename = "ref")]
-            ref_name: String,
-        }
-
-        let api_pr: ApiPr = self
+        let api_pr: ApiPullRequest = self
             .patch(&format!("/repos/{owner}/{repo}/pulls/{number}"), &update)
             .await?;
 
-        Ok(PullRequest {
-            number: api_pr.number,
-            title: api_pr.title,
-            body: api_pr.body,
-            state: match api_pr.state.as_str() {
-                "open" => crate::types::PullRequestState::Open,
-                "merged" => crate::types::PullRequestState::Merged,
-                _ => crate::types::PullRequestState::Closed,
-            },
-            draft: api_pr.draft,
-            head_branch: api_pr.head.ref_name,
-            base_branch: api_pr.base.ref_name,
-            html_url: api_pr.html_url,
-        })
+        Ok(api_pr.into_pull_request())
     }
 
     // === Check Runs ===

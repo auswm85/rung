@@ -12,6 +12,26 @@ use rung_github::{
 
 use crate::output;
 
+/// Configuration options for the submit command.
+struct SubmitConfig<'a> {
+    /// Create PRs as drafts.
+    draft: bool,
+    /// Force push branches.
+    force: bool,
+    /// Custom title for the current branch's PR.
+    custom_title: Option<&'a str>,
+    /// Current branch name (for custom title matching).
+    current_branch: Option<String>,
+}
+
+/// Context for GitHub API operations.
+struct GitHubContext<'a> {
+    client: &'a GitHubClient,
+    rt: &'a tokio::runtime::Runtime,
+    owner: &'a str,
+    repo_name: &'a str,
+}
+
 /// Run the submit command.
 pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
     let (repo, state, mut stack) = setup_submit()?;
@@ -21,8 +41,12 @@ pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    // Get current branch for custom title matching
-    let current_branch = repo.current_branch().ok();
+    let config = SubmitConfig {
+        draft,
+        force,
+        custom_title,
+        current_branch: repo.current_branch().ok(),
+    };
 
     let (owner, repo_name) = get_remote_info(&repo)?;
     output::info(&format!("Submitting to {owner}/{repo_name}..."));
@@ -30,23 +54,19 @@ pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
     let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
     let rt = tokio::runtime::Runtime::new()?;
 
-    let (created, updated) = process_branches(
-        &repo,
-        &client,
-        &rt,
-        &mut stack,
-        &owner,
-        &repo_name,
-        draft,
-        force,
-        current_branch.as_deref(),
-        custom_title,
-    )?;
+    let gh = GitHubContext {
+        client: &client,
+        rt: &rt,
+        owner: &owner,
+        repo_name: &repo_name,
+    };
+
+    let (created, updated) = process_branches(&repo, &gh, &mut stack, &config)?;
 
     state.save_stack(&stack)?;
 
     // Update stack comments on all PRs
-    update_stack_comments(&client, &rt, &owner, &repo_name, &stack.branches)?;
+    update_stack_comments(&gh, &stack.branches)?;
 
     print_summary(created, updated);
 
@@ -76,18 +96,11 @@ fn get_remote_info(repo: &Repository) -> Result<(String, String)> {
 }
 
 /// Process all branches in the stack.
-#[allow(clippy::too_many_arguments)]
 fn process_branches(
     repo: &Repository,
-    client: &GitHubClient,
-    rt: &tokio::runtime::Runtime,
+    gh: &GitHubContext<'_>,
     stack: &mut rung_core::stack::Stack,
-    owner: &str,
-    repo_name: &str,
-    draft: bool,
-    force: bool,
-    current_branch: Option<&str>,
-    custom_title: Option<&str>,
+    config: &SubmitConfig<'_>,
 ) -> Result<(usize, usize)> {
     let mut created = 0;
     let mut updated = 0;
@@ -102,14 +115,16 @@ fn process_branches(
 
         // Push the branch
         output::info(&format!("  Pushing {branch_name}..."));
-        repo.push(&branch_name, force)
+        repo.push(&branch_name, config.force)
             .with_context(|| format!("Failed to push {branch_name}"))?;
 
         let base_branch = parent_name.as_deref().unwrap_or("main");
 
         // Use custom title if this is the current branch, otherwise generate
-        let title = if current_branch == Some(branch_name.as_str()) {
-            custom_title.map_or_else(|| generate_title(&branch_name), String::from)
+        let title = if config.current_branch.as_deref() == Some(branch_name.as_str()) {
+            config
+                .custom_title
+                .map_or_else(|| generate_title(&branch_name), String::from)
         } else {
             generate_title(&branch_name)
         };
@@ -117,20 +132,11 @@ fn process_branches(
         let body = generate_pr_body(&stack.branches, i);
 
         if let Some(pr_number) = existing_pr {
-            update_existing_pr(client, rt, owner, repo_name, pr_number, body, base_branch)?;
+            update_existing_pr(gh, pr_number, body, base_branch)?;
             updated += 1;
         } else {
-            let result = create_or_find_pr(
-                client,
-                rt,
-                owner,
-                repo_name,
-                &branch_name,
-                base_branch,
-                title,
-                body,
-                draft,
-            )?;
+            let result =
+                create_or_find_pr(gh, &branch_name, base_branch, title, body, config.draft)?;
 
             stack.branches[i].pr = Some(result.pr_number);
             if result.was_created {
@@ -165,10 +171,7 @@ fn generate_title(branch_name: &str) -> String {
 
 /// Update an existing PR.
 fn update_existing_pr(
-    client: &GitHubClient,
-    rt: &tokio::runtime::Runtime,
-    owner: &str,
-    repo_name: &str,
+    gh: &GitHubContext<'_>,
     pr_number: u64,
     body: String,
     base_branch: &str,
@@ -181,7 +184,11 @@ fn update_existing_pr(
         base: Some(base_branch.to_string()),
     };
 
-    rt.block_on(client.update_pr(owner, repo_name, pr_number, update))
+    gh.rt
+        .block_on(
+            gh.client
+                .update_pr(gh.owner, gh.repo_name, pr_number, update),
+        )
         .with_context(|| format!("Failed to update PR #{pr_number}"))?;
 
     Ok(())
@@ -194,12 +201,8 @@ struct PrResult {
 }
 
 /// Create a new PR or find an existing one.
-#[allow(clippy::too_many_arguments)]
 fn create_or_find_pr(
-    client: &GitHubClient,
-    rt: &tokio::runtime::Runtime,
-    owner: &str,
-    repo_name: &str,
+    gh: &GitHubContext<'_>,
     branch_name: &str,
     base_branch: &str,
     title: String,
@@ -207,8 +210,12 @@ fn create_or_find_pr(
     draft: bool,
 ) -> Result<PrResult> {
     // Check if PR already exists for this branch
-    let existing = rt
-        .block_on(client.find_pr_for_branch(owner, repo_name, branch_name))
+    let existing = gh
+        .rt
+        .block_on(
+            gh.client
+                .find_pr_for_branch(gh.owner, gh.repo_name, branch_name),
+        )
         .context("Failed to check for existing PR")?;
 
     if let Some(pr) = existing {
@@ -220,7 +227,11 @@ fn create_or_find_pr(
             base: Some(base_branch.to_string()),
         };
 
-        rt.block_on(client.update_pr(owner, repo_name, pr.number, update))
+        gh.rt
+            .block_on(
+                gh.client
+                    .update_pr(gh.owner, gh.repo_name, pr.number, update),
+            )
             .with_context(|| format!("Failed to update PR #{}", pr.number))?;
 
         return Ok(PrResult {
@@ -240,8 +251,9 @@ fn create_or_find_pr(
         draft,
     };
 
-    let pr = rt
-        .block_on(client.create_pr(owner, repo_name, create))
+    let pr = gh
+        .rt
+        .block_on(gh.client.create_pr(gh.owner, gh.repo_name, create))
         .with_context(|| format!("Failed to create PR for {branch_name}"))?;
 
     output::success(&format!("  Created PR #{}: {}", pr.number, pr.html_url));
@@ -336,13 +348,7 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
 }
 
 /// Update stack comments on all PRs in the stack.
-fn update_stack_comments(
-    client: &GitHubClient,
-    rt: &tokio::runtime::Runtime,
-    owner: &str,
-    repo_name: &str,
-    branches: &[StackBranch],
-) -> Result<()> {
+fn update_stack_comments(gh: &GitHubContext<'_>, branches: &[StackBranch]) -> Result<()> {
     output::info("Updating stack comments...");
 
     for branch in branches {
@@ -353,8 +359,12 @@ fn update_stack_comments(
         let comment_body = generate_stack_comment(branches, pr_number);
 
         // Find existing rung comment
-        let comments = rt
-            .block_on(client.list_pr_comments(owner, repo_name, pr_number))
+        let comments = gh
+            .rt
+            .block_on(
+                gh.client
+                    .list_pr_comments(gh.owner, gh.repo_name, pr_number),
+            )
             .with_context(|| format!("Failed to list comments on PR #{pr_number}"))?;
 
         let existing_comment = comments.iter().find(|c| {
@@ -366,12 +376,20 @@ fn update_stack_comments(
         if let Some(comment) = existing_comment {
             // Update existing comment
             let update = UpdateComment { body: comment_body };
-            rt.block_on(client.update_pr_comment(owner, repo_name, comment.id, update))
+            gh.rt
+                .block_on(
+                    gh.client
+                        .update_pr_comment(gh.owner, gh.repo_name, comment.id, update),
+                )
                 .with_context(|| format!("Failed to update comment on PR #{pr_number}"))?;
         } else {
             // Create new comment
             let create = CreateComment { body: comment_body };
-            rt.block_on(client.create_pr_comment(owner, repo_name, pr_number, create))
+            gh.rt
+                .block_on(
+                    gh.client
+                        .create_pr_comment(gh.owner, gh.repo_name, pr_number, create),
+                )
                 .with_context(|| format!("Failed to create comment on PR #{pr_number}"))?;
         }
     }

@@ -1,4 +1,9 @@
 //! Authentication handling for GitHub API.
+//!
+//! # Security Notes
+//!
+//! TODO(long-term): Consider using the `zeroize` crate to clear tokens from memory
+//! after use, reducing the window for credential exposure in memory dumps.
 
 use std::process::Command;
 

@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// A stack of dependent branches forming a PR chain.
+// TODO(long-term): For large stacks (>20 branches), consider adding a HashMap<String, usize>
+// index for O(1) lookup in find_branch() and find_branch_mut() instead of linear search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stack {
     /// Ordered list of branches from base to tip.
@@ -91,6 +93,10 @@ impl Default for Stack {
 }
 
 /// A branch within a stack.
+// TODO(long-term): Consider a BranchName newtype with validation to prevent:
+// - Path traversal (../)
+// - Shell metacharacters
+// - Invalid git branch name characters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackBranch {
     /// Branch name.

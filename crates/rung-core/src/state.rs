@@ -1,5 +1,6 @@
 //! State persistence for .git/rung/ directory.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -287,7 +288,8 @@ pub struct SyncState {
     pub completed: Vec<String>,
 
     /// Branches remaining to be rebased.
-    pub remaining: Vec<String>,
+    /// Uses `VecDeque` for O(1) `pop_front()` in `advance()`.
+    pub remaining: VecDeque<String>,
 }
 
 impl SyncState {
@@ -295,7 +297,7 @@ impl SyncState {
     #[must_use]
     pub fn new(backup_id: String, branches: Vec<String>) -> Self {
         let current = branches.first().cloned().unwrap_or_default();
-        let remaining = branches.into_iter().skip(1).collect();
+        let remaining: VecDeque<String> = branches.into_iter().skip(1).collect();
 
         Self {
             started_at: Utc::now(),
@@ -309,12 +311,10 @@ impl SyncState {
     /// Mark current branch as complete and move to next.
     pub fn advance(&mut self) {
         if !self.current_branch.is_empty() {
-            self.completed.push(self.current_branch.clone());
+            self.completed
+                .push(std::mem::take(&mut self.current_branch));
         }
-        self.current_branch = self.remaining.first().cloned().unwrap_or_default();
-        if !self.remaining.is_empty() {
-            self.remaining.remove(0);
-        }
+        self.current_branch = self.remaining.pop_front().unwrap_or_default();
     }
 
     /// Check if sync is complete.
