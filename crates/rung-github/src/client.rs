@@ -1,0 +1,389 @@
+//! GitHub API client.
+
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
+use reqwest::Client;
+use serde::de::DeserializeOwned;
+
+use crate::auth::Auth;
+use crate::error::{Error, Result};
+use crate::types::{CheckRun, CreatePullRequest, PullRequest, UpdatePullRequest};
+
+/// GitHub API client.
+pub struct GitHubClient {
+    client: Client,
+    base_url: String,
+    token: String,
+}
+
+impl GitHubClient {
+    /// Default GitHub API URL.
+    pub const DEFAULT_API_URL: &'static str = "https://api.github.com";
+
+    /// Create a new GitHub client.
+    ///
+    /// # Errors
+    /// Returns error if authentication fails.
+    pub fn new(auth: Auth) -> Result<Self> {
+        Self::with_base_url(auth, Self::DEFAULT_API_URL)
+    }
+
+    /// Create a new GitHub client with a custom API URL (for GitHub Enterprise).
+    ///
+    /// # Errors
+    /// Returns error if authentication fails.
+    pub fn with_base_url(auth: Auth, base_url: impl Into<String>) -> Result<Self> {
+        let token = auth.resolve()?;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github+json"),
+        );
+        headers.insert(USER_AGENT, HeaderValue::from_static("rung-cli"));
+        headers.insert(
+            "X-GitHub-Api-Version",
+            HeaderValue::from_static("2022-11-28"),
+        );
+
+        let client = Client::builder().default_headers(headers).build()?;
+
+        Ok(Self {
+            client,
+            base_url: base_url.into(),
+            token,
+        })
+    }
+
+    /// Make a GET request.
+    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .client
+            .get(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .send()
+            .await?;
+
+        self.handle_response(response).await
+    }
+
+    /// Make a POST request.
+    async fn post<T: DeserializeOwned, B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .client
+            .post(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .json(body)
+            .send()
+            .await?;
+
+        self.handle_response(response).await
+    }
+
+    /// Make a PATCH request.
+    async fn patch<T: DeserializeOwned, B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .client
+            .patch(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .json(body)
+            .send()
+            .await?;
+
+        self.handle_response(response).await
+    }
+
+    /// Handle API response.
+    async fn handle_response<T: DeserializeOwned>(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<T> {
+        let status = response.status();
+
+        if status.is_success() {
+            let body = response.json().await?;
+            return Ok(body);
+        }
+
+        // Handle error responses
+        let status_code = status.as_u16();
+
+        match status_code {
+            401 => Err(Error::AuthenticationFailed),
+            403 if response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .is_some_and(|v| v == "0") =>
+            {
+                Err(Error::RateLimited)
+            }
+            404 => {
+                let text = response.text().await.unwrap_or_default();
+                Err(Error::ApiError {
+                    status: status_code,
+                    message: text,
+                })
+            }
+            _ => {
+                let text = response.text().await.unwrap_or_default();
+                Err(Error::ApiError {
+                    status: status_code,
+                    message: text,
+                })
+            }
+        }
+    }
+
+    // === PR Operations ===
+
+    /// Get a pull request by number.
+    ///
+    /// # Errors
+    /// Returns error if PR not found or API call fails.
+    pub async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest> {
+        #[derive(serde::Deserialize)]
+        struct ApiPr {
+            number: u64,
+            title: String,
+            body: Option<String>,
+            state: String,
+            draft: bool,
+            html_url: String,
+            head: Branch,
+            base: Branch,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct Branch {
+            #[serde(rename = "ref")]
+            ref_name: String,
+        }
+
+        let api_pr: ApiPr = self
+            .get(&format!("/repos/{owner}/{repo}/pulls/{number}"))
+            .await?;
+
+        Ok(PullRequest {
+            number: api_pr.number,
+            title: api_pr.title,
+            body: api_pr.body,
+            state: match api_pr.state.as_str() {
+                "open" => crate::types::PullRequestState::Open,
+                "closed" => crate::types::PullRequestState::Closed,
+                _ => crate::types::PullRequestState::Closed,
+            },
+            draft: api_pr.draft,
+            head_branch: api_pr.head.ref_name,
+            base_branch: api_pr.base.ref_name,
+            html_url: api_pr.html_url,
+        })
+    }
+
+    /// Find a PR for a branch.
+    ///
+    /// # Errors
+    /// Returns error if API call fails.
+    pub async fn find_pr_for_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+    ) -> Result<Option<PullRequest>> {
+        #[derive(serde::Deserialize)]
+        struct ApiPr {
+            number: u64,
+            title: String,
+            body: Option<String>,
+            state: String,
+            draft: bool,
+            html_url: String,
+            head: Branch,
+            base: Branch,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct Branch {
+            #[serde(rename = "ref")]
+            ref_name: String,
+        }
+
+        let prs: Vec<ApiPr> = self
+            .get(&format!(
+                "/repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open"
+            ))
+            .await?;
+
+        Ok(prs.into_iter().next().map(|api_pr| PullRequest {
+            number: api_pr.number,
+            title: api_pr.title,
+            body: api_pr.body,
+            state: crate::types::PullRequestState::Open,
+            draft: api_pr.draft,
+            head_branch: api_pr.head.ref_name,
+            base_branch: api_pr.base.ref_name,
+            html_url: api_pr.html_url,
+        }))
+    }
+
+    /// Create a pull request.
+    ///
+    /// # Errors
+    /// Returns error if PR creation fails.
+    pub async fn create_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr: CreatePullRequest,
+    ) -> Result<PullRequest> {
+        #[derive(serde::Deserialize)]
+        struct ApiPr {
+            number: u64,
+            title: String,
+            body: Option<String>,
+            state: String,
+            draft: bool,
+            html_url: String,
+            head: Branch,
+            base: Branch,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct Branch {
+            #[serde(rename = "ref")]
+            ref_name: String,
+        }
+
+        let api_pr: ApiPr = self
+            .post(&format!("/repos/{owner}/{repo}/pulls"), &pr)
+            .await?;
+
+        Ok(PullRequest {
+            number: api_pr.number,
+            title: api_pr.title,
+            body: api_pr.body,
+            state: crate::types::PullRequestState::Open,
+            draft: api_pr.draft,
+            head_branch: api_pr.head.ref_name,
+            base_branch: api_pr.base.ref_name,
+            html_url: api_pr.html_url,
+        })
+    }
+
+    /// Update a pull request.
+    ///
+    /// # Errors
+    /// Returns error if PR update fails.
+    pub async fn update_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        update: UpdatePullRequest,
+    ) -> Result<PullRequest> {
+        #[derive(serde::Deserialize)]
+        struct ApiPr {
+            number: u64,
+            title: String,
+            body: Option<String>,
+            state: String,
+            draft: bool,
+            html_url: String,
+            head: Branch,
+            base: Branch,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct Branch {
+            #[serde(rename = "ref")]
+            ref_name: String,
+        }
+
+        let api_pr: ApiPr = self
+            .patch(&format!("/repos/{owner}/{repo}/pulls/{number}"), &update)
+            .await?;
+
+        Ok(PullRequest {
+            number: api_pr.number,
+            title: api_pr.title,
+            body: api_pr.body,
+            state: match api_pr.state.as_str() {
+                "open" => crate::types::PullRequestState::Open,
+                "closed" => crate::types::PullRequestState::Closed,
+                _ => crate::types::PullRequestState::Closed,
+            },
+            draft: api_pr.draft,
+            head_branch: api_pr.head.ref_name,
+            base_branch: api_pr.base.ref_name,
+            html_url: api_pr.html_url,
+        })
+    }
+
+    // === Check Runs ===
+
+    /// Get check runs for a commit.
+    ///
+    /// # Errors
+    /// Returns error if API call fails.
+    pub async fn get_check_runs(
+        &self,
+        owner: &str,
+        repo: &str,
+        commit_sha: &str,
+    ) -> Result<Vec<CheckRun>> {
+        #[derive(serde::Deserialize)]
+        struct Response {
+            check_runs: Vec<ApiCheckRun>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ApiCheckRun {
+            name: String,
+            status: String,
+            conclusion: Option<String>,
+            details_url: Option<String>,
+        }
+
+        let response: Response = self
+            .get(&format!(
+                "/repos/{owner}/{repo}/commits/{commit_sha}/check-runs"
+            ))
+            .await?;
+
+        Ok(response
+            .check_runs
+            .into_iter()
+            .map(|cr| CheckRun {
+                name: cr.name,
+                status: match (cr.status.as_str(), cr.conclusion.as_deref()) {
+                    ("queued", _) => crate::types::CheckStatus::Queued,
+                    ("in_progress", _) => crate::types::CheckStatus::InProgress,
+                    ("completed", Some("success")) => crate::types::CheckStatus::Success,
+                    ("completed", Some("failure")) => crate::types::CheckStatus::Failure,
+                    ("completed", Some("skipped")) => crate::types::CheckStatus::Skipped,
+                    ("completed", Some("cancelled")) => crate::types::CheckStatus::Cancelled,
+                    _ => crate::types::CheckStatus::Failure,
+                },
+                details_url: cr.details_url,
+            })
+            .collect())
+    }
+}
+
+impl std::fmt::Debug for GitHubClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GitHubClient")
+            .field("base_url", &self.base_url)
+            .field("token", &"[redacted]")
+            .finish()
+    }
+}

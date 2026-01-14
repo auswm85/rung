@@ -1,0 +1,103 @@
+//! CLI command definitions and handlers.
+
+use clap::{Parser, Subcommand};
+
+pub mod create;
+pub mod init;
+pub mod navigate;
+pub mod status;
+pub mod submit;
+pub mod sync;
+pub mod undo;
+
+/// Rung - The developer's ladder for stacked PRs.
+///
+/// A lightweight orchestration layer for Git that enables "linear-parallel"
+/// development by automating the management of dependent PR stacks.
+#[derive(Parser)]
+#[command(name = "rung")]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+/// Available commands.
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Initialize rung in the current repository.
+    Init,
+
+    /// Create a new branch in the stack.
+    ///
+    /// Creates a new branch with the current branch as its parent.
+    #[command(alias = "c")]
+    Create {
+        /// Name of the new branch.
+        name: String,
+    },
+
+    /// Display the current stack status.
+    ///
+    /// Shows a tree view of all branches in the stack with their
+    /// sync state and PR status.
+    #[command(alias = "st")]
+    Status {
+        /// Output as JSON (for tooling integration).
+        #[arg(long)]
+        json: bool,
+
+        /// Fetch latest PR status from GitHub.
+        #[arg(long)]
+        fetch: bool,
+    },
+
+    /// Sync the stack by rebasing all branches.
+    ///
+    /// When the base branch moves forward, this command rebases
+    /// all dependent branches to maintain a clean stack.
+    #[command(alias = "sy")]
+    Sync {
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Continue a paused sync after resolving conflicts.
+        #[arg(long, name = "continue")]
+        continue_: bool,
+
+        /// Abort the current sync and restore from backup.
+        #[arg(long)]
+        abort: bool,
+    },
+
+    /// Push branches and create/update PRs.
+    ///
+    /// Pushes all stack branches to the remote and creates or
+    /// updates pull requests with stack navigation links.
+    #[command(alias = "sm")]
+    Submit {
+        /// Create PRs as drafts (won't trigger CI).
+        #[arg(long)]
+        draft: bool,
+
+        /// Force push even if lease check fails.
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Undo the last sync operation.
+    ///
+    /// Restores all branches to their state before the last sync.
+    #[command(alias = "un")]
+    Undo,
+
+    /// Navigate to the next branch in the stack (child).
+    #[command(alias = "n")]
+    Nxt,
+
+    /// Navigate to the previous branch in the stack (parent).
+    #[command(alias = "p")]
+    Prv,
+}
