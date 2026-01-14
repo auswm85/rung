@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::Result;
 
 /// Rung configuration loaded from .git/rung/config.toml.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     /// General settings.
     #[serde(default)]
@@ -44,15 +44,6 @@ impl Config {
             toml::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
         fs::write(path, content)?;
         Ok(())
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            github: GitHubConfig::default(),
-        }
     }
 }
 
@@ -99,6 +90,7 @@ pub struct GitHubConfig {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

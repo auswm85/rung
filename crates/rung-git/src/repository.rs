@@ -1,6 +1,6 @@
 //! Repository wrapper providing high-level git operations.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use git2::{BranchType, Oid, RepositoryState, Signature};
 
@@ -119,8 +119,7 @@ impl Repository {
         let object = reference.peel(git2::ObjectType::Commit)?;
 
         self.inner.checkout_tree(&object, None)?;
-        self.inner
-            .set_head(&format!("refs/heads/{branch_name}"))?;
+        self.inner.set_head(&format!("refs/heads/{branch_name}"))?;
 
         Ok(())
     }
@@ -133,7 +132,7 @@ impl Repository {
         let branches = self.inner.branches(Some(BranchType::Local))?;
 
         let names: Vec<String> = branches
-            .filter_map(|b| b.ok())
+            .filter_map(std::result::Result::ok)
             .filter_map(|(b, _)| b.name().ok().flatten().map(String::from))
             .collect();
 
@@ -241,7 +240,7 @@ impl Repository {
     ///
     /// Use sparingly - prefer high-level methods.
     #[must_use]
-    pub fn inner(&self) -> &git2::Repository {
+    pub const fn inner(&self) -> &git2::Repository {
         &self.inner
     }
 }
@@ -255,6 +254,7 @@ impl std::fmt::Debug for Repository {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::fs;
@@ -264,14 +264,13 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let repo = git2::Repository::init(temp.path()).unwrap();
 
-        // Create initial commit (scoped to drop borrows before moving repo)
-        {
-            let sig = repo.signature().unwrap();
-            let tree_id = repo.index().unwrap().write_tree().unwrap();
-            let tree = repo.find_tree(tree_id).unwrap();
-            repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
-                .unwrap();
-        }
+        // Create initial commit with owned signature (avoids borrowing repo)
+        let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+        let tree_id = repo.index().unwrap().write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+            .unwrap();
+        drop(tree);
 
         let wrapped = Repository { inner: repo };
         (temp, wrapped)

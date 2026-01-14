@@ -1,6 +1,6 @@
 //! `rung status` command - Display the current stack status.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rung_core::{BranchState, State};
 use rung_git::Repository;
 use serde::Serialize;
@@ -29,10 +29,7 @@ pub fn run(json: bool, _fetch: bool) -> Result<()> {
 
     if stack.is_empty() {
         if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&JsonOutput::empty())?
-            );
+            println!("{}", serde_json::to_string_pretty(&JsonOutput::empty())?);
         } else {
             output::info("No branches in stack yet. Use `rung create <name>` to add one.");
         }
@@ -124,7 +121,7 @@ fn print_tree(branches: &[BranchInfo]) {
             .map(|p| format!(" ← {}", p.dimmed()))
             .unwrap_or_default();
 
-        println!("  {} {} {}{}", state_icon, name, pr, parent_info);
+        println!("  {state_icon} {name} {pr}{parent_info}");
     }
 
     output::hr();
@@ -149,7 +146,7 @@ struct JsonOutput {
 }
 
 impl JsonOutput {
-    fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             branches: vec![],
             current: None,

@@ -14,9 +14,11 @@ fn main() {
         Commands::Init => commands::init::run(),
         Commands::Create { name } => commands::create::run(&name),
         Commands::Status { json, fetch } => commands::status::run(json, fetch),
-        Commands::Sync { dry_run, continue_, abort } => {
-            commands::sync::run(dry_run, continue_, abort)
-        }
+        Commands::Sync {
+            dry_run,
+            continue_,
+            abort,
+        } => commands::sync::run(dry_run, continue_, abort),
         Commands::Submit { draft, force } => commands::submit::run(draft, force),
         Commands::Undo => commands::undo::run(),
         Commands::Nxt => commands::navigate::run_next(),

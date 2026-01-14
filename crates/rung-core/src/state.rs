@@ -19,6 +19,7 @@ pub struct State {
 impl State {
     /// File names within .git/rung/
     const STACK_FILE: &'static str = "stack.json";
+    #[allow(dead_code)]
     const CONFIG_FILE: &'static str = "config.toml";
     const SYNC_STATE_FILE: &'static str = "sync_state";
     const REFS_DIR: &'static str = "refs";
@@ -180,7 +181,7 @@ impl State {
         }
 
         let mut backups: Vec<_> = fs::read_dir(&refs_dir)?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().is_dir())
             .filter_map(|e| e.file_name().to_str().map(String::from))
             .filter_map(|name| name.parse::<i64>().ok().map(|ts| (ts, name)))
@@ -197,7 +198,7 @@ impl State {
 
     /// Load a backup's branch refs.
     ///
-    /// Returns a vec of (branch_name, commit_sha) pairs.
+    /// Returns a vec of (`branch_name`, `commit_sha`) pairs.
     ///
     /// # Errors
     /// Returns error if backup doesn't exist or can't be read.
@@ -250,7 +251,7 @@ impl State {
         }
 
         let mut backups: Vec<_> = fs::read_dir(&refs_dir)?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().is_dir())
             .filter_map(|e| {
                 e.file_name()
@@ -324,6 +325,7 @@ impl SyncState {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

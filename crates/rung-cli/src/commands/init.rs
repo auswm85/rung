@@ -27,10 +27,7 @@ pub fn run() -> Result<()> {
     state.init()?;
 
     output::success("Initialized rung in this repository");
-    output::info(&format!(
-        "State stored in: {}",
-        state.rung_dir().display()
-    ));
+    output::info(&format!("State stored in: {}", state.rung_dir().display()));
 
     Ok(())
 }

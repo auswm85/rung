@@ -76,19 +76,19 @@ pub enum CheckStatus {
 impl CheckStatus {
     /// Check if this status indicates success.
     #[must_use]
-    pub fn is_success(&self) -> bool {
+    pub const fn is_success(&self) -> bool {
         matches!(self, Self::Success | Self::Skipped)
     }
 
     /// Check if this status indicates failure.
     #[must_use]
-    pub fn is_failure(&self) -> bool {
+    pub const fn is_failure(&self) -> bool {
         matches!(self, Self::Failure)
     }
 
     /// Check if this status indicates the check is still running.
     #[must_use]
-    pub fn is_pending(&self) -> bool {
+    pub const fn is_pending(&self) -> bool {
         matches!(self, Self::Queued | Self::InProgress)
     }
 }

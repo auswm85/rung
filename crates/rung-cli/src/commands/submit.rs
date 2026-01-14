@@ -1,6 +1,6 @@
 //! `rung submit` command - Push branches and create/update PRs.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_git::Repository;
 
@@ -33,17 +33,17 @@ pub fn run(draft: bool, _force: bool) -> Result<()> {
     output::info("Would submit the following branches:");
 
     for branch in &stack.branches {
-        let pr_status = match branch.pr {
-            Some(n) => format!("update PR #{}", n),
-            None => {
+        let pr_status = branch.pr.map_or_else(
+            || {
                 if draft {
                     "create draft PR".to_string()
                 } else {
                     "create PR".to_string()
                 }
-            }
-        };
-        println!("  → {} ({})", branch.name, pr_status);
+            },
+            |n| format!("update PR #{n}"),
+        );
+        println!("  → {} ({pr_status})", branch.name);
     }
 
     Ok(())

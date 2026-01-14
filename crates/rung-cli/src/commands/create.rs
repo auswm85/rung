@@ -1,7 +1,7 @@
 //! `rung create` command - Create a new branch in the stack.
 
-use anyhow::{bail, Context, Result};
-use rung_core::{stack::StackBranch, State};
+use anyhow::{Context, Result, bail};
+use rung_core::{State, stack::StackBranch};
 use rung_git::Repository;
 
 use crate::output;
@@ -12,9 +12,7 @@ pub fn run(name: &str) -> Result<()> {
     let repo = Repository::open_current().context("Not inside a git repository")?;
 
     // Get state manager
-    let workdir = repo
-        .workdir()
-        .context("Cannot run in bare repository")?;
+    let workdir = repo.workdir().context("Cannot run in bare repository")?;
     let state = State::new(workdir)?;
 
     // Ensure initialized
@@ -27,7 +25,7 @@ pub fn run(name: &str) -> Result<()> {
 
     // Check if branch already exists
     if repo.branch_exists(name) {
-        bail!("Branch '{}' already exists", name);
+        bail!("Branch '{name}' already exists");
     }
 
     // Create the branch
@@ -42,7 +40,7 @@ pub fn run(name: &str) -> Result<()> {
     // Checkout the new branch
     repo.checkout(name)?;
 
-    output::success(&format!("Created branch '{}' with parent '{}'", name, parent));
+    output::success(&format!("Created branch '{name}' with parent '{parent}'"));
 
     // Show position in stack
     let ancestry = stack.ancestry(name);

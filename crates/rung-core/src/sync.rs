@@ -5,7 +5,7 @@
 
 use crate::error::Result;
 use crate::stack::Stack;
-use crate::state::{State, SyncState};
+use crate::state::State;
 
 /// Result of a sync operation.
 #[derive(Debug)]
@@ -64,6 +64,7 @@ impl SyncPlan {
 ///
 /// # Errors
 /// Returns error if git operations fail.
+#[allow(clippy::missing_const_for_fn)] // Will be implemented with non-const logic
 pub fn create_sync_plan(
     _repo: &rung_git::Repository,
     _stack: &Stack,
@@ -103,6 +104,7 @@ pub fn execute_sync(
 ///
 /// # Errors
 /// Returns error if no sync in progress or continuation fails.
+#[allow(clippy::missing_const_for_fn)] // Will be implemented with non-const logic
 pub fn continue_sync(_repo: &rung_git::Repository, _state: &State) -> Result<SyncResult> {
     // TODO: Implement sync continuation
     // 1. Load sync state

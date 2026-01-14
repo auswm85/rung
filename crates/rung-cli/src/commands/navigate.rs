@@ -1,6 +1,6 @@
 //! `rung nxt` and `rung prv` commands - Navigate the stack.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_git::Repository;
 
@@ -18,20 +18,17 @@ pub fn run_next() -> Result<()> {
 
     match children.len() {
         0 => {
-            output::info(&format!("'{}' has no children in the stack", current));
+            output::info(&format!("'{current}' has no children in the stack"));
             Ok(())
         }
         1 => {
             let child = &children[0].name;
             repo.checkout(child)?;
-            output::success(&format!("Switched to '{}'", child));
+            output::success(&format!("Switched to '{child}'"));
             Ok(())
         }
         _ => {
-            output::warn(&format!(
-                "'{}' has multiple children. Choose one:",
-                current
-            ));
+            output::warn(&format!("'{current}' has multiple children. Choose one:"));
             for child in children {
                 println!("  → {}", child.name);
             }
@@ -50,20 +47,15 @@ pub fn run_prev() -> Result<()> {
     // Find current branch in stack
     let branch = stack.find_branch(&current);
 
-    match branch.and_then(|b| b.parent.as_ref()) {
-        Some(parent) => {
-            repo.checkout(parent)?;
-            output::success(&format!("Switched to '{}'", parent));
-            Ok(())
-        }
-        None => {
-            output::info(&format!(
-                "'{}' has no parent in the stack (it's a root branch)",
-                current
-            ));
-            Ok(())
-        }
+    if let Some(parent) = branch.and_then(|b| b.parent.as_ref()) {
+        repo.checkout(parent)?;
+        output::success(&format!("Switched to '{parent}'"));
+    } else {
+        output::info(&format!(
+            "'{current}' has no parent in the stack (it's a root branch)"
+        ));
     }
+    Ok(())
 }
 
 /// Helper to open repo and state.

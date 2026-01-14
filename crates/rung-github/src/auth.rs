@@ -20,7 +20,7 @@ pub enum Auth {
 impl Auth {
     /// Create auth from the first available method.
     ///
-    /// Tries in order: GITHUB_TOKEN env var, gh CLI.
+    /// Tries in order: `GITHUB_TOKEN` env var, gh CLI.
     #[must_use]
     pub fn auto() -> Self {
         if std::env::var("GITHUB_TOKEN").is_ok() {
@@ -67,6 +67,7 @@ fn get_gh_token() -> Result<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

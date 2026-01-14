@@ -13,7 +13,7 @@ pub struct Stack {
 impl Stack {
     /// Create a new empty stack.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { branches: vec![] }
     }
 
@@ -146,19 +146,19 @@ pub enum BranchState {
 impl BranchState {
     /// Check if the branch needs syncing.
     #[must_use]
-    pub fn needs_sync(&self) -> bool {
+    pub const fn needs_sync(&self) -> bool {
         matches!(self, Self::Diverged { .. })
     }
 
     /// Check if the branch has conflicts.
     #[must_use]
-    pub fn has_conflicts(&self) -> bool {
+    pub const fn has_conflicts(&self) -> bool {
         matches!(self, Self::Conflict { .. })
     }
 
     /// Check if the branch is healthy (synced).
     #[must_use]
-    pub fn is_healthy(&self) -> bool {
+    pub const fn is_healthy(&self) -> bool {
         matches!(self, Self::Synced)
     }
 }

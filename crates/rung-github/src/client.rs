@@ -1,7 +1,7 @@
 //! GitHub API client.
 
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 use reqwest::Client;
+use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::de::DeserializeOwned;
 
 use crate::auth::Auth;
@@ -23,7 +23,7 @@ impl GitHubClient {
     ///
     /// # Errors
     /// Returns error if authentication fails.
-    pub fn new(auth: Auth) -> Result<Self> {
+    pub fn new(auth: &Auth) -> Result<Self> {
         Self::with_base_url(auth, Self::DEFAULT_API_URL)
     }
 
@@ -31,7 +31,7 @@ impl GitHubClient {
     ///
     /// # Errors
     /// Returns error if authentication fails.
-    pub fn with_base_url(auth: Auth, base_url: impl Into<String>) -> Result<Self> {
+    pub fn with_base_url(auth: &Auth, base_url: impl Into<String>) -> Result<Self> {
         let token = auth.resolve()?;
 
         let mut headers = HeaderMap::new();
@@ -68,7 +68,7 @@ impl GitHubClient {
     }
 
     /// Make a POST request.
-    async fn post<T: DeserializeOwned, B: serde::Serialize>(
+    async fn post<T: DeserializeOwned, B: serde::Serialize + Sync>(
         &self,
         path: &str,
         body: &B,
@@ -86,7 +86,7 @@ impl GitHubClient {
     }
 
     /// Make a PATCH request.
-    async fn patch<T: DeserializeOwned, B: serde::Serialize>(
+    async fn patch<T: DeserializeOwned, B: serde::Serialize + Sync>(
         &self,
         path: &str,
         body: &B,
@@ -104,10 +104,7 @@ impl GitHubClient {
     }
 
     /// Handle API response.
-    async fn handle_response<T: DeserializeOwned>(
-        &self,
-        response: reqwest::Response,
-    ) -> Result<T> {
+    async fn handle_response<T: DeserializeOwned>(&self, response: reqwest::Response) -> Result<T> {
         let status = response.status();
 
         if status.is_success() {
@@ -126,13 +123,6 @@ impl GitHubClient {
                 .is_some_and(|v| v == "0") =>
             {
                 Err(Error::RateLimited)
-            }
-            404 => {
-                let text = response.text().await.unwrap_or_default();
-                Err(Error::ApiError {
-                    status: status_code,
-                    message: text,
-                })
             }
             _ => {
                 let text = response.text().await.unwrap_or_default();
@@ -179,7 +169,7 @@ impl GitHubClient {
             body: api_pr.body,
             state: match api_pr.state.as_str() {
                 "open" => crate::types::PullRequestState::Open,
-                "closed" => crate::types::PullRequestState::Closed,
+                "merged" => crate::types::PullRequestState::Merged,
                 _ => crate::types::PullRequestState::Closed,
             },
             draft: api_pr.draft,
@@ -204,6 +194,7 @@ impl GitHubClient {
             number: u64,
             title: String,
             body: Option<String>,
+            #[allow(dead_code)]
             state: String,
             draft: bool,
             html_url: String,
@@ -217,6 +208,7 @@ impl GitHubClient {
             ref_name: String,
         }
 
+        // We only query open PRs, so state is always Open
         let prs: Vec<ApiPr> = self
             .get(&format!(
                 "/repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open"
@@ -250,6 +242,7 @@ impl GitHubClient {
             number: u64,
             title: String,
             body: Option<String>,
+            #[allow(dead_code)]
             state: String,
             draft: bool,
             html_url: String,
@@ -263,6 +256,7 @@ impl GitHubClient {
             ref_name: String,
         }
 
+        // Newly created PRs are always open
         let api_pr: ApiPr = self
             .post(&format!("/repos/{owner}/{repo}/pulls"), &pr)
             .await?;
@@ -318,7 +312,7 @@ impl GitHubClient {
             body: api_pr.body,
             state: match api_pr.state.as_str() {
                 "open" => crate::types::PullRequestState::Open,
-                "closed" => crate::types::PullRequestState::Closed,
+                "merged" => crate::types::PullRequestState::Merged,
                 _ => crate::types::PullRequestState::Closed,
             },
             draft: api_pr.draft,
@@ -368,9 +362,9 @@ impl GitHubClient {
                     ("queued", _) => crate::types::CheckStatus::Queued,
                     ("in_progress", _) => crate::types::CheckStatus::InProgress,
                     ("completed", Some("success")) => crate::types::CheckStatus::Success,
-                    ("completed", Some("failure")) => crate::types::CheckStatus::Failure,
                     ("completed", Some("skipped")) => crate::types::CheckStatus::Skipped,
                     ("completed", Some("cancelled")) => crate::types::CheckStatus::Cancelled,
+                    // Any other status (failure, timed_out, action_required, etc.) treated as failure
                     _ => crate::types::CheckStatus::Failure,
                 },
                 details_url: cr.details_url,
@@ -384,6 +378,6 @@ impl std::fmt::Debug for GitHubClient {
         f.debug_struct("GitHubClient")
             .field("base_url", &self.base_url)
             .field("token", &"[redacted]")
-            .finish()
+            .finish_non_exhaustive()
     }
 }

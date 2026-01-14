@@ -42,17 +42,14 @@ pub fn branch_name(name: &str, is_current: bool) -> String {
     if is_current {
         format!("{} {}", "▶".cyan(), name.cyan().bold())
     } else {
-        format!("  {}", name)
+        format!("  {name}")
     }
 }
 
 /// Format a PR reference.
 #[must_use]
 pub fn pr_ref(number: Option<u64>) -> String {
-    match number {
-        Some(n) => format!("#{}", n).dimmed().to_string(),
-        None => "".to_string(),
-    }
+    number.map_or_else(String::new, |n| format!("#{n}").dimmed().to_string())
 }
 
 /// Print a horizontal line.

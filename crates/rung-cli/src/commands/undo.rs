@@ -19,14 +19,14 @@ pub fn run() -> Result<()> {
     let backup_id = state.latest_backup()?;
     let refs = state.load_backup(&backup_id)?;
 
-    output::info(&format!("Restoring from backup {}", backup_id));
+    output::info(&format!("Restoring from backup {backup_id}"));
 
     // Restore each branch
     for (branch_name, sha) in &refs {
-        let oid = rung_git::Oid::from_str(sha)
-            .map_err(|e| anyhow::anyhow!("Invalid SHA {}: {}", sha, e))?;
+        let oid =
+            rung_git::Oid::from_str(sha).map_err(|e| anyhow::anyhow!("Invalid SHA {sha}: {e}"))?;
         repo.reset_branch(branch_name, oid)?;
-        output::success(&format!("Restored {} to {}", branch_name, &sha[..8]));
+        output::success(&format!("Restored {branch_name} to {}", &sha[..8]));
     }
 
     // Delete the backup
