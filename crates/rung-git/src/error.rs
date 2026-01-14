@@ -46,6 +46,10 @@ pub enum Error {
     #[error("push failed: {0}")]
     PushFailed(String),
 
+    /// Fetch failed.
+    #[error("fetch failed: {0}")]
+    FetchFailed(String),
+
     /// Underlying git2 error.
     #[error("git error: {0}")]
     Git2(#[from] git2::Error),

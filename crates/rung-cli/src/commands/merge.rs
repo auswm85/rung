@@ -82,6 +82,10 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
 
         output::success(&format!("Merged PR #{pr_number}"));
 
+        // Fetch to get the merge commit on the parent branch
+        repo.fetch(&parent_branch)
+            .with_context(|| format!("Failed to fetch {parent_branch}"))?;
+
         // Process each descendant: update PR base, rebase, push
         for branch_name in &descendants {
             let branch_info = stack
@@ -119,7 +123,13 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
             output::info(&format!("  Rebasing {branch_name} onto '{new_base}'..."));
             repo.checkout(branch_name)?;
 
-            let new_base_commit = repo.branch_commit(&new_base)?;
+            // For direct children of merged branch, use remote ref (we just fetched)
+            // For grandchildren, use local ref (we just rebased the parent locally)
+            let new_base_commit = if new_base == parent_branch {
+                repo.remote_branch_commit(&new_base)?
+            } else {
+                repo.branch_commit(&new_base)?
+            };
             let old_base_commit = old_commits
                 .get(stack_parent)
                 .copied()

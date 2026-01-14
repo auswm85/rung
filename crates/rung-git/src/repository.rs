@@ -91,6 +91,22 @@ impl Repository {
             .ok_or_else(|| Error::BranchNotFound(branch_name.into()))
     }
 
+    /// Get the commit ID of a remote branch tip.
+    ///
+    /// # Errors
+    /// Returns error if branch not found.
+    pub fn remote_branch_commit(&self, branch_name: &str) -> Result<Oid> {
+        let ref_name = format!("refs/remotes/origin/{branch_name}");
+        let reference = self
+            .inner
+            .find_reference(&ref_name)
+            .map_err(|_| Error::BranchNotFound(format!("origin/{branch_name}")))?;
+
+        reference
+            .target()
+            .ok_or_else(|| Error::BranchNotFound(format!("origin/{branch_name}")))
+    }
+
     /// Create a new branch at the current HEAD.
     ///
     /// # Errors
@@ -472,6 +488,27 @@ impl Repository {
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             Err(Error::PushFailed(stderr.to_string()))
+        }
+    }
+
+    /// Fetch a branch from origin.
+    ///
+    /// # Errors
+    /// Returns error if fetch fails.
+    pub fn fetch(&self, branch: &str) -> Result<()> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+
+        let output = std::process::Command::new("git")
+            .args(["fetch", "origin", branch])
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| Error::FetchFailed(e.to_string()))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(Error::FetchFailed(stderr.to_string()))
         }
     }
 
