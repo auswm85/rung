@@ -512,6 +512,30 @@ impl Repository {
         }
     }
 
+    /// Pull (fast-forward only) the current branch from origin.
+    ///
+    /// This fetches and merges origin/<branch> into the current branch,
+    /// but only if it can be fast-forwarded.
+    ///
+    /// # Errors
+    /// Returns error if pull fails or fast-forward is not possible.
+    pub fn pull_ff(&self) -> Result<()> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+
+        let output = std::process::Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| Error::FetchFailed(e.to_string()))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(Error::FetchFailed(stderr.to_string()))
+        }
+    }
+
     // === Low-level access ===
 
     /// Get a reference to the underlying git2 repository.

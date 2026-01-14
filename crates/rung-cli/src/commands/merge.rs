@@ -200,7 +200,10 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
         output::info(&format!("Deleted local branch '{current_branch}'"));
     }
 
-    // Pull latest from parent
+    // Pull latest from parent to get the merge commit
+    if let Err(e) = repo.pull_ff() {
+        output::warn(&format!("Could not pull latest {parent_branch}: {e}"));
+    }
     output::info(&format!("Checked out '{parent_branch}'"));
 
     output::success("Merge complete!");
