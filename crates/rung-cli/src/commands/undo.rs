@@ -1,7 +1,8 @@
 //! `rung undo` command - Undo the last sync operation.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rung_core::State;
+use rung_core::sync;
 use rung_git::Repository;
 
 use crate::output;
@@ -15,24 +16,19 @@ pub fn run() -> Result<()> {
     let workdir = repo.workdir().context("Cannot run in bare repository")?;
     let state = State::new(workdir)?;
 
-    // Find latest backup
-    let backup_id = state.latest_backup()?;
-    let refs = state.load_backup(&backup_id)?;
-
-    output::info(&format!("Restoring from backup {backup_id}"));
-
-    // Restore each branch
-    for (branch_name, sha) in &refs {
-        let oid =
-            rung_git::Oid::from_str(sha).map_err(|e| anyhow::anyhow!("Invalid SHA {sha}: {e}"))?;
-        repo.reset_branch(branch_name, oid)?;
-        output::success(&format!("Restored {branch_name} to {}", &sha[..8]));
+    // Ensure initialized
+    if !state.is_initialized() {
+        bail!("Rung not initialized - run `rung init` first");
     }
 
-    // Delete the backup
-    state.delete_backup(&backup_id)?;
+    // Perform undo
+    let result = sync::undo_sync(&repo, &state)?;
 
-    output::success("Undo complete");
+    output::success(&format!(
+        "Restored {} branches from backup {}",
+        result.branches_restored,
+        &result.backup_id[..8.min(result.backup_id.len())]
+    ));
 
     Ok(())
 }
