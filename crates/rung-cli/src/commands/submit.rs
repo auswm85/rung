@@ -269,8 +269,9 @@ fn print_summary(created: usize, updated: usize) {
 }
 
 /// Generate PR body (without stack - stack is in comments now).
+#[allow(clippy::missing_const_for_fn)]
 fn generate_pr_body(_branches: &[StackBranch], _current_idx: usize) -> String {
-    String::from("*Managed by [rung](https://github.com/auswm85/rung)*\n")
+    String::new()
 }
 
 /// Marker to identify rung stack comments.
