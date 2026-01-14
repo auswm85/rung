@@ -49,13 +49,13 @@ jobs:
             artifact: rung
             archive: tar.gz
 
-          # macOS (both architectures build natively on macos-latest)
-          - os: macos-13
-            target: x86_64-apple-darwin
+          # macOS (ARM native, Intel cross-compiled)
+          - os: macos-latest
+            target: aarch64-apple-darwin
             artifact: rung
             archive: tar.gz
           - os: macos-latest
-            target: aarch64-apple-darwin
+            target: x86_64-apple-darwin
             artifact: rung
             archive: tar.gz
 
