@@ -58,11 +58,21 @@ impl SyncPlan {
     }
 }
 
+/// Branches that were found to be stale (in stack but not in git).
+#[derive(Debug, Default)]
+pub struct StaleBranches {
+    /// Names of branches that were removed from the stack.
+    pub removed: Vec<String>,
+}
+
 /// Create a sync plan for the given stack.
 ///
 /// Analyzes which branches need rebasing based on their parent's current position.
 /// Branches are processed in stack order (parents before children) to ensure
 /// each branch is rebased onto the correct target.
+///
+/// Stale branches (in stack but not in git) are detected and can be cleaned up
+/// by calling `remove_stale_branches`.
 ///
 /// # Errors
 /// Returns error if git operations fail.
@@ -75,6 +85,12 @@ pub fn create_sync_plan(
 
     // Process branches in stack order (parents before children)
     for branch in &stack.branches {
+        // Skip branches that don't exist locally (stale branches)
+        // These will be handled separately by remove_stale_branches
+        if !repo.branch_exists(&branch.name) {
+            continue;
+        }
+
         // Determine the parent branch name
         let parent_name = branch.parent.as_deref().unwrap_or(base_branch);
 
@@ -82,6 +98,12 @@ pub fn create_sync_plan(
         if !repo.branch_exists(parent_name) && branch.parent.is_none() {
             // Base branch doesn't exist - this is an error
             return Err(crate::error::Error::BranchNotFound(parent_name.to_string()));
+        }
+
+        // If parent is a stack branch that doesn't exist, skip this branch too
+        // (it will be handled when we clean up stale branches)
+        if branch.parent.is_some() && !repo.branch_exists(parent_name) {
+            continue;
         }
 
         // Get commits
@@ -102,6 +124,54 @@ pub fn create_sync_plan(
     }
 
     Ok(SyncPlan { branches: actions })
+}
+
+/// Find and remove stale branches from the stack.
+///
+/// A stale branch is one that exists in `stack.json` but not in the local git repository.
+/// This can happen if a branch was deleted externally or if the stack got out of sync.
+///
+/// Returns information about the branches that were removed.
+///
+/// # Errors
+/// Returns error if stack operations fail.
+pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Result<StaleBranches> {
+    let mut stack = state.load_stack()?;
+    let mut removed = Vec::new();
+
+    // Find branches that don't exist locally
+    let missing: Vec<String> = stack
+        .branches
+        .iter()
+        .filter(|b| !repo.branch_exists(&b.name))
+        .map(|b| b.name.clone())
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(StaleBranches::default());
+    }
+
+    // For each stale branch, re-parent its children to its parent
+    for missing_name in &missing {
+        let missing_parent = stack
+            .find_branch(missing_name)
+            .and_then(|b| b.parent.clone());
+
+        // Re-parent children of this stale branch
+        for branch in &mut stack.branches {
+            if branch.parent.as_ref() == Some(missing_name) {
+                branch.parent.clone_from(&missing_parent);
+            }
+        }
+
+        removed.push(missing_name.clone());
+    }
+
+    // Remove stale branches from stack
+    stack.branches.retain(|b| !missing.contains(&b.name));
+    state.save_stack(&stack)?;
+
+    Ok(StaleBranches { removed })
 }
 
 /// Execute a sync operation.

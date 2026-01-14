@@ -53,7 +53,19 @@ pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> R
     // Ensure working directory is clean
     repo.require_clean()?;
 
-    // Load stack
+    // Check for and remove stale branches (branches in stack but not in git)
+    let stale_result = sync::remove_stale_branches(&repo, &state)?;
+    if !stale_result.removed.is_empty() {
+        output::warn(&format!(
+            "Removed {} stale branch(es) from stack:",
+            stale_result.removed.len()
+        ));
+        for branch in &stale_result.removed {
+            println!("  → {branch}");
+        }
+    }
+
+    // Load stack (after stale branch cleanup)
     let stack = state.load_stack()?;
 
     if stack.is_empty() {
