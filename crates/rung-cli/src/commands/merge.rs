@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_core::stack::Stack;
-use rung_git::Repository;
+use rung_git::{Oid, Repository};
 use rung_github::{Auth, GitHubClient, MergeMethod, MergePullRequest, UpdatePullRequest};
 
 use crate::output;
@@ -54,6 +54,13 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
 
     // Collect all descendants that need to be rebased
     let descendants = collect_descendants(&stack, &current_branch);
+
+    // Capture old commits before any rebasing (needed for --onto)
+    let mut old_commits: std::collections::HashMap<String, Oid> = std::collections::HashMap::new();
+    old_commits.insert(current_branch.clone(), repo.branch_commit(&current_branch)?);
+    for branch_name in &descendants {
+        old_commits.insert(branch_name.clone(), repo.branch_commit(branch_name)?);
+    }
 
     // Create GitHub client and merge
     let rt = tokio::runtime::Runtime::new()?;
@@ -108,12 +115,17 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
                     .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
             }
 
-            // Rebase onto new parent's tip
+            // Rebase onto new parent's tip, using --onto to only bring unique commits
             output::info(&format!("  Rebasing {branch_name} onto '{new_base}'..."));
             repo.checkout(branch_name)?;
 
             let new_base_commit = repo.branch_commit(&new_base)?;
-            if let Err(e) = repo.rebase_onto(new_base_commit) {
+            let old_base_commit = old_commits
+                .get(stack_parent)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("Could not find old commit for {stack_parent}"))?;
+
+            if let Err(e) = repo.rebase_onto_from(new_base_commit, old_base_commit) {
                 output::error(&format!("Rebase conflict in {branch_name}: {e}"));
                 output::warn(
                     "Resolve conflicts, then run: git rebase --continue && git push --force",

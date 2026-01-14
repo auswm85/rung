@@ -302,6 +302,42 @@ impl Repository {
         Err(Error::RebaseFailed(stderr.to_string()))
     }
 
+    /// Rebase the current branch onto a new base, replaying only commits after `old_base`.
+    ///
+    /// This is equivalent to `git rebase --onto <new_base> <old_base>`.
+    /// Use this when the `old_base` was squash-merged and you want to bring only
+    /// the unique commits from the current branch.
+    ///
+    /// # Errors
+    /// Returns error if rebase fails or conflicts occur.
+    pub fn rebase_onto_from(&self, new_base: Oid, old_base: Oid) -> Result<()> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+
+        let output = std::process::Command::new("git")
+            .args([
+                "rebase",
+                "--onto",
+                &new_base.to_string(),
+                &old_base.to_string(),
+            ])
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| Error::RebaseFailed(e.to_string()))?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        // Check if it's a conflict
+        if self.is_rebasing() {
+            let conflicts = self.conflicting_files()?;
+            return Err(Error::RebaseConflict(conflicts));
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(Error::RebaseFailed(stderr.to_string()))
+    }
+
     /// Get list of files with conflicts.
     ///
     /// # Errors
