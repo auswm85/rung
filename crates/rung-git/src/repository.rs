@@ -145,6 +145,16 @@ impl Repository {
         self.inner.find_branch(name, BranchType::Local).is_ok()
     }
 
+    /// Delete a local branch.
+    ///
+    /// # Errors
+    /// Returns error if branch deletion fails.
+    pub fn delete_branch(&self, name: &str) -> Result<()> {
+        let mut branch = self.inner.find_branch(name, BranchType::Local)?;
+        branch.delete()?;
+        Ok(())
+    }
+
     // === Working directory state ===
 
     /// Check if the working directory is clean (no modified or staged files).

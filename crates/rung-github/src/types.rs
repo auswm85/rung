@@ -127,3 +127,44 @@ pub struct UpdatePullRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
 }
+
+/// Method used to merge a pull request.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MergeMethod {
+    /// Create a merge commit.
+    Merge,
+    /// Squash all commits into one.
+    #[default]
+    Squash,
+    /// Rebase commits onto base.
+    Rebase,
+}
+
+/// Request to merge a pull request.
+#[derive(Debug, Serialize)]
+pub struct MergePullRequest {
+    /// Commit title (for squash/merge).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_title: Option<String>,
+
+    /// Commit message (for squash/merge).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_message: Option<String>,
+
+    /// Merge method.
+    pub merge_method: MergeMethod,
+}
+
+/// Result of merging a pull request.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MergeResult {
+    /// SHA of the merge commit.
+    pub sha: String,
+
+    /// Whether the merge was successful.
+    pub merged: bool,
+
+    /// Message from the API.
+    pub message: String,
+}
