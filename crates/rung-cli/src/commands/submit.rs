@@ -11,13 +11,16 @@ use rung_github::{Auth, CreatePullRequest, GitHubClient, UpdatePullRequest};
 use crate::output;
 
 /// Run the submit command.
-pub fn run(draft: bool, force: bool) -> Result<()> {
+pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
     let (repo, state, mut stack) = setup_submit()?;
 
     if stack.is_empty() {
         output::info("No branches in stack - nothing to submit");
         return Ok(());
     }
+
+    // Get current branch for custom title matching
+    let current_branch = repo.current_branch().ok();
 
     let (owner, repo_name) = get_remote_info(&repo)?;
     output::info(&format!("Submitting to {owner}/{repo_name}..."));
@@ -26,7 +29,16 @@ pub fn run(draft: bool, force: bool) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
 
     let (created, updated) = process_branches(
-        &repo, &client, &rt, &mut stack, &owner, &repo_name, draft, force,
+        &repo,
+        &client,
+        &rt,
+        &mut stack,
+        &owner,
+        &repo_name,
+        draft,
+        force,
+        current_branch.as_deref(),
+        custom_title,
     )?;
 
     state.save_stack(&stack)?;
@@ -68,6 +80,8 @@ fn process_branches(
     repo_name: &str,
     draft: bool,
     force: bool,
+    current_branch: Option<&str>,
+    custom_title: Option<&str>,
 ) -> Result<(usize, usize)> {
     let mut created = 0;
     let mut updated = 0;
@@ -86,7 +100,14 @@ fn process_branches(
             .with_context(|| format!("Failed to push {branch_name}"))?;
 
         let base_branch = parent_name.as_deref().unwrap_or("main");
-        let title = generate_title(&branch_name);
+
+        // Use custom title if this is the current branch, otherwise generate
+        let title = if current_branch == Some(branch_name.as_str()) {
+            custom_title.map_or_else(|| generate_title(&branch_name), String::from)
+        } else {
+            generate_title(&branch_name)
+        };
+
         let body = generate_pr_body(&stack.branches, i);
 
         if let Some(pr_number) = existing_pr {
