@@ -82,6 +82,36 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
 
         output::success(&format!("Merged PR #{pr_number}"));
 
+        // Update stack immediately after merge succeeds
+        // This ensures stack.json reflects reality even if rebases fail later
+        {
+            let mut stack = state.load_stack()?;
+
+            // Count children before re-parenting
+            let children_count = stack
+                .branches
+                .iter()
+                .filter(|b| b.parent.as_ref() == Some(&current_branch))
+                .count();
+
+            // Re-parent any children to point to the merged branch's parent
+            for branch in &mut stack.branches {
+                if branch.parent.as_ref() == Some(&current_branch) {
+                    branch.parent = Some(parent_branch.clone());
+                }
+            }
+
+            // Remove the merged branch from stack
+            stack.branches.retain(|b| b.name != current_branch);
+            state.save_stack(&stack)?;
+
+            if children_count > 0 {
+                output::info(&format!(
+                    "Re-parented {children_count} child branch(es) to '{parent_branch}'"
+                ));
+            }
+        }
+
         // Fetch to get the merge commit on the parent branch
         repo.fetch(&parent_branch)
             .with_context(|| format!("Failed to fetch {parent_branch}"))?;
@@ -159,35 +189,6 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
 
         Ok::<_, anyhow::Error>(())
     })?;
-
-    // Remove branch from stack
-    let mut stack = state.load_stack()?;
-
-    // Re-parent any children to point to the merged branch's parent
-    let children: Vec<_> = stack
-        .branches
-        .iter()
-        .filter(|b| b.parent.as_ref() == Some(&current_branch))
-        .map(|b| b.name.clone())
-        .collect();
-
-    for child_name in &children {
-        if let Some(child) = stack.find_branch_mut(child_name) {
-            child.parent = Some(parent_branch.clone());
-        }
-    }
-
-    // Remove the merged branch from stack
-    stack.branches.retain(|b| b.name != current_branch);
-    state.save_stack(&stack)?;
-
-    if !children.is_empty() {
-        output::info(&format!(
-            "Re-parented {} child branch(es) to '{}'",
-            children.len(),
-            parent_branch
-        ));
-    }
 
     // Delete local branch and checkout parent
     repo.checkout(&parent_branch)?;
