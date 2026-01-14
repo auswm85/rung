@@ -256,7 +256,7 @@ fn generate_pr_body(branches: &[StackBranch], current_idx: usize) -> String {
     }
 
     body.push_str("\n---\n");
-    body.push_str("*Managed by [rung](https://github.com/amcshan/rung)*\n");
+    body.push_str("*Managed by [rung](https://github.com/auswm85/rung)*\n");
 
     body
 }
