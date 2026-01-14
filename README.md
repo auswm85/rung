@@ -37,6 +37,13 @@ sudo mv rung /usr/local/bin/
 
 **Windows:** Download the `.zip` from [releases](https://github.com/auswm85/rung/releases) and add to your PATH.
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap auswm85/rung https://github.com/auswm85/rung
+brew install rung
+```
+
 ### From crates.io
 
 ```bash
