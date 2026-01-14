@@ -514,7 +514,7 @@ impl Repository {
 
     /// Pull (fast-forward only) the current branch from origin.
     ///
-    /// This fetches and merges origin/<branch> into the current branch,
+    /// This fetches and merges `origin/<branch>` into the current branch,
     /// but only if it can be fast-forwarded.
     ///
     /// # Errors
