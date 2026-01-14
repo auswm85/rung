@@ -1,0 +1,28 @@
+#!/bin/sh
+# Pre-commit hook for rung
+# Runs cargo fmt --check and cargo clippy before commits.
+#
+# Setup: git config core.hooksPath .githooks
+
+# Ensure cargo is in PATH
+export PATH="$HOME/.cargo/bin:$PATH"
+
+set -e
+
+echo "Running pre-commit checks..."
+
+echo "→ cargo fmt --check"
+cargo fmt --check
+if [ $? -ne 0 ]; then
+    echo "✗ Format check failed. Run 'cargo fmt' to fix."
+    exit 1
+fi
+
+echo "→ cargo clippy"
+cargo clippy --workspace --all-targets -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "✗ Clippy found issues."
+    exit 1
+fi
+
+echo "✓ All checks passed"

@@ -54,6 +54,21 @@ crates/
 - Rust 1.85+
 - Git 2.x
 
+## Development
+
+```bash
+# Clone and set up git hooks
+git clone https://github.com/auswm85/rung
+cd rung
+git config core.hooksPath .githooks
+
+# Run tests
+cargo test
+
+# Build
+cargo build --release
+```
+
 ## License
 
 MIT

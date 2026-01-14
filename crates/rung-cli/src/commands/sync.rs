@@ -1,8 +1,8 @@
 //! `rung sync` command - Sync the stack by rebasing all branches.
 
-use anyhow::{bail, Context, Result};
-use rung_core::sync::{self, SyncResult};
+use anyhow::{Context, Result, bail};
 use rung_core::State;
+use rung_core::sync::{self, SyncResult};
 use rung_git::Repository;
 
 use crate::output;
@@ -89,6 +89,7 @@ pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> R
     handle_sync_result(sync::execute_sync(&repo, &state, plan)?)
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn handle_sync_result(result: SyncResult) -> Result<()> {
     match result {
         SyncResult::AlreadySynced => {

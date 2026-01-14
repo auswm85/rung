@@ -423,9 +423,7 @@ mod tests {
         git_repo.branch("feature-a", &head, false).unwrap();
 
         // Checkout feature-a and add a commit
-        git_repo
-            .set_head("refs/heads/feature-a")
-            .unwrap();
+        git_repo.set_head("refs/heads/feature-a").unwrap();
         git_repo
             .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
             .unwrap();
@@ -436,7 +434,9 @@ mod tests {
         git_repo.branch("feature-b", &head, false).unwrap();
 
         // Go back to main and add a commit
-        git_repo.set_head(&format!("refs/heads/{main_branch}")).unwrap();
+        git_repo
+            .set_head(&format!("refs/heads/{main_branch}"))
+            .unwrap();
         git_repo
             .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
             .unwrap();
