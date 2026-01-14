@@ -6,7 +6,9 @@ use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_core::stack::StackBranch;
 use rung_git::Repository;
-use rung_github::{Auth, CreatePullRequest, GitHubClient, UpdatePullRequest};
+use rung_github::{
+    Auth, CreateComment, CreatePullRequest, GitHubClient, UpdateComment, UpdatePullRequest,
+};
 
 use crate::output;
 
@@ -42,6 +44,10 @@ pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
     )?;
 
     state.save_stack(&stack)?;
+
+    // Update stack comments on all PRs
+    update_stack_comments(&client, &rt, &owner, &repo_name, &stack.branches)?;
+
     print_summary(created, updated);
 
     Ok(())
@@ -262,44 +268,114 @@ fn print_summary(created: usize, updated: usize) {
     }
 }
 
-/// Generate PR body with stack navigation links.
-///
-/// Only includes branches in the same chain as the current branch
-/// (ancestors and descendants), not unrelated sibling branches.
-fn generate_pr_body(branches: &[StackBranch], current_idx: usize) -> String {
-    let current = &branches[current_idx];
+/// Generate PR body (without stack - stack is in comments now).
+fn generate_pr_body(_branches: &[StackBranch], _current_idx: usize) -> String {
+    String::from("*Managed by [rung](https://github.com/auswm85/rung)*\n")
+}
 
-    // Build the chain: find ancestors and descendants of current branch
-    let chain = build_branch_chain(branches, &current.name);
+/// Marker to identify rung stack comments.
+const STACK_COMMENT_MARKER: &str = "<!-- rung-stack -->";
 
-    // If chain has only one branch (the current one), skip stack section
-    if chain.len() <= 1 {
-        return String::from("*Managed by [rung](https://github.com/auswm85/rung)*\n");
-    }
+/// Generate stack comment for a PR.
+fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
+    let mut comment = String::from(STACK_COMMENT_MARKER);
+    comment.push_str("\n### Stack\n\n");
 
-    let mut body = String::from("## Stack\n\n");
+    // Find the current branch
+    let current_branch = branches.iter().find(|b| b.pr == Some(current_pr));
+    let current_name = current_branch.map_or("", |b| b.name.as_str());
 
+    // Build the chain for this branch
+    let chain = build_branch_chain(branches, current_name);
+
+    // Build stack list in markdown format
     for branch_name in &chain {
-        let marker = if branch_name == &current.name {
-            "→"
-        } else {
-            " "
-        };
+        let branch = branches.iter().find(|b| &b.name == branch_name);
+        let is_current = branch_name == current_name;
 
-        // Find the branch to get its PR number
-        if let Some(branch) = branches.iter().find(|b| &b.name == branch_name) {
-            if let Some(pr_num) = branch.pr {
-                let _ = writeln!(body, "{marker} #{pr_num} - `{branch_name}`");
+        if let Some(b) = branch {
+            let pointer = if is_current { " 👈" } else { "" };
+
+            if let Some(pr_num) = b.pr {
+                let title = generate_title(&b.name);
+                if is_current {
+                    let _ = writeln!(comment, "- **{title}** #{pr_num}{pointer}");
+                } else {
+                    let _ = writeln!(comment, "- {title} #{pr_num}");
+                }
             } else {
-                let _ = writeln!(body, "{marker} (pending) - `{branch_name}`");
+                let _ = writeln!(comment, "- *(pending)* `{branch_name}`{pointer}");
             }
         }
     }
 
-    body.push_str("\n---\n");
-    body.push_str("*Managed by [rung](https://github.com/auswm85/rung)*\n");
+    // Add base branch (main)
+    let base = current_branch
+        .and_then(|b| {
+            // Walk up to find the root's parent
+            let mut current = b;
+            loop {
+                if let Some(ref parent) = current.parent {
+                    if let Some(p) = branches.iter().find(|br| &br.name == parent) {
+                        current = p;
+                    } else {
+                        return Some(parent.as_str());
+                    }
+                } else {
+                    return Some("main");
+                }
+            }
+        })
+        .unwrap_or("main");
 
-    body
+    let _ = writeln!(comment, "- `{base}`");
+    comment.push_str("\n---\n*Managed by [rung](https://github.com/auswm85/rung)*");
+
+    comment
+}
+
+/// Update stack comments on all PRs in the stack.
+fn update_stack_comments(
+    client: &GitHubClient,
+    rt: &tokio::runtime::Runtime,
+    owner: &str,
+    repo_name: &str,
+    branches: &[StackBranch],
+) -> Result<()> {
+    output::info("Updating stack comments...");
+
+    for branch in branches {
+        let Some(pr_number) = branch.pr else {
+            continue;
+        };
+
+        let comment_body = generate_stack_comment(branches, pr_number);
+
+        // Find existing rung comment
+        let comments = rt
+            .block_on(client.list_pr_comments(owner, repo_name, pr_number))
+            .with_context(|| format!("Failed to list comments on PR #{pr_number}"))?;
+
+        let existing_comment = comments.iter().find(|c| {
+            c.body
+                .as_ref()
+                .is_some_and(|b| b.contains(STACK_COMMENT_MARKER))
+        });
+
+        if let Some(comment) = existing_comment {
+            // Update existing comment
+            let update = UpdateComment { body: comment_body };
+            rt.block_on(client.update_pr_comment(owner, repo_name, comment.id, update))
+                .with_context(|| format!("Failed to update comment on PR #{pr_number}"))?;
+        } else {
+            // Create new comment
+            let create = CreateComment { body: comment_body };
+            rt.block_on(client.create_pr_comment(owner, repo_name, pr_number, create))
+                .with_context(|| format!("Failed to create comment on PR #{pr_number}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Build a chain of branches from root ancestor to all descendants.

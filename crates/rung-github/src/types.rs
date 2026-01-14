@@ -168,3 +168,27 @@ pub struct MergeResult {
     /// Message from the API.
     pub message: String,
 }
+
+/// A comment on an issue or pull request.
+#[derive(Debug, Clone, Deserialize)]
+pub struct IssueComment {
+    /// Comment ID.
+    pub id: u64,
+
+    /// Comment body.
+    pub body: Option<String>,
+}
+
+/// Request to create an issue/PR comment.
+#[derive(Debug, Serialize)]
+pub struct CreateComment {
+    /// Comment body.
+    pub body: String,
+}
+
+/// Request to update an issue/PR comment.
+#[derive(Debug, Serialize)]
+pub struct UpdateComment {
+    /// New comment body.
+    pub body: String,
+}

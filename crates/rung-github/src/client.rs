@@ -457,6 +457,60 @@ impl GitHubClient {
         self.delete(&format!("/repos/{owner}/{repo}/git/refs/heads/{ref_name}"))
             .await
     }
+
+    // === Comment Operations ===
+
+    /// List comments on a pull request.
+    ///
+    /// # Errors
+    /// Returns error if request fails.
+    pub async fn list_pr_comments(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<Vec<crate::types::IssueComment>> {
+        self.get(&format!(
+            "/repos/{owner}/{repo}/issues/{pr_number}/comments"
+        ))
+        .await
+    }
+
+    /// Create a comment on a pull request.
+    ///
+    /// # Errors
+    /// Returns error if request fails.
+    pub async fn create_pr_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+        comment: crate::types::CreateComment,
+    ) -> Result<crate::types::IssueComment> {
+        self.post(
+            &format!("/repos/{owner}/{repo}/issues/{pr_number}/comments"),
+            &comment,
+        )
+        .await
+    }
+
+    /// Update a comment on a pull request.
+    ///
+    /// # Errors
+    /// Returns error if request fails.
+    pub async fn update_pr_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        comment_id: u64,
+        comment: crate::types::UpdateComment,
+    ) -> Result<crate::types::IssueComment> {
+        self.patch(
+            &format!("/repos/{owner}/{repo}/issues/comments/{comment_id}"),
+            &comment,
+        )
+        .await
+    }
 }
 
 impl std::fmt::Debug for GitHubClient {
