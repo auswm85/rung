@@ -147,13 +147,40 @@ impl Repository {
 
     // === Working directory state ===
 
-    /// Check if the working directory is clean.
+    /// Check if the working directory is clean (no modified or staged files).
+    ///
+    /// Untracked files are ignored - only tracked files that have been
+    /// modified or staged count as "dirty".
     ///
     /// # Errors
     /// Returns error if status check fails.
     pub fn is_clean(&self) -> Result<bool> {
-        let statuses = self.inner.statuses(None)?;
-        Ok(statuses.is_empty())
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(false)
+            .include_ignored(false)
+            .include_unmodified(false)
+            .exclude_submodules(true);
+        let statuses = self.inner.statuses(Some(&mut opts))?;
+
+        // Check if any status indicates modified/staged files
+        for entry in statuses.iter() {
+            let status = entry.status();
+            // These indicate actual changes to tracked files
+            if status.intersects(
+                git2::Status::INDEX_NEW
+                    | git2::Status::INDEX_MODIFIED
+                    | git2::Status::INDEX_DELETED
+                    | git2::Status::INDEX_RENAMED
+                    | git2::Status::INDEX_TYPECHANGE
+                    | git2::Status::WT_MODIFIED
+                    | git2::Status::WT_DELETED
+                    | git2::Status::WT_TYPECHANGE
+                    | git2::Status::WT_RENAMED,
+            ) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Ensure working directory is clean, returning error if not.
@@ -469,8 +496,26 @@ mod tests {
 
         assert!(repo.is_clean().unwrap());
 
-        // Create untracked file
-        fs::write(temp.path().join("new_file.txt"), "content").unwrap();
+        // Create and commit a tracked file
+        fs::write(temp.path().join("test.txt"), "initial").unwrap();
+        {
+            let mut index = repo.inner.index().unwrap();
+            index.add_path(std::path::Path::new("test.txt")).unwrap();
+            index.write().unwrap();
+            let tree_id = index.write_tree().unwrap();
+            let tree = repo.inner.find_tree(tree_id).unwrap();
+            let parent = repo.inner.head().unwrap().peel_to_commit().unwrap();
+            let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+            repo.inner
+                .commit(Some("HEAD"), &sig, &sig, "Add test file", &tree, &[&parent])
+                .unwrap();
+        }
+
+        // Should still be clean after commit
+        assert!(repo.is_clean().unwrap());
+
+        // Modify tracked file
+        fs::write(temp.path().join("test.txt"), "modified").unwrap();
         assert!(!repo.is_clean().unwrap());
     }
 
