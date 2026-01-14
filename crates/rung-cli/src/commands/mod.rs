@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 
 pub mod create;
+pub mod doctor;
 pub mod init;
 pub mod merge;
 pub mod navigate;
@@ -124,4 +125,10 @@ pub enum Commands {
     /// Navigate to the previous branch in the stack (parent).
     #[command(alias = "p")]
     Prv,
+
+    /// Diagnose issues with the stack and repository.
+    ///
+    /// Checks stack integrity, git state, sync status, and GitHub connectivity.
+    #[command(alias = "doc")]
+    Doctor,
 }

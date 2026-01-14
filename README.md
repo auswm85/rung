@@ -160,6 +160,21 @@ Navigate to the previous (parent) branch in the stack.
 rung prv
 ```
 
+### `rung doctor`
+
+Diagnose issues with the stack and repository. Checks:
+
+- **Stack integrity**: Branches exist, parents are valid, no circular dependencies
+- **Git state**: Clean working directory, not detached HEAD, no rebase in progress
+- **Sync state**: Branches that need rebasing, sync operations in progress
+- **GitHub connectivity**: Authentication, PR status (open/closed/merged)
+
+```bash
+rung doctor
+```
+
+Issues are reported with severity (error/warning) and actionable suggestions.
+
 ## Typical Workflow
 
 ```bash

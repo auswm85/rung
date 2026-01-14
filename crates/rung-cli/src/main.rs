@@ -29,6 +29,7 @@ fn main() {
         Commands::Merge { method, no_delete } => commands::merge::run(&method, no_delete),
         Commands::Nxt => commands::navigate::run_next(),
         Commands::Prv => commands::navigate::run_prev(),
+        Commands::Doctor => commands::doctor::run(),
     };
 
     if let Err(e) = result {
