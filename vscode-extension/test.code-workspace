@@ -1,0 +1,10 @@
+{
+  "folders": [
+    {
+      "path": ".."
+    }
+  ],
+  "settings": {
+    "rung.cliPath": "/Users/amcshan/Developer/Projects/rung/target/release/rung"
+  }
+}
