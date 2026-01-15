@@ -101,6 +101,11 @@ BREAKING CHANGE: stack.json schema updated, run `rung migrate`
 4. Fill out the PR template
 5. Request review
 
+**Current focus areas:**
+
+- ⚙️ **Git Internals:** Help optimize `git2-rs` operations.
+- 🧪 **Testing:** We need more edge-case tests for complex rebase scenarios as well as integration tests
+
 ## Questions?
 
 Open an issue or start a discussion.
