@@ -20,6 +20,9 @@ struct ApiPullRequest {
     title: String,
     body: Option<String>,
     state: String,
+    /// Whether the PR was merged (GitHub returns state="closed" + merged=true for merged PRs).
+    #[serde(default)]
+    merged: bool,
     draft: bool,
     html_url: String,
     head: ApiBranch,
@@ -36,15 +39,21 @@ struct ApiBranch {
 impl ApiPullRequest {
     /// Convert API response to domain type, parsing state string.
     fn into_pull_request(self) -> PullRequest {
+        // GitHub API returns state="closed" + merged=true for merged PRs
+        let state = if self.merged {
+            PullRequestState::Merged
+        } else {
+            match self.state.as_str() {
+                "open" => PullRequestState::Open,
+                _ => PullRequestState::Closed,
+            }
+        };
+
         PullRequest {
             number: self.number,
             title: self.title,
             body: self.body,
-            state: match self.state.as_str() {
-                "open" => PullRequestState::Open,
-                "merged" => PullRequestState::Merged,
-                _ => PullRequestState::Closed,
-            },
+            state,
             draft: self.draft,
             head_branch: self.head.ref_name,
             base_branch: self.base.ref_name,
