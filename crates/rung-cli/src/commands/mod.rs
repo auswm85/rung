@@ -58,8 +58,8 @@ pub enum Commands {
 
     /// Sync the stack by rebasing all branches.
     ///
-    /// When the base branch moves forward, this command rebases
-    /// all dependent branches to maintain a clean stack.
+    /// Detects merged PRs, updates stack topology, rebases branches,
+    /// updates GitHub PR base branches, and pushes all changes.
     #[command(alias = "sy")]
     Sync {
         /// Show what would be done without making changes.
@@ -73,6 +73,10 @@ pub enum Commands {
         /// Abort the current sync and restore from backup.
         #[arg(long)]
         abort: bool,
+
+        /// Skip pushing branches to remote after sync.
+        #[arg(long)]
+        no_push: bool,
 
         /// Base branch to sync against (defaults to "main").
         #[arg(long, short)]

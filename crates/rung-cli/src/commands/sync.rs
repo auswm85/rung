@@ -1,14 +1,29 @@
 //! `rung sync` command - Sync the stack by rebasing all branches.
+//!
+//! This command performs a full sync operation:
+//! 1. Detects PRs merged externally (via GitHub UI)
+//! 2. Updates stack topology for merged branches
+//! 3. Rebases remaining branches onto their new parents
+//! 4. Updates GitHub PR base branches
+//! 5. Pushes all synced branches
 
 use anyhow::{Context, Result, bail};
 use rung_core::State;
-use rung_core::sync::{self, SyncResult};
+use rung_core::sync::{self, ExternalMergeInfo, ReconcileResult, SyncResult};
 use rung_git::Repository;
+use rung_github::{Auth, GitHubClient, PullRequestState, UpdatePullRequest};
 
 use crate::output;
 
 /// Run the sync command.
-pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> Result<()> {
+#[allow(clippy::fn_params_excessive_bools)]
+pub fn run(
+    dry_run: bool,
+    continue_: bool,
+    abort: bool,
+    no_push: bool,
+    base: Option<&str>,
+) -> Result<()> {
     // Open repository
     let repo = Repository::open_current().context("Not inside a git repository")?;
 
@@ -42,7 +57,16 @@ pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> R
             bail!("No sync in progress to continue");
         }
         output::info("Continuing sync...");
-        return handle_sync_result(sync::continue_sync(&repo, &state)?);
+        let result = sync::continue_sync(&repo, &state)?;
+
+        // If sync completed successfully, push the branches
+        if let SyncResult::Complete { .. } = &result {
+            if !no_push {
+                push_stack_branches(&repo, &state)?;
+            }
+        }
+
+        return handle_sync_result(result);
     }
 
     // Check for existing sync in progress
@@ -53,7 +77,10 @@ pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> R
     // Ensure working directory is clean
     repo.require_clean()?;
 
-    // Check for and remove stale branches (branches in stack but not in git)
+    // === Phase 1: Detect and reconcile merged PRs ===
+    let reconcile_result = detect_and_reconcile_merged(&repo, &state)?;
+
+    // === Phase 2: Remove stale branches ===
     let stale_result = sync::remove_stale_branches(&repo, &state)?;
     if !stale_result.removed.is_empty() {
         output::warn(&format!(
@@ -65,7 +92,7 @@ pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> R
         }
     }
 
-    // Load stack (after stale branch cleanup)
+    // Load stack (after reconcile and stale branch cleanup)
     let stack = state.load_stack()?;
 
     if stack.is_empty() {
@@ -76,29 +103,193 @@ pub fn run(dry_run: bool, continue_: bool, abort: bool, base: Option<&str>) -> R
     // Determine base branch
     let base_branch = base.unwrap_or("main");
 
-    // Create sync plan
+    // === Phase 3: Create and execute sync plan ===
     let plan = sync::create_sync_plan(&repo, &stack, base_branch)?;
 
-    if plan.is_empty() {
-        output::success("Stack is already up-to-date");
-        return Ok(());
-    }
-
     if dry_run {
-        output::info("Dry run - would rebase the following branches:");
-        for action in &plan.branches {
-            println!(
-                "  → {} (onto {})",
-                action.branch,
-                &action.new_base[..8.min(action.new_base.len())]
-            );
+        output::info("Dry run - would perform the following:");
+        if !reconcile_result.merged.is_empty() {
+            println!("  Merged PRs detected: {}", reconcile_result.merged.len());
+        }
+        if !plan.is_empty() {
+            println!("  Branches to rebase:");
+            for action in &plan.branches {
+                println!(
+                    "    → {} (onto {})",
+                    action.branch,
+                    &action.new_base[..8.min(action.new_base.len())]
+                );
+            }
         }
         return Ok(());
     }
 
-    // Execute sync
-    output::info(&format!("Syncing {} branches...", plan.branches.len()));
-    handle_sync_result(sync::execute_sync(&repo, &state, plan)?)
+    let sync_result = if plan.is_empty() {
+        SyncResult::AlreadySynced
+    } else {
+        output::info(&format!("Syncing {} branches...", plan.branches.len()));
+        sync::execute_sync(&repo, &state, plan)?
+    };
+
+    // If sync paused on conflict, don't proceed with push/update
+    if let SyncResult::Paused { .. } = &sync_result {
+        return handle_sync_result(sync_result);
+    }
+
+    // === Phase 4: Update GitHub PR base branches ===
+    if !reconcile_result.reparented.is_empty() {
+        update_pr_bases(&repo, &reconcile_result)?;
+    }
+
+    // === Phase 5: Push all branches ===
+    if !no_push {
+        push_stack_branches(&repo, &state)?;
+    }
+
+    handle_sync_result(sync_result)
+}
+
+/// Detect merged PRs via GitHub API and reconcile the stack.
+fn detect_and_reconcile_merged(repo: &Repository, state: &State) -> Result<ReconcileResult> {
+    let stack = state.load_stack()?;
+
+    // Collect branches with PRs to check
+    let branches_with_prs: Vec<_> = stack
+        .branches
+        .iter()
+        .filter_map(|b| b.pr.map(|pr| (b.name.clone(), pr)))
+        .collect();
+
+    if branches_with_prs.is_empty() {
+        return Ok(ReconcileResult::default());
+    }
+
+    // Get GitHub client
+    let origin_url = repo.origin_url().context("No origin remote configured")?;
+    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
+        .context("Could not parse GitHub remote URL")?;
+
+    let Ok(client) = GitHubClient::new(&Auth::auto()) else {
+        // If GitHub auth fails, skip merge detection but continue with sync
+        output::warn("GitHub auth unavailable - skipping merge detection");
+        return Ok(ReconcileResult::default());
+    };
+
+    let rt = tokio::runtime::Runtime::new()?;
+
+    // Check each PR's status
+    let mut merged_prs = Vec::new();
+
+    output::info("Checking for merged PRs...");
+
+    for (branch_name, pr_number) in branches_with_prs {
+        let pr_result = rt.block_on(client.get_pr(&owner, &repo_name, pr_number));
+
+        match pr_result {
+            Ok(pr) => {
+                if pr.state == PullRequestState::Merged {
+                    output::success(&format!(
+                        "PR #{} ({}) merged into {}",
+                        pr_number, branch_name, pr.base_branch
+                    ));
+
+                    merged_prs.push(ExternalMergeInfo {
+                        branch_name,
+                        pr_number,
+                        merged_into: pr.base_branch,
+                    });
+                }
+            }
+            Err(e) => {
+                // Log but don't fail - PR might have been deleted
+                output::warn(&format!("Could not check PR #{pr_number}: {e}"));
+            }
+        }
+    }
+
+    if merged_prs.is_empty() {
+        return Ok(ReconcileResult::default());
+    }
+
+    // Reconcile the stack
+    let result = sync::reconcile_merged(state, &merged_prs)?;
+
+    // Report re-parented branches
+    for reparent in &result.reparented {
+        output::info(&format!(
+            "Re-parented {} → {} (was {})",
+            reparent.name, reparent.new_parent, reparent.old_parent
+        ));
+    }
+
+    Ok(result)
+}
+
+/// Update GitHub PR base branches for re-parented branches.
+fn update_pr_bases(repo: &Repository, reconcile_result: &ReconcileResult) -> Result<()> {
+    let origin_url = repo.origin_url().context("No origin remote configured")?;
+    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
+        .context("Could not parse GitHub remote URL")?;
+
+    let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
+    let rt = tokio::runtime::Runtime::new()?;
+
+    output::info("Updating PR base branches on GitHub...");
+
+    for reparent in &reconcile_result.reparented {
+        if let Some(pr_number) = reparent.pr_number {
+            let update = UpdatePullRequest {
+                title: None,
+                body: None,
+                base: Some(reparent.new_parent.clone()),
+            };
+
+            match rt.block_on(client.update_pr(&owner, &repo_name, pr_number, update)) {
+                Ok(_) => {
+                    output::success(&format!(
+                        "Updated PR #{} base → {}",
+                        pr_number, reparent.new_parent
+                    ));
+                }
+                Err(e) => {
+                    output::warn(&format!("Could not update PR #{pr_number}: {e}"));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Push all branches in the stack to remote.
+fn push_stack_branches(repo: &Repository, state: &State) -> Result<()> {
+    let stack = state.load_stack()?;
+
+    if stack.is_empty() {
+        return Ok(());
+    }
+
+    output::info("Pushing to remote...");
+
+    let mut pushed = 0;
+    for branch in &stack.branches {
+        if repo.branch_exists(&branch.name) {
+            match repo.push(&branch.name, true) {
+                Ok(()) => {
+                    pushed += 1;
+                }
+                Err(e) => {
+                    output::warn(&format!("Could not push {}: {e}", branch.name));
+                }
+            }
+        }
+    }
+
+    if pushed > 0 {
+        output::success(&format!("Pushed {pushed} branch(es)"));
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::unnecessary_wraps)]
@@ -112,8 +303,7 @@ fn handle_sync_result(result: SyncResult) -> Result<()> {
             backup_id,
         } => {
             output::success(&format!(
-                "Synced {} branches (backup: {})",
-                branches_rebased,
+                "Synced {branches_rebased} branches (backup: {})",
                 &backup_id[..8.min(backup_id.len())]
             ));
         }

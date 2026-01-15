@@ -65,6 +65,112 @@ pub struct StaleBranches {
     pub removed: Vec<String>,
 }
 
+/// Result of reconciling merged PRs.
+#[derive(Debug, Default)]
+pub struct ReconcileResult {
+    /// Branches removed because their PRs merged.
+    pub merged: Vec<MergedBranch>,
+    /// Branches re-parented to new parents.
+    pub reparented: Vec<ReparentedBranch>,
+}
+
+/// A branch whose PR was merged.
+#[derive(Debug)]
+pub struct MergedBranch {
+    /// Branch name.
+    pub name: String,
+    /// PR number that was merged.
+    pub pr_number: u64,
+    /// Branch it was merged into.
+    pub merged_into: String,
+}
+
+/// A branch that was re-parented due to its parent being merged.
+#[derive(Debug)]
+pub struct ReparentedBranch {
+    /// Branch name.
+    pub name: String,
+    /// Previous parent branch.
+    pub old_parent: String,
+    /// New parent branch.
+    pub new_parent: String,
+    /// PR number (if any) that needs base branch update.
+    pub pr_number: Option<u64>,
+}
+
+/// Information about a PR that was merged externally (e.g., via GitHub UI).
+#[derive(Debug)]
+pub struct ExternalMergeInfo {
+    /// Branch name that was merged.
+    pub branch_name: String,
+    /// PR number that was merged.
+    pub pr_number: u64,
+    /// Branch it was merged into.
+    pub merged_into: String,
+}
+
+/// Reconcile the stack after PRs were merged externally.
+///
+/// For each merged branch:
+/// 1. Re-parent its children to the merge target
+/// 2. Remove the merged branch from the stack
+///
+/// This function does NOT call GitHub - the caller provides the list of
+/// merged PRs (obtained from GitHub API).
+///
+/// # Errors
+/// Returns error if stack operations fail.
+pub fn reconcile_merged(
+    state: &State,
+    merged_prs: &[ExternalMergeInfo],
+) -> Result<ReconcileResult> {
+    if merged_prs.is_empty() {
+        return Ok(ReconcileResult::default());
+    }
+
+    let mut stack = state.load_stack()?;
+    let mut result = ReconcileResult::default();
+
+    for merge_info in merged_prs {
+        // Find children of the merged branch (collect names first to avoid borrow issues)
+        let children: Vec<String> = stack
+            .children_of(&merge_info.branch_name)
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+
+        // Re-parent children to the merge target
+        for child_name in children {
+            if let Some(child) = stack.find_branch_mut(&child_name) {
+                let old_parent = child.parent.clone().unwrap_or_default();
+                let pr_number = child.pr;
+                child.parent = Some(merge_info.merged_into.clone());
+
+                result.reparented.push(ReparentedBranch {
+                    name: child_name,
+                    old_parent,
+                    new_parent: merge_info.merged_into.clone(),
+                    pr_number,
+                });
+            }
+        }
+
+        // Remove merged branch from stack
+        stack.remove_branch(&merge_info.branch_name);
+
+        result.merged.push(MergedBranch {
+            name: merge_info.branch_name.clone(),
+            pr_number: merge_info.pr_number,
+            merged_into: merge_info.merged_into.clone(),
+        });
+    }
+
+    // Save updated stack
+    state.save_stack(&stack)?;
+
+    Ok(result)
+}
+
 /// Create a sync plan for the given stack.
 ///
 /// Analyzes which branches need rebasing based on their parent's current position.

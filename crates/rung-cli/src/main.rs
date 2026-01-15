@@ -18,8 +18,9 @@ fn main() {
             dry_run,
             continue_,
             abort,
+            no_push,
             base,
-        } => commands::sync::run(dry_run, continue_, abort, base.as_deref()),
+        } => commands::sync::run(dry_run, continue_, abort, no_push, base.as_deref()),
         Commands::Submit {
             draft,
             force,
