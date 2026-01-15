@@ -77,6 +77,16 @@ pub fn run(
     // Ensure working directory is clean
     repo.require_clean()?;
 
+    // Determine base branch
+    let base_branch = base.unwrap_or("main");
+
+    // === Phase 0: Fetch base branch to ensure we have latest ===
+    output::info(&format!("Fetching {base_branch}..."));
+    if let Err(e) = repo.fetch(base_branch) {
+        output::warn(&format!("Could not fetch {base_branch}: {e}"));
+        // Continue anyway - we'll work with what we have
+    }
+
     // === Phase 1: Detect and reconcile merged PRs ===
     let reconcile_result = detect_and_reconcile_merged(&repo, &state)?;
 
@@ -99,9 +109,6 @@ pub fn run(
         output::info("No branches in stack - nothing to sync");
         return Ok(());
     }
-
-    // Determine base branch
-    let base_branch = base.unwrap_or("main");
 
     // === Phase 3: Create and execute sync plan ===
     let plan = sync::create_sync_plan(&repo, &stack, base_branch)?;
