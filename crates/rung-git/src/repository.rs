@@ -498,8 +498,11 @@ impl Repository {
     pub fn fetch(&self, branch: &str) -> Result<()> {
         let workdir = self.workdir().ok_or(Error::NotARepository)?;
 
+        // Use refspec to update both remote tracking branch and local branch
+        // Format: origin/branch:refs/heads/branch
+        let refspec = format!("{branch}:refs/heads/{branch}");
         let output = std::process::Command::new("git")
-            .args(["fetch", "origin", branch])
+            .args(["fetch", "origin", &refspec])
             .current_dir(workdir)
             .output()
             .map_err(|e| Error::FetchFailed(e.to_string()))?;
