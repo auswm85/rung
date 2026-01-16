@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="rung logo" width="120">
+</p>
+
 # rung
 
 A Git workflow tool for managing stacked PRs (pull request chains).
