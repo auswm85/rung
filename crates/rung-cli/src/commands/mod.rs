@@ -22,6 +22,12 @@ pub mod update;
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
 pub struct Cli {
+    /// Output as JSON (for tooling integration).
+    ///
+    /// Supported by: status, doctor, sync, submit, merge
+    #[arg(long, global = true)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -47,10 +53,6 @@ pub enum Commands {
     /// sync state and PR status.
     #[command(alias = "st")]
     Status {
-        /// Output as JSON (for tooling integration).
-        #[arg(long)]
-        json: bool,
-
         /// Fetch latest PR status from GitHub.
         #[arg(long)]
         fetch: bool,

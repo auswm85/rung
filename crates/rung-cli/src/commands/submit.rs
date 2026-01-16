@@ -9,11 +9,40 @@ use rung_git::Repository;
 use rung_github::{
     Auth, CreateComment, CreatePullRequest, GitHubClient, UpdateComment, UpdatePullRequest,
 };
+use serde::Serialize;
 
 use crate::output;
 
+/// JSON output for submit command.
+#[derive(Debug, Serialize)]
+struct SubmitOutput {
+    prs_created: usize,
+    prs_updated: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    branches: Vec<BranchSubmitInfo>,
+}
+
+/// Information about a submitted branch.
+#[derive(Debug, Serialize)]
+struct BranchSubmitInfo {
+    branch: String,
+    pr_number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pr_url: Option<String>,
+    action: SubmitAction,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SubmitAction {
+    Created,
+    Updated,
+}
+
 /// Configuration options for the submit command.
 struct SubmitConfig<'a> {
+    /// Output as JSON.
+    json: bool,
     /// Create PRs as drafts.
     draft: bool,
     /// Force push branches.
@@ -33,15 +62,23 @@ struct GitHubContext<'a> {
 }
 
 /// Run the submit command.
-pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
+pub fn run(json: bool, draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
     let (repo, state, mut stack) = setup_submit()?;
 
     if stack.is_empty() {
+        if json {
+            return output_json(&SubmitOutput {
+                prs_created: 0,
+                prs_updated: 0,
+                branches: vec![],
+            });
+        }
         output::info("No branches in stack - nothing to submit");
         return Ok(());
     }
 
     let config = SubmitConfig {
+        json,
         draft,
         force,
         custom_title,
@@ -49,7 +86,9 @@ pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
     };
 
     let (owner, repo_name) = get_remote_info(&repo)?;
-    output::info(&format!("Submitting to {owner}/{repo_name}..."));
+    if !json {
+        output::info(&format!("Submitting to {owner}/{repo_name}..."));
+    }
 
     let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
     let rt = tokio::runtime::Runtime::new()?;
@@ -61,15 +100,29 @@ pub fn run(draft: bool, force: bool, custom_title: Option<&str>) -> Result<()> {
         repo_name: &repo_name,
     };
 
-    let (created, updated) = process_branches(&repo, &gh, &mut stack, &config)?;
+    let (created, updated, branch_infos) = process_branches(&repo, &gh, &mut stack, &config)?;
 
     state.save_stack(&stack)?;
 
     // Update stack comments on all PRs
-    update_stack_comments(&gh, &stack.branches)?;
+    update_stack_comments(&gh, &stack.branches, json)?;
+
+    if json {
+        return output_json(&SubmitOutput {
+            prs_created: created,
+            prs_updated: updated,
+            branches: branch_infos,
+        });
+    }
 
     print_summary(created, updated);
 
+    Ok(())
+}
+
+/// Output submit result as JSON.
+fn output_json(output: &SubmitOutput) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(output)?);
     Ok(())
 }
 
@@ -101,9 +154,10 @@ fn process_branches(
     gh: &GitHubContext<'_>,
     stack: &mut rung_core::stack::Stack,
     config: &SubmitConfig<'_>,
-) -> Result<(usize, usize)> {
+) -> Result<(usize, usize, Vec<BranchSubmitInfo>)> {
     let mut created = 0;
     let mut updated = 0;
+    let mut branch_infos = Vec::new();
 
     for i in 0..stack.branches.len() {
         let branch = &stack.branches[i];
@@ -111,10 +165,12 @@ fn process_branches(
         let parent_name = branch.parent.clone();
         let existing_pr = branch.pr;
 
-        output::info(&format!("Processing {branch_name}..."));
+        if !config.json {
+            output::info(&format!("Processing {branch_name}..."));
+            output::info(&format!("  Pushing {branch_name}..."));
+        }
 
         // Push the branch
-        output::info(&format!("  Pushing {branch_name}..."));
         repo.push(&branch_name, config.force)
             .with_context(|| format!("Failed to push {branch_name}"))?;
 
@@ -130,21 +186,42 @@ fn process_branches(
         };
 
         if let Some(pr_number) = existing_pr {
-            update_existing_pr(gh, pr_number, base_branch)?;
+            update_existing_pr(gh, pr_number, base_branch, config.json)?;
             updated += 1;
+            branch_infos.push(BranchSubmitInfo {
+                branch: branch_name.to_string(),
+                pr_number,
+                pr_url: None,
+                action: SubmitAction::Updated,
+            });
         } else {
-            let result = create_or_find_pr(gh, &branch_name, base_branch, title, config.draft)?;
+            let result = create_or_find_pr(
+                gh,
+                &branch_name,
+                base_branch,
+                title,
+                config.draft,
+                config.json,
+            )?;
 
             stack.branches[i].pr = Some(result.pr_number);
-            if result.was_created {
+            let action = if result.was_created {
                 created += 1;
+                SubmitAction::Created
             } else {
                 updated += 1;
-            }
+                SubmitAction::Updated
+            };
+            branch_infos.push(BranchSubmitInfo {
+                branch: branch_name.to_string(),
+                pr_number: result.pr_number,
+                pr_url: result.pr_url,
+                action,
+            });
         }
     }
 
-    Ok((created, updated))
+    Ok((created, updated, branch_infos))
 }
 
 /// Generate PR title from branch name.
@@ -167,8 +244,15 @@ fn generate_title(branch_name: &str) -> String {
 }
 
 /// Update an existing PR (only updates base branch, preserves description).
-fn update_existing_pr(gh: &GitHubContext<'_>, pr_number: u64, base_branch: &str) -> Result<()> {
-    output::info(&format!("  Updating PR #{pr_number}..."));
+fn update_existing_pr(
+    gh: &GitHubContext<'_>,
+    pr_number: u64,
+    base_branch: &str,
+    json: bool,
+) -> Result<()> {
+    if !json {
+        output::info(&format!("  Updating PR #{pr_number}..."));
+    }
 
     let update = UpdatePullRequest {
         title: None,
@@ -190,6 +274,7 @@ fn update_existing_pr(gh: &GitHubContext<'_>, pr_number: u64, base_branch: &str)
 struct PrResult {
     pr_number: u64,
     was_created: bool,
+    pr_url: Option<String>,
 }
 
 /// Create a new PR or find an existing one.
@@ -199,6 +284,7 @@ fn create_or_find_pr(
     base_branch: &str,
     title: String,
     draft: bool,
+    json: bool,
 ) -> Result<PrResult> {
     // Check if PR already exists for this branch
     let existing = gh
@@ -210,7 +296,9 @@ fn create_or_find_pr(
         .context("Failed to check for existing PR")?;
 
     if let Some(pr) = existing {
-        output::info(&format!("  Found existing PR #{}...", pr.number));
+        if !json {
+            output::info(&format!("  Found existing PR #{}...", pr.number));
+        }
 
         // Only update base branch, preserve existing description
         let update = UpdatePullRequest {
@@ -229,11 +317,14 @@ fn create_or_find_pr(
         return Ok(PrResult {
             pr_number: pr.number,
             was_created: false,
+            pr_url: Some(pr.html_url),
         });
     }
 
     // Create new PR
-    output::info(&format!("  Creating PR ({branch_name} → {base_branch})..."));
+    if !json {
+        output::info(&format!("  Creating PR ({branch_name} → {base_branch})..."));
+    }
 
     let create = CreatePullRequest {
         title,
@@ -248,11 +339,14 @@ fn create_or_find_pr(
         .block_on(gh.client.create_pr(gh.owner, gh.repo_name, create))
         .with_context(|| format!("Failed to create PR for {branch_name}"))?;
 
-    output::success(&format!("  Created PR #{}: {}", pr.number, pr.html_url));
+    if !json {
+        output::success(&format!("  Created PR #{}: {}", pr.number, pr.html_url));
+    }
 
     Ok(PrResult {
         pr_number: pr.number,
         was_created: true,
+        pr_url: Some(pr.html_url),
     })
 }
 
@@ -334,8 +428,14 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
 }
 
 /// Update stack comments on all PRs in the stack.
-fn update_stack_comments(gh: &GitHubContext<'_>, branches: &[StackBranch]) -> Result<()> {
-    output::info("Updating stack comments...");
+fn update_stack_comments(
+    gh: &GitHubContext<'_>,
+    branches: &[StackBranch],
+    json: bool,
+) -> Result<()> {
+    if !json {
+        output::info("Updating stack comments...");
+    }
 
     for branch in branches {
         let Some(pr_number) = branch.pr else {

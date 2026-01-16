@@ -5,22 +5,34 @@ use colored::Colorize;
 use rung_core::State;
 use rung_git::Repository;
 use rung_github::{Auth, GitHubClient, PullRequestState};
+use serde::Serialize;
 
 use crate::output;
 
 /// Diagnostic issue severity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum Severity {
     Error,
     Warning,
 }
 
 /// A diagnostic issue found by the doctor.
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 struct Issue {
     severity: Severity,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     suggestion: Option<String>,
+}
+
+/// JSON output for doctor command.
+#[derive(Debug, Serialize)]
+struct DoctorOutput {
+    healthy: bool,
+    errors: usize,
+    warnings: usize,
+    issues: Vec<Issue>,
 }
 
 impl Issue {
@@ -47,18 +59,22 @@ impl Issue {
 }
 
 /// Run the doctor command.
-pub fn run() -> Result<()> {
+pub fn run(json: bool) -> Result<()> {
     let mut issues: Vec<Issue> = Vec::new();
-
-    println!();
 
     // Check if we're in a git repo
     let Ok(repo) = Repository::open_current() else {
+        if json {
+            return output_json(&[Issue::error("Not inside a git repository")]);
+        }
         output::error("Not inside a git repository");
         return Ok(());
     };
 
     let Some(workdir) = repo.workdir() else {
+        if json {
+            return output_json(&[Issue::error("Cannot run in bare repository")]);
+        }
         output::error("Cannot run in bare repository");
         return Ok(());
     };
@@ -66,43 +82,93 @@ pub fn run() -> Result<()> {
     let state = State::new(workdir)?;
 
     // Check initialization
-    print_check("Checking rung initialization...");
+    if !json {
+        println!();
+        print_check("Checking rung initialization...");
+    }
     if !state.is_initialized() {
         issues.push(
             Issue::error("Rung not initialized in this repository")
                 .with_suggestion("Run `rung init` to initialize"),
         );
+        if json {
+            return output_json(&issues);
+        }
         print_issues(&issues);
         return Ok(());
     }
-    print_ok();
+    if !json {
+        print_ok();
+    }
 
     // Check git state
-    print_check("Checking git state...");
+    if !json {
+        print_check("Checking git state...");
+    }
     check_git_state(&repo, &mut issues);
-    print_status(&issues, "git state");
+    if !json {
+        print_status(&issues, "git state");
+    }
 
     // Check stack integrity
-    print_check("Checking stack integrity...");
+    if !json {
+        print_check("Checking stack integrity...");
+    }
     let stack = state.load_stack()?;
     check_stack_integrity(&repo, &stack, &mut issues);
-    print_status(&issues, "stack integrity");
+    if !json {
+        print_status(&issues, "stack integrity");
+    }
 
     // Check sync state
-    print_check("Checking sync state...");
+    if !json {
+        print_check("Checking sync state...");
+    }
     check_sync_state(&repo, &state, &stack, &mut issues);
-    print_status(&issues, "sync state");
+    if !json {
+        print_status(&issues, "sync state");
+    }
 
     // Check GitHub connectivity
-    print_check("Checking GitHub...");
+    if !json {
+        print_check("Checking GitHub...");
+    }
     check_github(&repo, &stack, &mut issues);
-    print_status(&issues, "GitHub");
+    if !json {
+        print_status(&issues, "GitHub");
+    }
 
-    // Print summary
+    // Output
+    if json {
+        return output_json(&issues);
+    }
+
     println!();
     print_issues(&issues);
     print_summary(&issues);
 
+    Ok(())
+}
+
+/// Output issues as JSON.
+fn output_json(issues: &[Issue]) -> Result<()> {
+    let errors = issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .count();
+    let warnings = issues
+        .iter()
+        .filter(|i| i.severity == Severity::Warning)
+        .count();
+
+    let output = DoctorOutput {
+        healthy: errors == 0 && warnings == 0,
+        errors,
+        warnings,
+        issues: issues.to_vec(),
+    };
+
+    println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }
 
