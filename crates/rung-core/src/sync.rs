@@ -136,15 +136,23 @@ pub fn reconcile_merged(
         let children: Vec<String> = stack
             .children_of(&merge_info.branch_name)
             .iter()
-            .map(|b| b.name.clone())
+            .map(|b| b.name.to_string())
             .collect();
 
         // Re-parent children to the merge target
         for child_name in children {
             if let Some(child) = stack.find_branch_mut(&child_name) {
-                let old_parent = child.parent.clone().unwrap_or_default();
+                let old_parent = child
+                    .parent
+                    .as_ref()
+                    .map_or_else(String::new, ToString::to_string);
                 let pr_number = child.pr;
-                child.parent = Some(merge_info.merged_into.clone());
+                // Create validated BranchName for the new parent
+                let new_parent =
+                    crate::BranchName::new(merge_info.merged_into.clone()).map_err(|_| {
+                        crate::error::Error::BranchNotFound(merge_info.merged_into.clone())
+                    })?;
+                child.parent = Some(new_parent);
 
                 result.reparented.push(ReparentedBranch {
                     name: child_name,
@@ -222,7 +230,7 @@ pub fn create_sync_plan(
         // If merge base is not the parent's tip, we need to rebase
         if merge_base != parent_commit {
             actions.push(SyncAction {
-                branch: branch.name.clone(),
+                branch: branch.name.to_string(),
                 old_base: merge_base.to_string(),
                 new_base: parent_commit.to_string(),
             });
@@ -250,7 +258,7 @@ pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Resu
         .branches
         .iter()
         .filter(|b| !repo.branch_exists(&b.name))
-        .map(|b| b.name.clone())
+        .map(|b| b.name.to_string())
         .collect();
 
     if missing.is_empty() {
@@ -265,7 +273,7 @@ pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Resu
 
         // Re-parent children of this stale branch
         for branch in &mut stack.branches {
-            if branch.parent.as_ref() == Some(missing_name) {
+            if branch.parent.as_ref().is_some_and(|p| p == missing_name) {
                 branch.parent.clone_from(&missing_parent);
             }
         }
@@ -274,7 +282,9 @@ pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Resu
     }
 
     // Remove stale branches from stack
-    stack.branches.retain(|b| !missing.contains(&b.name));
+    stack
+        .branches
+        .retain(|b| !missing.contains(&b.name.to_string()));
     state.save_stack(&stack)?;
 
     Ok(StaleBranches { removed })
@@ -577,7 +587,7 @@ mod tests {
 
         // Create stack with feature-a based on main
         let mut stack = Stack::new();
-        stack.add_branch(StackBranch::new("feature-a", Some(main_branch.clone())));
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
 
         // Plan should be empty - feature-a is at same commit as main
         let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
@@ -600,7 +610,7 @@ mod tests {
 
         // Create stack with feature-a based on main
         let mut stack = Stack::new();
-        stack.add_branch(StackBranch::new("feature-a", Some(main_branch.clone())));
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
 
         // Plan should have one action - rebase feature-a
         let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
@@ -640,8 +650,8 @@ mod tests {
 
         // Create stack
         let mut stack = Stack::new();
-        stack.add_branch(StackBranch::new("feature-a", Some(main_branch.clone())));
-        stack.add_branch(StackBranch::new("feature-b", Some("feature-a".to_string())));
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
 
         // Plan should have feature-a needing rebase (feature-b is still synced with feature-a)
         let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();

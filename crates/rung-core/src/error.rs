@@ -20,6 +20,15 @@ pub enum Error {
     #[error("branch not found: {0}")]
     BranchNotFound(String),
 
+    /// Invalid branch name.
+    #[error("invalid branch name '{name}': {reason}")]
+    InvalidBranchName {
+        /// The invalid name.
+        name: String,
+        /// Why the name is invalid.
+        reason: String,
+    },
+
     /// Branch is not part of any stack.
     #[error("branch '{0}' is not part of a rung stack")]
     NotInStack(String),

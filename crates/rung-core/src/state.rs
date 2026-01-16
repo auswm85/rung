@@ -352,10 +352,7 @@ mod tests {
         state.init().unwrap();
 
         let mut stack = Stack::new();
-        stack.add_branch(crate::stack::StackBranch::new(
-            "feature/test",
-            Some("main".into()),
-        ));
+        stack.add_branch(crate::stack::StackBranch::try_new("feature/test", Some("main")).unwrap());
 
         state.save_stack(&stack).unwrap();
         let loaded = state.load_stack().unwrap();

@@ -164,7 +164,7 @@ fn detect_and_reconcile_merged(repo: &Repository, state: &State) -> Result<Recon
     let branches_with_prs: Vec<_> = stack
         .branches
         .iter()
-        .filter_map(|b| b.pr.map(|pr| (b.name.clone(), pr)))
+        .filter_map(|b| b.pr.map(|pr| (b.name.to_string(), pr)))
         .collect();
 
     if branches_with_prs.is_empty() {
