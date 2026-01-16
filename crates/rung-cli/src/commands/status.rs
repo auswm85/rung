@@ -42,11 +42,11 @@ pub fn run(json: bool, _fetch: bool) -> Result<()> {
     for branch in &stack.branches {
         let branch_state = compute_branch_state(&repo, branch, &stack)?;
         branches_with_state.push(BranchInfo {
-            name: branch.name.clone(),
-            parent: branch.parent.clone(),
+            name: branch.name.to_string(),
+            parent: branch.parent.as_ref().map(ToString::to_string),
             state: branch_state,
             pr: branch.pr,
-            is_current: current.as_ref() == Some(&branch.name),
+            is_current: current.as_deref() == Some(branch.name.as_str()),
         });
     }
 

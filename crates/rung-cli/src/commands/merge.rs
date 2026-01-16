@@ -1,8 +1,8 @@
 //! `rung merge` command - Merge PR and clean up stack.
 
 use anyhow::{Context, Result, bail};
-use rung_core::State;
 use rung_core::stack::Stack;
+use rung_core::{BranchName, State};
 use rung_git::{Oid, Repository};
 use rung_github::{Auth, GitHubClient, MergeMethod, MergePullRequest, UpdatePullRequest};
 
@@ -44,7 +44,10 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
     })?;
 
     // Get parent branch for later checkout
-    let parent_branch = branch.parent.clone().unwrap_or_else(|| "main".to_string());
+    let parent_branch = branch
+        .parent
+        .as_ref()
+        .map_or_else(|| "main".to_string(), ToString::to_string);
 
     // Get remote info
     let origin_url = repo.origin_url()?;
@@ -91,13 +94,15 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
             let children_count = stack
                 .branches
                 .iter()
-                .filter(|b| b.parent.as_ref() == Some(&current_branch))
+                .filter(|b| b.parent.as_ref().is_some_and(|p| p == &current_branch))
                 .count();
 
             // Re-parent any children to point to the merged branch's parent
+            let new_parent =
+                BranchName::new(&parent_branch).context("Invalid parent branch name")?;
             for branch in &mut stack.branches {
-                if branch.parent.as_ref() == Some(&current_branch) {
-                    branch.parent = Some(parent_branch.clone());
+                if branch.parent.as_ref().is_some_and(|p| p == &current_branch) {
+                    branch.parent = Some(new_parent.clone());
                 }
             }
 
@@ -122,7 +127,7 @@ pub fn run(method: &str, no_delete: bool) -> Result<()> {
                 .find_branch(branch_name)
                 .ok_or_else(|| anyhow::anyhow!("Branch '{branch_name}' not found in stack"))?;
 
-            let stack_parent = branch_info.parent.as_deref().unwrap_or("main");
+            let stack_parent = branch_info.parent.as_ref().map_or("main", |p| p.as_str());
 
             // Determine the new base for this branch's PR
             // Direct children of merged branch → parent_branch (e.g., main)
@@ -219,8 +224,8 @@ fn collect_descendants(stack: &Stack, root: &str) -> Vec<String> {
     while let Some(parent) = queue.pop() {
         for branch in &stack.branches {
             if branch.parent.as_ref().is_some_and(|p| p == &parent) {
-                descendants.push(branch.name.clone());
-                queue.push(branch.name.clone());
+                descendants.push(branch.name.to_string());
+                queue.push(branch.name.to_string());
             }
         }
     }

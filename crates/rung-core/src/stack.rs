@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::BranchName;
+
 /// A stack of dependent branches forming a PR chain.
 // TODO(long-term): For large stacks (>20 branches), consider adding a HashMap<String, usize>
 // index for O(1) lookup in find_branch() and find_branch_mut() instead of linear search.
@@ -93,17 +95,18 @@ impl Default for Stack {
 }
 
 /// A branch within a stack.
-// TODO(long-term): Consider a BranchName newtype with validation to prevent:
-// - Path traversal (../)
-// - Shell metacharacters
-// - Invalid git branch name characters
+///
+/// Branch names are validated at construction time to prevent:
+/// - Path traversal attacks (`../`)
+/// - Shell metacharacters (`$`, `;`, `|`, etc.)
+/// - Invalid git branch name characters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StackBranch {
-    /// Branch name.
-    pub name: String,
+    /// Branch name (validated).
+    pub name: BranchName,
 
     /// Parent branch name (None for root branches based on main/master).
-    pub parent: Option<String>,
+    pub parent: Option<BranchName>,
 
     /// Associated PR number (if submitted).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,15 +117,29 @@ pub struct StackBranch {
 }
 
 impl StackBranch {
-    /// Create a new stack branch.
+    /// Create a new stack branch with pre-validated names.
     #[must_use]
-    pub fn new(name: impl Into<String>, parent: Option<String>) -> Self {
+    pub fn new(name: BranchName, parent: Option<BranchName>) -> Self {
         Self {
-            name: name.into(),
+            name,
             parent,
             pr: None,
             created: Utc::now(),
         }
+    }
+
+    /// Create a new stack branch, validating the names.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the branch name or parent name is invalid.
+    pub fn try_new(
+        name: impl Into<String>,
+        parent: Option<impl Into<String>>,
+    ) -> crate::Result<Self> {
+        let name = BranchName::new(name)?;
+        let parent = parent.map(BranchName::new).transpose()?;
+        Ok(Self::new(name, parent))
     }
 }
 
@@ -170,6 +187,7 @@ impl BranchState {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -178,11 +196,8 @@ mod tests {
         let mut stack = Stack::new();
         assert!(stack.is_empty());
 
-        stack.add_branch(StackBranch::new("feature/auth", Some("main".into())));
-        stack.add_branch(StackBranch::new(
-            "feature/auth-ui",
-            Some("feature/auth".into()),
-        ));
+        stack.add_branch(StackBranch::try_new("feature/auth", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("feature/auth-ui", Some("feature/auth")).unwrap());
 
         assert_eq!(stack.len(), 2);
         assert!(stack.find_branch("feature/auth").is_some());
@@ -195,9 +210,9 @@ mod tests {
     #[test]
     fn test_ancestry() {
         let mut stack = Stack::new();
-        stack.add_branch(StackBranch::new("a", Some("main".into())));
-        stack.add_branch(StackBranch::new("b", Some("a".into())));
-        stack.add_branch(StackBranch::new("c", Some("b".into())));
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("b", Some("a")).unwrap());
+        stack.add_branch(StackBranch::try_new("c", Some("b")).unwrap());
 
         let ancestry = stack.ancestry("c");
         assert_eq!(ancestry.len(), 3);

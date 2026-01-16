@@ -388,7 +388,7 @@ fn update_stack_comments(gh: &GitHubContext<'_>, branches: &[StackBranch]) -> Re
 /// Returns branch names in order from oldest ancestor to newest descendant.
 fn build_branch_chain(branches: &[StackBranch], current_name: &str) -> Vec<String> {
     // Find all ancestors (walk up the parent chain)
-    let mut ancestors = vec![];
+    let mut ancestors: Vec<String> = vec![];
     let mut current = current_name.to_string();
 
     loop {
@@ -396,8 +396,8 @@ fn build_branch_chain(branches: &[StackBranch], current_name: &str) -> Vec<Strin
             if let Some(ref parent) = branch.parent {
                 // Check if parent is in the stack
                 if branches.iter().any(|b| b.name == *parent) {
-                    ancestors.push(parent.clone());
-                    current = parent.clone();
+                    ancestors.push(parent.to_string());
+                    current = parent.to_string();
                     continue;
                 }
             }
@@ -415,10 +415,12 @@ fn build_branch_chain(branches: &[StackBranch], current_name: &str) -> Vec<Strin
     // Find all descendants (branches whose parent is in our chain)
     let mut i = 0;
     while i < chain.len() {
-        let parent_name = &chain[i].clone();
+        let parent_name = chain[i].clone();
         for branch in branches {
-            if branch.parent.as_ref() == Some(parent_name) && !chain.contains(&branch.name) {
-                chain.push(branch.name.clone());
+            if branch.parent.as_ref().is_some_and(|p| p == &parent_name)
+                && !chain.contains(&branch.name.to_string())
+            {
+                chain.push(branch.name.to_string());
             }
         }
         i += 1;
