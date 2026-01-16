@@ -1,11 +1,13 @@
 //! Authentication handling for GitHub API.
 //!
-//! # Security Notes
-//!
-//! TODO(long-term): Consider using the `zeroize` crate to clear tokens from memory
-//! after use, reducing the window for credential exposure in memory dumps.
+//! Tokens are stored using `SecretString` from the `secrecy` crate, which
+//! automatically zeroizes memory when dropped and prevents accidental logging.
 
 use std::process::Command;
+
+#[cfg(test)]
+use secrecy::ExposeSecret;
+use secrecy::SecretString;
 
 use crate::error::{Error, Result};
 
@@ -18,8 +20,8 @@ pub enum Auth {
     /// Use token from environment variable.
     EnvVar(String),
 
-    /// Use a specific token.
-    Token(String),
+    /// Use a specific token (zeroized on drop).
+    Token(SecretString),
 }
 
 impl Auth {
@@ -37,12 +39,16 @@ impl Auth {
 
     /// Resolve the authentication to a token string.
     ///
+    /// Returns a `SecretString` that will be zeroized when dropped.
+    ///
     /// # Errors
     /// Returns error if token cannot be obtained.
-    pub fn resolve(&self) -> Result<String> {
+    pub fn resolve(&self) -> Result<SecretString> {
         match self {
             Self::GhCli => get_gh_token(),
-            Self::EnvVar(var) => std::env::var(var).map_err(|_| Error::NoToken),
+            Self::EnvVar(var) => std::env::var(var)
+                .map(SecretString::from)
+                .map_err(|_| Error::NoToken),
             Self::Token(t) => Ok(t.clone()),
         }
     }
@@ -55,7 +61,7 @@ impl Default for Auth {
 }
 
 /// Get GitHub token from gh CLI.
-fn get_gh_token() -> Result<String> {
+fn get_gh_token() -> Result<SecretString> {
     let output = Command::new("gh").args(["auth", "token"]).output()?;
 
     if !output.status.success() {
@@ -68,7 +74,7 @@ fn get_gh_token() -> Result<String> {
         return Err(Error::NoToken);
     }
 
-    Ok(token)
+    Ok(SecretString::from(token))
 }
 
 #[cfg(test)]
@@ -84,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_token_auth() {
-        let auth = Auth::Token("test_token".into());
-        assert_eq!(auth.resolve().unwrap(), "test_token");
+        let auth = Auth::Token(SecretString::from("test_token"));
+        assert_eq!(auth.resolve().unwrap().expose_secret(), "test_token");
     }
 }

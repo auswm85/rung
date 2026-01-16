@@ -2,6 +2,7 @@
 
 use reqwest::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
+use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 
 use crate::auth::Auth;
@@ -80,7 +81,8 @@ impl ApiPullRequest {
 pub struct GitHubClient {
     client: Client,
     base_url: String,
-    token: String,
+    /// Token stored as `SecretString` for automatic zeroization on drop.
+    token: SecretString,
 }
 
 impl GitHubClient {
@@ -128,7 +130,10 @@ impl GitHubClient {
         let response = self
             .client
             .get(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", self.token.expose_secret()),
+            )
             .send()
             .await?;
 
@@ -145,7 +150,10 @@ impl GitHubClient {
         let response = self
             .client
             .post(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", self.token.expose_secret()),
+            )
             .json(body)
             .send()
             .await?;
@@ -163,7 +171,10 @@ impl GitHubClient {
         let response = self
             .client
             .patch(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", self.token.expose_secret()),
+            )
             .json(body)
             .send()
             .await?;
@@ -181,7 +192,10 @@ impl GitHubClient {
         let response = self
             .client
             .put(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", self.token.expose_secret()),
+            )
             .json(body)
             .send()
             .await?;
@@ -195,7 +209,10 @@ impl GitHubClient {
         let response = self
             .client
             .delete(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", self.token.expose_secret()),
+            )
             .send()
             .await?;
 
