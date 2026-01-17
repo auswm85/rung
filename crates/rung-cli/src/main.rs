@@ -31,6 +31,7 @@ fn main() {
         Commands::Merge { method, no_delete } => commands::merge::run(json, &method, no_delete),
         Commands::Nxt => commands::navigate::run_next(),
         Commands::Prv => commands::navigate::run_prev(),
+        Commands::Move => commands::mv::run(),
         Commands::Doctor => commands::doctor::run(json),
         Commands::Update { check } => commands::update::run(check),
         Commands::Completions { shell } => commands::completions::run(shell),

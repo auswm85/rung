@@ -45,6 +45,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Terminal output
 colored = "2"
+inquire = "0.9"
 console = "0.15"
 indicatif = "0.17"
 

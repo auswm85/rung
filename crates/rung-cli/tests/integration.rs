@@ -86,7 +86,8 @@ fn test_help_flag() {
         .stdout(predicate::str::contains("init"))
         .stdout(predicate::str::contains("create"))
         .stdout(predicate::str::contains("status"))
-        .stdout(predicate::str::contains("sync"));
+        .stdout(predicate::str::contains("sync"))
+        .stdout(predicate::str::contains("move"));
 }
 
 #[test]
@@ -372,6 +373,21 @@ fn test_navigate_no_child() {
         .assert()
         .success()
         .stdout(predicate::str::contains("no children"));
+}
+
+// Note: Interactive move command tests are limited because inquire
+// requires a TTY which is not available in the test environment.
+// The command is tested via help output only.
+
+#[test]
+fn test_move_in_help() {
+    // Verify move command is registered and shows in main help
+    rung()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("move"))
+        .stdout(predicate::str::contains("Interactive branch picker"));
 }
 
 // ============================================================================

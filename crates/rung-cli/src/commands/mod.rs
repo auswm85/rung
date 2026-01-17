@@ -7,6 +7,7 @@ pub mod create;
 pub mod doctor;
 pub mod init;
 pub mod merge;
+pub mod mv;
 pub mod navigate;
 pub mod status;
 pub mod submit;
@@ -133,6 +134,12 @@ pub enum Commands {
     /// Navigate to the previous branch in the stack (parent).
     #[command(alias = "p")]
     Prv,
+
+    /// Interactive branch picker for quick navigation.
+    ///
+    /// Opens a TUI list to select and jump to any branch in the stack.
+    #[command(alias = "mv")]
+    Move,
 
     /// Diagnose issues with the stack and repository.
     ///

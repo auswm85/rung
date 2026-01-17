@@ -217,6 +217,23 @@ Navigate to the previous (parent) branch in the stack.
 rung prv
 ```
 
+### `rung move`
+
+Interactive branch picker for quick navigation. Opens a TUI list to select and jump to any branch in the stack.
+
+```bash
+rung move    # or `rung mv`
+```
+
+Displays all branches and highlights the current branch. PR numbers are shown when available:
+
+```
+? Jump to branch:
+  feat/auth #41
+> feat/api #42 ◀
+  feat/ui
+```
+
 ### `rung doctor`
 
 Diagnose issues with the stack and repository. Checks:

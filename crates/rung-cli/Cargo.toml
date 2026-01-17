@@ -38,6 +38,7 @@ tokio = { workspace = true }
 serde_json = { workspace = true }
 colored = { workspace = true }
 console = { workspace = true }
+inquire = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
