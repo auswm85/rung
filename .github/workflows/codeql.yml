@@ -3,24 +3,8 @@ name: CodeQL
 on:
   push:
     branches: [main]
-    paths:
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "vscode-extension/**/*.ts"
-      - "vscode-extension/**/*.js"
-      - "vscode-extension/package.json"
-      - ".github/**"
   pull_request:
     branches: [main]
-    paths:
-      - "crates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "vscode-extension/**/*.ts"
-      - "vscode-extension/**/*.js"
-      - "vscode-extension/package.json"
-      - ".github/**"
 
 permissions:
   security-events: write
@@ -90,3 +74,20 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:javascript-typescript"
+
+  # Required status check that always passes
+  # This allows PRs with only non-code changes (e.g., README) to merge
+  codeql-status:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    needs: [changes, analyze-rust, analyze-typescript]
+    if: always()
+    steps:
+      - name: Check status
+        run: |
+          if [[ "${{ needs.analyze-rust.result }}" == "failure" ]] || \
+             [[ "${{ needs.analyze-typescript.result }}" == "failure" ]]; then
+            echo "CodeQL analysis failed"
+            exit 1
+          fi
+          echo "CodeQL analysis passed or skipped"
