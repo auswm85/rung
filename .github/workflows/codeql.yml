@@ -10,7 +10,7 @@ on:
       - "vscode-extension/**/*.ts"
       - "vscode-extension/**/*.js"
       - "vscode-extension/package.json"
-      - ".github/workflows/codeql.yml"
+      - ".github/**"
   pull_request:
     branches: [main]
     paths:
@@ -20,7 +20,7 @@ on:
       - "vscode-extension/**/*.ts"
       - "vscode-extension/**/*.js"
       - "vscode-extension/package.json"
-      - ".github/workflows/codeql.yml"
+      - ".github/**"
 
 permissions:
   security-events: write
