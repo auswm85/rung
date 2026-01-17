@@ -234,6 +234,21 @@ Displays all branches and highlights the current branch. PR numbers are shown wh
   feat/ui
 ```
 
+### `rung log`
+
+Show commits on the current branch (commits between parent branch and HEAD). Helps visualize what's in the current stack branch.
+
+```bash
+rung log
+```
+
+Example output:
+
+```text
+a1b2c3d    Add user authentication     alice
+e4f5g6h    Fix login redirect          alice
+```
+
 ### `rung doctor`
 
 Diagnose issues with the stack and repository. Checks:
