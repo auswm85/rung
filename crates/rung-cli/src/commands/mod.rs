@@ -6,6 +6,7 @@ pub mod completions;
 pub mod create;
 pub mod doctor;
 pub mod init;
+pub mod log;
 pub mod merge;
 pub mod mv;
 pub mod navigate;
@@ -169,4 +170,7 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+
+    /// Show commits between the base branch and HEAD
+    Log,
 }

@@ -251,6 +251,24 @@ impl Repository {
         Ok(revwalk.count())
     }
 
+    /// Get commits between two points.
+    ///
+    /// # Errors
+    /// Return error if revwalk fails.
+    pub fn commits_between(&self, from: Oid, to: Oid) -> Result<Vec<Oid>> {
+        let mut revwalk = self.inner.revwalk()?;
+        revwalk.push(to)?;
+        revwalk.hide(from)?;
+
+        let mut commits = Vec::new();
+        for oid in revwalk {
+            let oid = oid?;
+            commits.push(oid);
+        }
+
+        Ok(commits)
+    }
+
     // === Reset operations ===
 
     /// Hard reset a branch to a specific commit.

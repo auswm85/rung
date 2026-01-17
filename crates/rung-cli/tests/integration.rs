@@ -488,6 +488,47 @@ fn test_undo_no_backup() {
 }
 
 // ============================================================================
+// Log command tests
+// ============================================================================
+
+#[test]
+fn test_log() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create first branch
+    rung()
+        .args(["create", "feature"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Make a commit on feature
+    let file = temp.path().join("feature1.txt");
+    fs::write(&file, "feature 1 content").expect("Failed to write file");
+
+    StdCommand::new("git")
+        .args(["add", "."])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to git add");
+
+    StdCommand::new("git")
+        .args(["commit", "-m", "Add feature"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to commit");
+
+    rung()
+        .arg("log")
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Add feature"));
+}
+
+// ============================================================================
 // Error handling tests
 // ============================================================================
 
