@@ -32,7 +32,6 @@ jobs:
         with:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
-          generate_release_notes: true
 
   # Build binaries for each platform
   build:
