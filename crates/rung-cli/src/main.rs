@@ -33,6 +33,7 @@ fn main() {
         Commands::Prv => commands::navigate::run_prev(),
         Commands::Doctor => commands::doctor::run(json),
         Commands::Update { check } => commands::update::run(check),
+        Commands::Completions { shell } => commands::completions::run(shell),
     };
 
     if let Err(e) = result {

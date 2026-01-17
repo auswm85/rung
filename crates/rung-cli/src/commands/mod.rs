@@ -2,6 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
+pub mod completions;
 pub mod create;
 pub mod doctor;
 pub mod init;
@@ -148,5 +149,16 @@ pub enum Commands {
         /// Only check for updates without installing.
         #[arg(long)]
         check: bool,
+    },
+
+    /// Generate shell completions.
+    ///
+    /// Outputs completion script to stdout. Redirect to a file and
+    /// source it in your shell configuration.
+    #[command(alias = "comp")]
+    Completions {
+        /// Shell to generate completions for.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 }
