@@ -81,11 +81,10 @@ BREAKING CHANGE: stack.json schema updated, run `rung migrate`
 
 ## Code Style
 
-- Run `cargo fmt` before committing
-- Run `cargo clippy` and address warnings
-- Follow existing patterns in the codebase
-- Add doc comments for public APIs
-- Prefer `thiserror` for library errors, `anyhow` for CLI
+- Run `cargo fmt` before committing.
+- Run `cargo clippy` and address warnings.
+- **Documentation**: Add doc comments (`///`) for public APIs. If adding a CLI command, you **must** update the `README.md` with usage examples.
+- Prefer `thiserror` for library errors, `anyhow` for CLI.
 
 ## Testing
 
@@ -95,16 +94,13 @@ BREAKING CHANGE: stack.json schema updated, run `rung migrate`
 
 ## Pull Requests
 
-1. Create a branch from `main` using naming conventions above
-2. Make focused, atomic commits following conventional commits
-3. Ensure CI passes (fmt, clippy, tests)
-4. Fill out the PR template
-5. Request review
+1. **Create a branch** from `main` using the naming conventions above.
+2. **Commit changes** using focused, atomic commits following [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/).
+3. **Submit the PR** and fill out the provided template.
+4. **Automated Review**: Once submitted, CI processes will run and **CodeRabbit** will automatically scan your code.
+5. **Maintainer Review**: Once automated checks are green, a human review will be conducted for final approval and merge.
 
-**Current focus areas:**
-
-- ⚙️ **Git Internals:** Help optimize `git2-rs` operations.
-- 🧪 **Testing:** We need more edge-case tests for complex rebase scenarios as well as integration tests
+See the [Roadmap](ROADMAP.md) for current priorities and where your contribution fits the project's goals.
 
 ## Questions?
 

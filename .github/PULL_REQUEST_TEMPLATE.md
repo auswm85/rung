@@ -1,23 +1,20 @@
 ## Summary
 
-Brief description of changes.
+Brief description of changes. Fixes # (issue).
 
-- **Please check if the PR fulfills these requirements**
+## Checklist
 
-- [ ] The commit message follows our guidelines
-- [ ] Tests for the changes have been added (for bug fixes / features)
-- [ ] Docs have been added / updated (for bug fixes / features)
-- [ ] `cargo fmt` passes
-- [ ] `cargo clippy` passes
-- [ ] `cargo test` passes
-- [ ] Documentation updated (if applicable)
+- [ ] I have followed the [Branch Naming and Commit guidelines](CONTRIBUTING.md)
+- [ ] `cargo fmt`, `clippy`, and `test` pass locally
+- [ ] I have added/updated tests for these changes
+- [ ] **Documentation**: I have updated the `README.md` (if adding/changing CLI commands)
+- [ ] **Documentation**: I have added doc comments (`///`) to new public functions
 
-- **What kind of change does this PR introduce?** (Bug fix, feature, docs update, ...)
+## Change Description
 
-- **What is the current behavior?** (You can also link to an open issue here)
+- **Type of change**: (Bug fix, feature, refactor, etc.)
+- **Current behavior**:
+- **New behavior**:
+- **Breaking changes?**: (If yes, please describe the migration path)
 
-- **What is the new behavior (if this is a feature change)?**
-
-- **Does this PR introduce a breaking change?** (What changes might users need to make in their application due to this PR?)
-
-- **Other information**:
+## Other Information
