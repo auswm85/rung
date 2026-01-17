@@ -1,0 +1,58 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+categories:
+  - title: "🚀 Features"
+    labels:
+      - "enhancement"
+      - "feature"
+  - title: "🐛 Bug Fixes"
+    labels:
+      - "bug"
+      - "fix"
+  - title: "🧹 Maintenance"
+    labels:
+      - "chore"
+      - "dependencies"
+  - title: "📚 Documentation"
+    labels:
+      - "documentation"
+      - "docs"
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+change-title-escapes: '\<*_&'
+version-resolver:
+  major:
+    labels:
+      - "major"
+      - "breaking"
+  minor:
+    labels:
+      - "minor"
+      - "enhancement"
+      - "feature"
+  patch:
+    labels:
+      - "patch"
+      - "bug"
+      - "fix"
+  default: patch
+exclude-labels:
+  - "skip-changelog"
+autolabeler:
+  - label: "chore"
+    title:
+      - "/^chore/i"
+  - label: "enhancement"
+    title:
+      - "/^feat/i"
+  - label: "bug"
+    title:
+      - "/^fix/i"
+  - label: "documentation"
+    title:
+      - "/^docs/i"
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
