@@ -9,6 +9,7 @@ use commands::{Cli, Commands};
 
 fn main() {
     let cli = Cli::parse();
+    output::set_quiet(cli.quiet);
     let json = cli.json;
 
     let result = match cli.command {

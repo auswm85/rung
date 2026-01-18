@@ -32,6 +32,13 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Suppress informational output.
+    ///
+    /// Only errors and essential results (like PR URLs) are printed.
+    /// Exit code 0 indicates success.
+    #[arg(short, long, global = true, conflicts_with = "json")]
+    pub quiet: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }

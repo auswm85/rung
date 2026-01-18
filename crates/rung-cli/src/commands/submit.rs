@@ -117,6 +117,13 @@ pub fn run(json: bool, draft: bool, force: bool, custom_title: Option<&str>) -> 
 
     print_summary(created, updated);
 
+    // Output PR URLs for piping (essential output, not suppressed by --quiet)
+    for info in &branch_infos {
+        if let Some(url) = &info.pr_url {
+            output::essential(url);
+        }
+    }
+
     Ok(())
 }
 
@@ -191,7 +198,10 @@ fn process_branches(
             branch_infos.push(BranchSubmitInfo {
                 branch: branch_name.to_string(),
                 pr_number,
-                pr_url: None,
+                pr_url: Some(format!(
+                    "https://github.com/{}/{}/pull/{pr_number}",
+                    gh.owner, gh.repo_name
+                )),
                 action: SubmitAction::Updated,
             });
         } else {

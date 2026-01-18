@@ -125,13 +125,13 @@ fn test_init_already_initialized() {
     // First init
     rung().arg("init").current_dir(&temp).assert().success();
 
-    // Second init should warn (exits 0 but shows warning)
+    // Second init should warn (exits 0 but shows warning on stderr)
     rung()
         .arg("init")
         .current_dir(&temp)
         .assert()
         .success()
-        .stdout(predicate::str::contains("already initialized"));
+        .stderr(predicate::str::contains("already initialized"));
 }
 
 #[test]
