@@ -222,6 +222,11 @@ pub fn run(
     handle_sync_result(sync_result, json)
 }
 
+/// Threshold for switching from individual REST calls to batched GraphQL query.
+/// For stacks with more than this many PRs, we use a single GraphQL call instead
+/// of N individual REST calls to reduce API usage.
+const BATCH_THRESHOLD: usize = 5;
+
 /// Detect merged PRs via GitHub API, validate PR bases, and reconcile the stack.
 ///
 /// This function performs two key operations:
@@ -230,6 +235,8 @@ pub fn run(
 ///
 /// The second check is a "self-healing" mechanism that detects "ghost parents" - PRs whose
 /// base branch on GitHub points to a deleted branch or doesn't match the stack's expectation.
+///
+/// For efficiency, uses GraphQL batch fetching when there are more than 5 PRs to check.
 fn detect_and_reconcile_merged(
     repo: &Repository,
     state: &State,
@@ -264,62 +271,77 @@ fn detect_and_reconcile_merged(
 
     let rt = tokio::runtime::Runtime::new()?;
 
-    // Check each PR's status and validate base branches
-    let mut merged_prs = Vec::new();
-    let mut ghost_parents = Vec::new();
-
     if !json {
         output::info("Checking PRs and validating bases...");
     }
 
-    for (branch_name, stack_parent, pr_number) in branches_with_prs {
-        let pr_result = rt.block_on(client.get_pr(&owner, &repo_name, pr_number));
+    // Check each PR's status and validate base branches
+    let mut merged_prs = Vec::new();
+    let mut ghost_parents = Vec::new();
 
-        match pr_result {
-            Ok(pr) => {
-                if pr.state == PullRequestState::Merged {
-                    // PR was merged externally
-                    if !json {
-                        output::success(&format!(
-                            "PR #{} ({}) merged into {}",
-                            pr_number, branch_name, pr.base_branch
-                        ));
-                    }
+    // Use batch fetch for larger stacks to reduce API calls
+    if branches_with_prs.len() > BATCH_THRESHOLD {
+        // Batch fetch all PRs in a single GraphQL call
+        let pr_numbers: Vec<u64> = branches_with_prs.iter().map(|(_, _, pr)| *pr).collect();
 
-                    merged_prs.push(ExternalMergeInfo {
-                        branch_name,
-                        pr_number,
-                        merged_into: pr.base_branch,
-                    });
-                } else {
-                    // PR is still open - validate its base matches our expectation
-                    let expected_base = stack_parent.as_ref().map_or(base_branch, |p| p.as_str());
-
-                    if pr.base_branch != expected_base {
-                        // Ghost parent detected! PR base doesn't match stack.json
-                        if !json {
-                            output::warn(&format!(
-                                "Ghost parent: PR #{} ({}) base is '{}' but should be '{}'",
-                                pr_number, branch_name, pr.base_branch, expected_base
-                            ));
-                        }
-
-                        ghost_parents.push(ReparentedBranch {
-                            name: branch_name,
-                            old_parent: pr.base_branch,
-                            new_parent: expected_base.to_string(),
-                            pr_number: Some(pr_number),
-                        });
-                    }
-                }
-            }
+        let pr_map = match rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers)) {
+            Ok(map) => map,
             Err(e) => {
-                // Log but don't fail - PR might have been deleted
                 if !json {
-                    output::warn(&format!("Could not check PR #{pr_number}: {e}"));
+                    output::warn(&format!(
+                        "Batch PR fetch failed, falling back to individual: {e}"
+                    ));
+                }
+                // Fall back to individual fetches
+                std::collections::HashMap::new()
+            }
+        };
+
+        // If batch fetch failed (empty), fall back to individual fetches
+        if pr_map.is_empty() {
+            fetch_prs_individually(
+                &rt,
+                &client,
+                &owner,
+                &repo_name,
+                &branches_with_prs,
+                base_branch,
+                json,
+                &mut merged_prs,
+                &mut ghost_parents,
+            );
+        } else {
+            // Process the batch results
+            for (branch_name, stack_parent, pr_number) in &branches_with_prs {
+                if let Some(pr) = pr_map.get(pr_number) {
+                    process_pr_result(
+                        pr,
+                        branch_name,
+                        stack_parent.as_ref(),
+                        *pr_number,
+                        base_branch,
+                        json,
+                        &mut merged_prs,
+                        &mut ghost_parents,
+                    );
+                } else if !json {
+                    output::warn(&format!("Could not fetch PR #{pr_number}"));
                 }
             }
         }
+    } else {
+        // Small stack: use individual REST calls
+        fetch_prs_individually(
+            &rt,
+            &client,
+            &owner,
+            &repo_name,
+            &branches_with_prs,
+            base_branch,
+            json,
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
     }
 
     // If no merged PRs, just return with ghost parent repairs
@@ -350,12 +372,118 @@ fn detect_and_reconcile_merged(
     Ok(result)
 }
 
+/// Fetch PRs individually using REST API (for small stacks or as fallback).
+#[allow(clippy::too_many_arguments)]
+fn fetch_prs_individually(
+    rt: &tokio::runtime::Runtime,
+    client: &GitHubClient,
+    owner: &str,
+    repo_name: &str,
+    branches_with_prs: &[(String, Option<rung_core::BranchName>, u64)],
+    base_branch: &str,
+    json: bool,
+    merged_prs: &mut Vec<ExternalMergeInfo>,
+    ghost_parents: &mut Vec<ReparentedBranch>,
+) {
+    for (branch_name, stack_parent, pr_number) in branches_with_prs {
+        let pr_result = rt.block_on(client.get_pr(owner, repo_name, *pr_number));
+
+        match pr_result {
+            Ok(pr) => {
+                process_pr_result(
+                    &pr,
+                    branch_name,
+                    stack_parent.as_ref(),
+                    *pr_number,
+                    base_branch,
+                    json,
+                    merged_prs,
+                    ghost_parents,
+                );
+            }
+            Err(e) => {
+                // Log but don't fail - PR might have been deleted
+                if !json {
+                    output::warn(&format!("Could not check PR #{pr_number}: {e}"));
+                }
+            }
+        }
+    }
+}
+
+/// Process a fetched PR: detect merges and ghost parents.
+#[allow(clippy::too_many_arguments)]
+fn process_pr_result(
+    pr: &rung_github::PullRequest,
+    branch_name: &str,
+    stack_parent: Option<&rung_core::BranchName>,
+    pr_number: u64,
+    base_branch: &str,
+    json: bool,
+    merged_prs: &mut Vec<ExternalMergeInfo>,
+    ghost_parents: &mut Vec<ReparentedBranch>,
+) {
+    if pr.state == PullRequestState::Merged {
+        // PR was merged externally
+        if !json {
+            output::success(&format!(
+                "PR #{} ({}) merged into {}",
+                pr_number, branch_name, pr.base_branch
+            ));
+        }
+
+        merged_prs.push(ExternalMergeInfo {
+            branch_name: branch_name.to_string(),
+            pr_number,
+            merged_into: pr.base_branch.clone(),
+        });
+    } else {
+        // PR is still open - validate its base matches our expectation
+        let expected_base = stack_parent.map_or(base_branch, |p| p.as_str());
+
+        if pr.base_branch != expected_base {
+            // Ghost parent detected! PR base doesn't match stack.json
+            if !json {
+                output::warn(&format!(
+                    "Ghost parent: PR #{} ({}) base is '{}' but should be '{}'",
+                    pr_number, branch_name, pr.base_branch, expected_base
+                ));
+            }
+
+            ghost_parents.push(ReparentedBranch {
+                name: branch_name.to_string(),
+                old_parent: pr.base_branch.clone(),
+                new_parent: expected_base.to_string(),
+                pr_number: Some(pr_number),
+            });
+        }
+    }
+}
+
 /// Update GitHub PR base branches for re-parented and repaired branches.
+///
+/// Implements a no-op check: re-fetches current PR state before PATCH to avoid
+/// redundant updates that would trigger unnecessary CI builds and PR timeline noise.
 fn update_pr_bases(
     repo: &Repository,
     reconcile_result: &ReconcileResult,
     json: bool,
 ) -> Result<()> {
+    // Collect all PRs that need updating
+    let updates_needed: Vec<_> = reconcile_result
+        .reparented
+        .iter()
+        .chain(reconcile_result.repaired.iter())
+        .filter_map(|r| {
+            r.pr_number
+                .map(|pr| (pr, r.new_parent.clone(), r.old_parent.clone()))
+        })
+        .collect();
+
+    if updates_needed.is_empty() {
+        return Ok(());
+    }
+
     let origin_url = repo.origin_url().context("No origin remote configured")?;
     let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
         .context("Could not parse GitHub remote URL")?;
@@ -367,61 +495,80 @@ fn update_pr_bases(
         output::info("Updating PR base branches on GitHub...");
     }
 
-    // Update PR bases for branches re-parented due to merge
-    for reparent in &reconcile_result.reparented {
-        if let Some(pr_number) = reparent.pr_number {
-            let update = UpdatePullRequest {
-                title: None,
-                body: None,
-                base: Some(reparent.new_parent.clone()),
-            };
+    // Re-fetch current PR states to implement no-op check
+    // This prevents redundant PATCH requests that would trigger CI builds
+    let pr_numbers: Vec<u64> = updates_needed.iter().map(|(pr, _, _)| *pr).collect();
 
-            match rt.block_on(client.update_pr(&owner, &repo_name, pr_number, update)) {
-                Ok(_) => {
-                    if !json {
-                        output::success(&format!(
-                            "Updated PR #{} base → {}",
-                            pr_number, reparent.new_parent
-                        ));
-                    }
+    let current_states: std::collections::HashMap<u64, String> =
+        if pr_numbers.len() > BATCH_THRESHOLD {
+            // Use batch fetch for efficiency
+            rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))
+                .map_or_else(
+                    |_| fetch_current_bases(&rt, &client, &owner, &repo_name, &pr_numbers),
+                    |prs| {
+                        prs.into_iter()
+                            .map(|(num, pr)| (num, pr.base_branch))
+                            .collect()
+                    },
+                )
+        } else {
+            fetch_current_bases(&rt, &client, &owner, &repo_name, &pr_numbers)
+        };
+
+    // Apply updates with no-op check
+    for (pr_number, new_base, old_base) in updates_needed {
+        // No-op check: skip if PR base is already what we want
+        if let Some(current_base) = current_states.get(&pr_number) {
+            if current_base == &new_base {
+                if !json {
+                    output::info(&format!(
+                        "PR #{pr_number} base already '{new_base}' - skipping"
+                    ));
                 }
-                Err(e) => {
-                    if !json {
-                        output::warn(&format!("Could not update PR #{pr_number}: {e}"));
-                    }
-                }
+                continue;
             }
         }
-    }
 
-    // Repair PR bases for ghost parent fixes (Active Base Validation)
-    for repair in &reconcile_result.repaired {
-        if let Some(pr_number) = repair.pr_number {
-            let update = UpdatePullRequest {
-                title: None,
-                body: None,
-                base: Some(repair.new_parent.clone()),
-            };
+        let update = UpdatePullRequest {
+            title: None,
+            body: None,
+            base: Some(new_base.clone()),
+        };
 
-            match rt.block_on(client.update_pr(&owner, &repo_name, pr_number, update)) {
-                Ok(_) => {
-                    if !json {
-                        output::success(&format!(
-                            "Repaired PR #{} base: {} → {}",
-                            pr_number, repair.old_parent, repair.new_parent
-                        ));
-                    }
+        match rt.block_on(client.update_pr(&owner, &repo_name, pr_number, update)) {
+            Ok(_) => {
+                if !json {
+                    output::success(&format!(
+                        "Updated PR #{pr_number} base: {old_base} → {new_base}"
+                    ));
                 }
-                Err(e) => {
-                    if !json {
-                        output::warn(&format!("Could not repair PR #{pr_number}: {e}"));
-                    }
+            }
+            Err(e) => {
+                if !json {
+                    output::warn(&format!("Could not update PR #{pr_number}: {e}"));
                 }
             }
         }
     }
 
     Ok(())
+}
+
+/// Fetch current base branches for a list of PRs individually.
+fn fetch_current_bases(
+    rt: &tokio::runtime::Runtime,
+    client: &GitHubClient,
+    owner: &str,
+    repo_name: &str,
+    pr_numbers: &[u64],
+) -> std::collections::HashMap<u64, String> {
+    let mut result = std::collections::HashMap::new();
+    for &pr_number in pr_numbers {
+        if let Ok(pr) = rt.block_on(client.get_pr(owner, repo_name, pr_number)) {
+            result.insert(pr_number, pr.base_branch);
+        }
+    }
+    result
 }
 
 /// Push all branches in the stack to remote.

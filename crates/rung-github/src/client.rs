@@ -85,6 +85,68 @@ impl ApiPullRequest {
     }
 }
 
+// === GraphQL types for batch PR fetching ===
+
+/// GraphQL request wrapper.
+#[derive(serde::Serialize)]
+struct GraphQLRequest {
+    query: String,
+}
+
+/// GraphQL PR response (different field names than REST API).
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphQLPullRequest {
+    number: u64,
+    state: String,
+    merged: bool,
+    is_draft: bool,
+    head_ref_name: String,
+    base_ref_name: String,
+    url: String,
+}
+
+impl GraphQLPullRequest {
+    fn into_pull_request(self) -> PullRequest {
+        let state = if self.merged {
+            PullRequestState::Merged
+        } else if self.state == "OPEN" {
+            PullRequestState::Open
+        } else {
+            PullRequestState::Closed
+        };
+
+        PullRequest {
+            number: self.number,
+            title: String::new(), // Not fetched in batch query
+            body: None,
+            state,
+            draft: self.is_draft,
+            head_branch: self.head_ref_name,
+            base_branch: self.base_ref_name,
+            html_url: self.url,
+            mergeable: None, // Not fetched in batch query
+            mergeable_state: None,
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct GraphQLResponse {
+    data: Option<GraphQLData>,
+    errors: Option<Vec<GraphQLError>>,
+}
+
+#[derive(serde::Deserialize)]
+struct GraphQLData {
+    repository: Option<serde_json::Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct GraphQLError {
+    message: String,
+}
+
 /// GitHub API client.
 pub struct GitHubClient {
     client: Client,
@@ -292,6 +354,92 @@ impl GitHubClient {
             .await?;
 
         Ok(api_pr.into_pull_request())
+    }
+
+    /// Get multiple pull requests by number using GraphQL (single API call).
+    ///
+    /// This is more efficient than calling `get_pr` multiple times when fetching
+    /// many PRs, as it uses a single GraphQL query instead of N REST calls.
+    ///
+    /// Returns a map of PR number to PR data. PRs that don't exist or can't be
+    /// fetched are omitted from the result (no error is returned for missing PRs).
+    ///
+    /// # Errors
+    /// Returns error if the GraphQL request fails entirely.
+    pub async fn get_prs_batch(
+        &self,
+        owner: &str,
+        repo: &str,
+        numbers: &[u64],
+    ) -> Result<std::collections::HashMap<u64, PullRequest>> {
+        if numbers.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let query = build_graphql_pr_query(owner, repo, numbers);
+        let request = GraphQLRequest { query };
+        let url = format!("{}/graphql", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .header(
+                AUTHORIZATION,
+                format!("Bearer {}", self.token.expose_secret()),
+            )
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let status_code = status.as_u16();
+            return if status_code == 401 {
+                Err(Error::AuthenticationFailed)
+            } else {
+                let text = response.text().await.unwrap_or_default();
+                Err(Error::ApiError {
+                    status: status_code,
+                    message: text,
+                })
+            };
+        }
+
+        let graphql_response: GraphQLResponse = response.json().await?;
+
+        // Check for GraphQL-level errors
+        if let Some(errors) = graphql_response.errors {
+            if !errors.is_empty() {
+                let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+                return Err(Error::ApiError {
+                    status: 200,
+                    message: messages.join("; "),
+                });
+            }
+        }
+
+        let mut result = std::collections::HashMap::new();
+
+        if let Some(data) = graphql_response.data {
+            if let Some(repo_data) = data.repository {
+                // Parse each pr0, pr1, pr2... field
+                for (i, &num) in numbers.iter().enumerate() {
+                    let key = format!("pr{i}");
+                    if let Some(pr_value) = repo_data.get(&key) {
+                        // Skip null values (PR doesn't exist)
+                        if !pr_value.is_null() {
+                            if let Ok(pr) =
+                                serde_json::from_value::<GraphQLPullRequest>(pr_value.clone())
+                            {
+                                result.insert(num, pr.into_pull_request());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     /// Find a PR for a branch.
@@ -512,4 +660,20 @@ impl std::fmt::Debug for GitHubClient {
             .field("token", &"[redacted]")
             .finish_non_exhaustive()
     }
+}
+
+/// Build a GraphQL query to fetch multiple PRs in a single request.
+fn build_graphql_pr_query(owner: &str, repo: &str, numbers: &[u64]) -> String {
+    const PR_FIELDS: &str = "number state merged isDraft headRefName baseRefName url";
+
+    let pr_queries: Vec<String> = numbers
+        .iter()
+        .enumerate()
+        .map(|(i, num)| format!("pr{i}: pullRequest(number: {num}) {{ {PR_FIELDS} }}"))
+        .collect();
+
+    format!(
+        r#"query {{ repository(owner: "{owner}", name: "{repo}") {{ {pr_queries} }} }}"#,
+        pr_queries = pr_queries.join(" ")
+    )
 }
