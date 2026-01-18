@@ -319,11 +319,9 @@ rung merge                  # Merge the next PR
 When you submit PRs, rung adds a comment to each PR showing the stack hierarchy:
 
 ```
-### Stack
-
-- API Tests #124 👈
-- API Client #123
-- `main`
+* **#124** 👈
+* **#123**
+* `main`
 
 ---
 *Managed by [rung](https://github.com/auswm85/rung)*

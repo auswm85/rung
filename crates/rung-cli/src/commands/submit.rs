@@ -414,7 +414,7 @@ const STACK_COMMENT_MARKER: &str = "<!-- rung-stack -->";
 /// Generate stack comment for a PR.
 fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
     let mut comment = String::from(STACK_COMMENT_MARKER);
-    comment.push_str("\n### Stack\n\n");
+    comment.push('\n');
 
     // Find the current branch
     let current_branch = branches.iter().find(|b| b.pr == Some(current_pr));
@@ -432,14 +432,10 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
             let pointer = if is_current { " 👈" } else { "" };
 
             if let Some(pr_num) = b.pr {
-                let title = generate_title(&b.name);
-                if is_current {
-                    let _ = writeln!(comment, "- **{title}** #{pr_num}{pointer}");
-                } else {
-                    let _ = writeln!(comment, "- {title} #{pr_num}");
-                }
+                // GitHub auto-links and expands #number to show PR title
+                let _ = writeln!(comment, "* **#{pr_num}**{pointer}");
             } else {
-                let _ = writeln!(comment, "- *(pending)* `{branch_name}`{pointer}");
+                let _ = writeln!(comment, "* *(pending)* `{branch_name}`{pointer}");
             }
         }
     }
@@ -463,7 +459,7 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
         })
         .unwrap_or("main");
 
-    let _ = writeln!(comment, "- `{base}`");
+    let _ = writeln!(comment, "* `{base}`");
     comment.push_str("\n---\n*Managed by [rung](https://github.com/auswm85/rung)*");
 
     comment
