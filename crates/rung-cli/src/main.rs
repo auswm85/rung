@@ -8,6 +8,11 @@ mod output;
 use commands::{Cli, Commands};
 
 fn main() {
+    // Respect NO_COLOR environment variable (https://no-color.org/)
+    if std::env::var("NO_COLOR").is_ok() {
+        colored::control::set_override(false);
+    }
+
     let cli = Cli::parse();
     output::set_quiet(cli.quiet);
     let json = cli.json;
