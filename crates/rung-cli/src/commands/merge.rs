@@ -126,9 +126,6 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
                         ));
                     }
 
-                    // Store original base for potential rollback
-                    shifted_prs.push((child_pr_num, current_branch.clone()));
-
                     let update = UpdatePullRequest {
                         title: None,
                         body: None,
@@ -138,6 +135,9 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
                         .update_pr(&owner, &repo_name, child_pr_num, update)
                         .await
                         .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
+
+                    // Store original base for rollback only after successful update
+                    shifted_prs.push((child_pr_num, current_branch.clone()));
                 }
             }
         }
