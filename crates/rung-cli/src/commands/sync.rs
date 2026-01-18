@@ -284,49 +284,46 @@ fn detect_and_reconcile_merged(
         // Batch fetch all PRs in a single GraphQL call
         let pr_numbers: Vec<u64> = branches_with_prs.iter().map(|(_, _, pr)| *pr).collect();
 
-        let pr_map = match rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers)) {
-            Ok(map) => map,
+        let batch_result = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers));
+
+        match batch_result {
+            Ok(pr_map) => {
+                // Process the batch results
+                for (branch_name, stack_parent, pr_number) in &branches_with_prs {
+                    if let Some(pr) = pr_map.get(pr_number) {
+                        process_pr_result(
+                            pr,
+                            branch_name,
+                            stack_parent.as_ref(),
+                            *pr_number,
+                            base_branch,
+                            json,
+                            &mut merged_prs,
+                            &mut ghost_parents,
+                        );
+                    } else if !json {
+                        output::warn(&format!("Could not fetch PR #{pr_number}"));
+                    }
+                }
+            }
             Err(e) => {
                 if !json {
                     output::warn(&format!(
                         "Batch PR fetch failed, falling back to individual: {e}"
                     ));
                 }
-                // Fall back to individual fetches
-                std::collections::HashMap::new()
-            }
-        };
-
-        // If batch fetch failed (empty), fall back to individual fetches
-        if pr_map.is_empty() {
-            fetch_prs_individually(
-                &rt,
-                &client,
-                &owner,
-                &repo_name,
-                &branches_with_prs,
-                base_branch,
-                json,
-                &mut merged_prs,
-                &mut ghost_parents,
-            );
-        } else {
-            // Process the batch results
-            for (branch_name, stack_parent, pr_number) in &branches_with_prs {
-                if let Some(pr) = pr_map.get(pr_number) {
-                    process_pr_result(
-                        pr,
-                        branch_name,
-                        stack_parent.as_ref(),
-                        *pr_number,
-                        base_branch,
-                        json,
-                        &mut merged_prs,
-                        &mut ghost_parents,
-                    );
-                } else if !json {
-                    output::warn(&format!("Could not fetch PR #{pr_number}"));
-                }
+                // Fall back to individual fetches on actual failure
+                fetch_prs_individually(
+                    &rt,
+                    &client,
+                    &owner,
+                    &repo_name,
+                    &branches_with_prs,
+                    base_branch,
+                    json,
+                    &mut merged_prs,
+                    &mut ghost_parents,
+                );
             }
         }
     } else {

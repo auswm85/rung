@@ -91,6 +91,14 @@ impl ApiPullRequest {
 #[derive(serde::Serialize)]
 struct GraphQLRequest {
     query: String,
+    variables: GraphQLVariables,
+}
+
+/// GraphQL variables for PR batch query.
+#[derive(serde::Serialize)]
+struct GraphQLVariables {
+    owner: String,
+    repo: String,
 }
 
 /// GraphQL PR response (different field names than REST API).
@@ -376,8 +384,14 @@ impl GitHubClient {
             return Ok(std::collections::HashMap::new());
         }
 
-        let query = build_graphql_pr_query(owner, repo, numbers);
-        let request = GraphQLRequest { query };
+        let query = build_graphql_pr_query(numbers);
+        let request = GraphQLRequest {
+            query,
+            variables: GraphQLVariables {
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+            },
+        };
         let url = format!("{}/graphql", self.base_url);
 
         let response = self
@@ -671,7 +685,7 @@ impl std::fmt::Debug for GitHubClient {
 }
 
 /// Build a GraphQL query to fetch multiple PRs in a single request.
-fn build_graphql_pr_query(owner: &str, repo: &str, numbers: &[u64]) -> String {
+fn build_graphql_pr_query(numbers: &[u64]) -> String {
     const PR_FIELDS: &str = "number state merged isDraft headRefName baseRefName url";
 
     let pr_queries: Vec<String> = numbers
@@ -681,7 +695,7 @@ fn build_graphql_pr_query(owner: &str, repo: &str, numbers: &[u64]) -> String {
         .collect();
 
     format!(
-        r#"query {{ repository(owner: "{owner}", name: "{repo}") {{ {pr_queries} }} }}"#,
+        r"query($owner: String!, $repo: String!) {{ repository(owner: $owner, name: $repo) {{ {pr_queries} }} }}",
         pr_queries = pr_queries.join(" ")
     )
 }
