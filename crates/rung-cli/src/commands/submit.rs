@@ -183,14 +183,13 @@ fn process_branches(
 
         let base_branch = parent_name.as_deref().unwrap_or("main");
 
-        // Use custom title if this is the current branch, otherwise generate
-        let title = if config.current_branch.as_deref() == Some(branch_name.as_str()) {
-            config
-                .custom_title
-                .map_or_else(|| generate_title(&branch_name), String::from)
-        } else {
-            generate_title(&branch_name)
-        };
+        // Get title and body from commit message, with custom title override for current branch
+        let (mut title, body) = get_pr_title_and_body(repo, &branch_name);
+        if config.current_branch.as_deref() == Some(branch_name.as_str()) {
+            if let Some(custom) = config.custom_title {
+                title = custom.to_string();
+            }
+        }
 
         if let Some(pr_number) = existing_pr {
             update_existing_pr(gh, pr_number, base_branch, config.json)?;
@@ -210,6 +209,7 @@ fn process_branches(
                 &branch_name,
                 base_branch,
                 title,
+                body,
                 config.draft,
                 config.json,
             )?;
@@ -253,6 +253,37 @@ fn generate_title(branch_name: &str) -> String {
         .join(" ")
 }
 
+/// Get PR title and body from the branch's tip commit message.
+///
+/// Returns (title, body) where:
+/// - title is the first line of the commit message
+/// - body is the remaining lines (after the first blank line), or empty string if none
+///
+/// Falls back to generated title from branch name if commit message can't be read.
+fn get_pr_title_and_body(repo: &Repository, branch_name: &str) -> (String, String) {
+    if let Ok(message) = repo.branch_commit_message(branch_name) {
+        let mut lines = message.lines();
+        let title = lines.next().unwrap_or("").trim().to_string();
+
+        // Skip blank lines after title, then collect the rest as body
+        // Use trim_end() to preserve leading indentation for markdown formatting
+        let body: String = lines
+            .skip_while(|line| line.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_string();
+
+        // Only use commit message if title is non-empty
+        if !title.is_empty() {
+            return (title, body);
+        }
+    }
+
+    // Fallback to slugified branch name
+    (generate_title(branch_name), String::new())
+}
+
 /// Update an existing PR (only updates base branch, preserves description).
 fn update_existing_pr(
     gh: &GitHubContext<'_>,
@@ -293,6 +324,7 @@ fn create_or_find_pr(
     branch_name: &str,
     base_branch: &str,
     title: String,
+    body: String,
     draft: bool,
     json: bool,
 ) -> Result<PrResult> {
@@ -338,7 +370,7 @@ fn create_or_find_pr(
 
     let create = CreatePullRequest {
         title,
-        body: String::new(), // Start with empty body, user can fill in
+        body,
         head: branch_name.to_string(),
         base: base_branch.to_string(),
         draft,

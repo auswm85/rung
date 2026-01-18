@@ -52,10 +52,23 @@ pub enum Commands {
     /// Create a new branch in the stack.
     ///
     /// Creates a new branch with the current branch as its parent.
+    /// Optionally stages all changes and creates a commit with the given message.
+    ///
+    /// If --message is provided without a branch name, the name is derived
+    /// from the commit message (e.g., "feat: add auth" becomes "feat-add-auth").
     #[command(alias = "c")]
+    #[command(group(
+        clap::ArgGroup::new("create_input")
+            .required(true)
+            .args(["name", "message"])
+    ))]
     Create {
-        /// Name of the new branch.
-        name: String,
+        /// Name of the new branch. Optional if --message is provided.
+        name: Option<String>,
+
+        /// Commit message. If provided, stages all changes and creates a commit.
+        #[arg(long, short)]
+        message: Option<String>,
     },
 
     /// Display the current stack status.

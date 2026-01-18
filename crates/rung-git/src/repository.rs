@@ -221,6 +221,85 @@ impl Repository {
         }
     }
 
+    // === Staging operations ===
+
+    /// Stage all changes (tracked and untracked files).
+    ///
+    /// Equivalent to `git add -A`.
+    ///
+    /// # Errors
+    /// Returns error if staging fails.
+    pub fn stage_all(&self) -> Result<()> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+
+        let output = std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(Error::Git2(git2::Error::from_str(&stderr)))
+        }
+    }
+
+    /// Check if there are staged changes ready to commit.
+    ///
+    /// # Errors
+    /// Returns error if status check fails.
+    pub fn has_staged_changes(&self) -> Result<bool> {
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(false)
+            .include_ignored(false)
+            .include_unmodified(false);
+        let statuses = self.inner.statuses(Some(&mut opts))?;
+
+        for entry in statuses.iter() {
+            let status = entry.status();
+            if status.intersects(
+                git2::Status::INDEX_NEW
+                    | git2::Status::INDEX_MODIFIED
+                    | git2::Status::INDEX_DELETED
+                    | git2::Status::INDEX_RENAMED
+                    | git2::Status::INDEX_TYPECHANGE,
+            ) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Create a commit with the given message on HEAD.
+    ///
+    /// Handles both normal commits (with parent) and initial commits (no parent).
+    ///
+    /// # Errors
+    /// Returns error if commit creation fails.
+    pub fn create_commit(&self, message: &str) -> Result<Oid> {
+        let sig = self.signature()?;
+        let mut index = self.inner.index()?;
+        let tree_id = index.write_tree()?;
+        let tree = self.inner.find_tree(tree_id)?;
+
+        // Handle initial commit case (unborn HEAD)
+        let oid = match self.inner.head().and_then(|h| h.peel_to_commit()) {
+            Ok(parent) => {
+                self.inner
+                    .commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])?
+            }
+            Err(_) => {
+                // Initial commit - no parent
+                self.inner
+                    .commit(Some("HEAD"), &sig, &sig, message, &tree, &[])?
+            }
+        };
+
+        Ok(oid)
+    }
+
     // === Commit operations ===
 
     /// Get a commit by its SHA.
@@ -229,6 +308,19 @@ impl Repository {
     /// Returns error if commit not found.
     pub fn find_commit(&self, oid: Oid) -> Result<git2::Commit<'_>> {
         Ok(self.inner.find_commit(oid)?)
+    }
+
+    /// Get the commit message from a branch's tip commit.
+    ///
+    /// # Errors
+    /// Returns error if branch doesn't exist or has no commits.
+    pub fn branch_commit_message(&self, branch_name: &str) -> Result<String> {
+        let oid = self.branch_commit(branch_name)?;
+        let commit = self.inner.find_commit(oid)?;
+        commit
+            .message()
+            .map(String::from)
+            .ok_or_else(|| Error::Git2(git2::Error::from_str("commit has no message")))
     }
 
     /// Get the merge base between two commits.

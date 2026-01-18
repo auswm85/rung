@@ -2,6 +2,8 @@
 //!
 //! Provides a [`BranchName`] type that enforces git branch name rules
 //! and prevents security issues like path traversal and shell injection.
+//!
+//! Also provides [`slugify`] to convert arbitrary text into a valid branch name.
 
 use std::fmt;
 
@@ -44,6 +46,37 @@ impl BranchName {
         let name = name.into();
         validate_branch_name(&name)?;
         Ok(Self(name))
+    }
+
+    /// Create a branch name by slugifying a commit message.
+    ///
+    /// Takes the first line of the message, converts to lowercase,
+    /// and replaces non-alphanumeric characters with hyphens.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidBranchName`] if the slugified result is invalid
+    /// (e.g., empty message).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rung_core::BranchName;
+    ///
+    /// let name = BranchName::from_message("feat: add authentication").unwrap();
+    /// assert_eq!(name.as_str(), "feat-add-authentication");
+    /// ```
+    pub fn from_message(message: &str) -> Result<Self, Error> {
+        let slugified = slugify(message);
+
+        if slugified.is_empty() {
+            return Err(Error::InvalidBranchName {
+                name: message.to_string(),
+                reason: "message contains no alphanumeric characters".to_string(),
+            });
+        }
+
+        Self::new(slugified)
     }
 
     /// Get the branch name as a string slice.
@@ -245,6 +278,69 @@ fn validate_branch_name(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// Maximum length for generated branch names.
+const MAX_BRANCH_NAME_LENGTH: usize = 50;
+
+/// Convert arbitrary text into a git-safe branch name.
+///
+/// Takes the first line and slugifies it:
+/// - Converts to lowercase
+/// - Replaces non-alphanumeric characters with hyphens
+/// - Removes consecutive/leading/trailing hyphens
+/// - Truncates to 50 characters at word boundaries
+///
+/// # Examples
+///
+/// ```
+/// use rung_core::slugify;
+///
+/// assert_eq!(slugify("feat: add authentication"), "feat-add-authentication");
+/// assert_eq!(slugify("Fix login bug"), "fix-login-bug");
+/// assert_eq!(slugify("feat(auth): add OAuth support"), "feat-auth-add-oauth-support");
+///
+/// // Long messages are truncated at word boundaries
+/// let long_msg = "feat: implement very long feature name that exceeds the maximum length";
+/// let result = slugify(long_msg);
+/// assert!(result.len() <= 50);
+/// assert!(!result.ends_with('-'));
+/// ```
+#[must_use]
+pub fn slugify(text: &str) -> String {
+    let first_line = text.lines().next().unwrap_or(text);
+
+    let slug: String = first_line
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+
+    // Truncate at word boundary if too long (character-safe for UTF-8)
+    if slug.chars().count() <= MAX_BRANCH_NAME_LENGTH {
+        return slug;
+    }
+
+    // Find last hyphen within the character limit
+    // Track both character count and byte index for proper UTF-8 slicing
+    let mut last_hyphen_byte_pos = None;
+    for (char_count, (byte_pos, c)) in slug.char_indices().enumerate() {
+        if char_count >= MAX_BRANCH_NAME_LENGTH {
+            break;
+        }
+        if c == '-' {
+            last_hyphen_byte_pos = Some(byte_pos);
+        }
+    }
+
+    last_hyphen_byte_pos.map_or_else(
+        || slug.chars().take(MAX_BRANCH_NAME_LENGTH).collect(),
+        |pos| slug[..pos].to_string(),
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -410,5 +506,128 @@ mod tests {
         // Deserialize invalid should fail
         let result: Result<BranchName, _> = serde_json::from_str("\"..invalid\"");
         assert!(result.is_err());
+    }
+
+    // === slugify tests ===
+
+    #[test]
+    fn test_slugify_basic() {
+        assert_eq!(
+            slugify("feat: add authentication"),
+            "feat-add-authentication"
+        );
+        assert_eq!(slugify("Fix login bug"), "fix-login-bug");
+        assert_eq!(
+            slugify("feat(auth): add OAuth support"),
+            "feat-auth-add-oauth-support"
+        );
+    }
+
+    #[test]
+    fn test_slugify_whitespace_only() {
+        assert_eq!(slugify("   "), "");
+        assert_eq!(slugify("\t\n"), "");
+    }
+
+    #[test]
+    fn test_slugify_empty() {
+        assert_eq!(slugify(""), "");
+    }
+
+    #[test]
+    fn test_slugify_emoji_only() {
+        assert_eq!(slugify("🔥🚀"), "");
+        assert_eq!(slugify("✨ ⭐ 💫"), "");
+    }
+
+    #[test]
+    fn test_slugify_multiline() {
+        // Only first line should be used
+        assert_eq!(
+            slugify("feat: add auth\n\nThis is a longer description"),
+            "feat-add-auth"
+        );
+        assert_eq!(slugify("fix: bug\nSecond line\nThird line"), "fix-bug");
+    }
+
+    #[test]
+    fn test_slugify_truncation() {
+        // 50 char limit at word boundary
+        let long_msg =
+            "feat: implement very long feature name that exceeds the maximum length allowed";
+        let result = slugify(long_msg);
+        assert!(result.chars().count() <= 50);
+        assert!(!result.ends_with('-'));
+        // Should truncate at word boundary
+        assert_eq!(result, "feat-implement-very-long-feature-name-that");
+    }
+
+    #[test]
+    fn test_slugify_truncation_no_hyphen() {
+        // Very long single word should just truncate at char limit
+        let long_word = "a".repeat(60);
+        let result = slugify(&long_word);
+        assert_eq!(result.chars().count(), 50);
+    }
+
+    #[test]
+    fn test_slugify_unicode() {
+        // Accented characters (alphanumeric in Unicode)
+        assert_eq!(slugify("café feature"), "café-feature");
+        assert_eq!(slugify("naïve implementation"), "naïve-implementation");
+
+        // CJK characters
+        assert_eq!(slugify("新功能 feature"), "新功能-feature");
+
+        // Mixed unicode and ASCII
+        assert_eq!(slugify("über cool änderung"), "über-cool-änderung");
+    }
+
+    #[test]
+    fn test_slugify_special_chars() {
+        assert_eq!(slugify("fix: bug #123"), "fix-bug-123");
+        assert_eq!(
+            slugify("feat(scope): add [feature]"),
+            "feat-scope-add-feature"
+        );
+        assert_eq!(slugify("fix: path/to/file"), "fix-path-to-file");
+    }
+
+    // === from_message tests ===
+
+    #[test]
+    fn test_from_message_basic() {
+        let name = BranchName::from_message("feat: add authentication").unwrap();
+        assert_eq!(name.as_str(), "feat-add-authentication");
+    }
+
+    #[test]
+    fn test_from_message_empty_error() {
+        let result = BranchName::from_message("");
+        assert!(result.is_err());
+        if let Err(Error::InvalidBranchName { reason, .. }) = result {
+            assert!(reason.contains("no alphanumeric"));
+        }
+    }
+
+    #[test]
+    fn test_from_message_whitespace_only_error() {
+        let result = BranchName::from_message("   \t\n  ");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_message_emoji_only_error() {
+        let result = BranchName::from_message("🔥🚀✨");
+        assert!(result.is_err());
+        if let Err(Error::InvalidBranchName { reason, .. }) = result {
+            assert!(reason.contains("no alphanumeric"));
+        }
+    }
+
+    #[test]
+    fn test_from_message_multiline() {
+        let name = BranchName::from_message("feat: add auth\n\nDetailed description here").unwrap();
+        assert_eq!(name.as_str(), "feat-add-auth");
     }
 }
