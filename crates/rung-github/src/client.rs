@@ -434,6 +434,22 @@ impl GitHubClient {
             .await
     }
 
+    // === Repository Operations ===
+
+    /// Get the repository's default branch name.
+    ///
+    /// # Errors
+    /// Returns error if API call fails.
+    pub async fn get_default_branch(&self, owner: &str, repo: &str) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct RepoInfo {
+            default_branch: String,
+        }
+
+        let info: RepoInfo = self.get(&format!("/repos/{owner}/{repo}")).await?;
+        Ok(info.default_branch)
+    }
+
     // === Comment Operations ===
 
     /// List comments on a pull request.

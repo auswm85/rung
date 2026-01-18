@@ -65,13 +65,15 @@ pub struct StaleBranches {
     pub removed: Vec<String>,
 }
 
-/// Result of reconciling merged PRs.
+/// Result of reconciling merged PRs and validating PR bases.
 #[derive(Debug, Default)]
 pub struct ReconcileResult {
     /// Branches removed because their PRs merged.
     pub merged: Vec<MergedBranch>,
     /// Branches re-parented to new parents.
     pub reparented: Vec<ReparentedBranch>,
+    /// PRs repaired due to ghost parent detection (base mismatch).
+    pub repaired: Vec<ReparentedBranch>,
 }
 
 /// A branch whose PR was merged.

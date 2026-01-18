@@ -439,8 +439,9 @@ fn test_sync_dry_run() {
         .success();
 
     // Dry run should succeed without making changes
+    // Note: --base main is required since there's no origin remote in tests
     rung()
-        .args(["sync", "--dry-run"])
+        .args(["sync", "--dry-run", "--base", "main"])
         .current_dir(&temp)
         .assert()
         .success();
@@ -460,8 +461,9 @@ fn test_sync_nothing_to_sync() {
         .success();
 
     // Sync when already up to date
+    // Note: --base main is required since there's no origin remote in tests
     rung()
-        .arg("sync")
+        .args(["sync", "--base", "main"])
         .current_dir(&temp)
         .assert()
         .success()

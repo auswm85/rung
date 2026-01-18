@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result, bail};
 use rung_core::State;
-use rung_core::sync::{self, ExternalMergeInfo, ReconcileResult, SyncResult};
+use rung_core::sync::{self, ExternalMergeInfo, ReconcileResult, ReparentedBranch, SyncResult};
 use rung_git::Repository;
 use rung_github::{Auth, GitHubClient, PullRequestState, UpdatePullRequest};
 use serde::Serialize;
@@ -113,22 +113,35 @@ pub fn run(
     // Ensure working directory is clean
     repo.require_clean()?;
 
-    // Determine base branch
-    let base_branch = base.unwrap_or("main");
+    // Determine base branch: use --base if provided, otherwise query GitHub
+    let base_branch = if let Some(b) = base {
+        b.to_string()
+    } else {
+        let origin_url = repo.origin_url().context("No origin remote configured")?;
+        let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
+            .context("Could not parse GitHub remote URL")?;
+
+        let client = GitHubClient::new(&Auth::auto()).context(
+            "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
+        )?;
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(client.get_default_branch(&owner, &repo_name))
+            .context("Could not fetch default branch. Use --base <branch> to specify manually.")?
+    };
 
     // === Phase 0: Fetch base branch to ensure we have latest ===
     if !json {
         output::info(&format!("Fetching {base_branch}..."));
     }
-    if let Err(e) = repo.fetch(base_branch) {
+    if let Err(e) = repo.fetch(&base_branch) {
         if !json {
             output::warn(&format!("Could not fetch {base_branch}: {e}"));
         }
         // Continue anyway - we'll work with what we have
     }
 
-    // === Phase 1: Detect and reconcile merged PRs ===
-    let reconcile_result = detect_and_reconcile_merged(&repo, &state, json)?;
+    // === Phase 1: Detect merged PRs and validate PR bases (Active Base Validation) ===
+    let reconcile_result = detect_and_reconcile_merged(&repo, &state, json, &base_branch)?;
 
     // === Phase 2: Remove stale branches ===
     let stale_result = sync::remove_stale_branches(&repo, &state)?;
@@ -160,7 +173,7 @@ pub fn run(
     }
 
     // === Phase 3: Create and execute sync plan ===
-    let plan = sync::create_sync_plan(&repo, &stack, base_branch)?;
+    let plan = sync::create_sync_plan(&repo, &stack, &base_branch)?;
 
     if dry_run {
         if !json {
@@ -196,8 +209,8 @@ pub fn run(
         return handle_sync_result(sync_result, json);
     }
 
-    // === Phase 4: Update GitHub PR base branches ===
-    if !reconcile_result.reparented.is_empty() {
+    // === Phase 4: Update GitHub PR base branches (reparented + repaired) ===
+    if !reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty() {
         update_pr_bases(&repo, &reconcile_result, json)?;
     }
 
@@ -209,11 +222,19 @@ pub fn run(
     handle_sync_result(sync_result, json)
 }
 
-/// Detect merged PRs via GitHub API and reconcile the stack.
+/// Detect merged PRs via GitHub API, validate PR bases, and reconcile the stack.
+///
+/// This function performs two key operations:
+/// 1. Detects PRs that were merged externally (via GitHub UI)
+/// 2. Validates that each PR's base branch matches what stack.json expects ("Active Base Validation")
+///
+/// The second check is a "self-healing" mechanism that detects "ghost parents" - PRs whose
+/// base branch on GitHub points to a deleted branch or doesn't match the stack's expectation.
 fn detect_and_reconcile_merged(
     repo: &Repository,
     state: &State,
     json: bool,
+    base_branch: &str,
 ) -> Result<ReconcileResult> {
     let stack = state.load_stack()?;
 
@@ -221,7 +242,7 @@ fn detect_and_reconcile_merged(
     let branches_with_prs: Vec<_> = stack
         .branches
         .iter()
-        .filter_map(|b| b.pr.map(|pr| (b.name.to_string(), pr)))
+        .filter_map(|b| b.pr.map(|pr| (b.name.to_string(), b.parent.clone(), pr)))
         .collect();
 
     if branches_with_prs.is_empty() {
@@ -243,19 +264,21 @@ fn detect_and_reconcile_merged(
 
     let rt = tokio::runtime::Runtime::new()?;
 
-    // Check each PR's status
+    // Check each PR's status and validate base branches
     let mut merged_prs = Vec::new();
+    let mut ghost_parents = Vec::new();
 
     if !json {
-        output::info("Checking for merged PRs...");
+        output::info("Checking PRs and validating bases...");
     }
 
-    for (branch_name, pr_number) in branches_with_prs {
+    for (branch_name, stack_parent, pr_number) in branches_with_prs {
         let pr_result = rt.block_on(client.get_pr(&owner, &repo_name, pr_number));
 
         match pr_result {
             Ok(pr) => {
                 if pr.state == PullRequestState::Merged {
+                    // PR was merged externally
                     if !json {
                         output::success(&format!(
                             "PR #{} ({}) merged into {}",
@@ -268,6 +291,26 @@ fn detect_and_reconcile_merged(
                         pr_number,
                         merged_into: pr.base_branch,
                     });
+                } else {
+                    // PR is still open - validate its base matches our expectation
+                    let expected_base = stack_parent.as_ref().map_or(base_branch, |p| p.as_str());
+
+                    if pr.base_branch != expected_base {
+                        // Ghost parent detected! PR base doesn't match stack.json
+                        if !json {
+                            output::warn(&format!(
+                                "Ghost parent: PR #{} ({}) base is '{}' but should be '{}'",
+                                pr_number, branch_name, pr.base_branch, expected_base
+                            ));
+                        }
+
+                        ghost_parents.push(ReparentedBranch {
+                            name: branch_name,
+                            old_parent: pr.base_branch,
+                            new_parent: expected_base.to_string(),
+                            pr_number: Some(pr_number),
+                        });
+                    }
                 }
             }
             Err(e) => {
@@ -279,12 +322,20 @@ fn detect_and_reconcile_merged(
         }
     }
 
+    // If no merged PRs, just return with ghost parent repairs
     if merged_prs.is_empty() {
-        return Ok(ReconcileResult::default());
+        return Ok(ReconcileResult {
+            merged: vec![],
+            reparented: vec![],
+            repaired: ghost_parents,
+        });
     }
 
-    // Reconcile the stack
-    let result = sync::reconcile_merged(state, &merged_prs)?;
+    // Reconcile the stack for merged PRs
+    let mut result = sync::reconcile_merged(state, &merged_prs)?;
+
+    // Add ghost parent repairs
+    result.repaired = ghost_parents;
 
     // Report re-parented branches
     if !json {
@@ -299,7 +350,7 @@ fn detect_and_reconcile_merged(
     Ok(result)
 }
 
-/// Update GitHub PR base branches for re-parented branches.
+/// Update GitHub PR base branches for re-parented and repaired branches.
 fn update_pr_bases(
     repo: &Repository,
     reconcile_result: &ReconcileResult,
@@ -316,6 +367,7 @@ fn update_pr_bases(
         output::info("Updating PR base branches on GitHub...");
     }
 
+    // Update PR bases for branches re-parented due to merge
     for reparent in &reconcile_result.reparented {
         if let Some(pr_number) = reparent.pr_number {
             let update = UpdatePullRequest {
@@ -336,6 +388,33 @@ fn update_pr_bases(
                 Err(e) => {
                     if !json {
                         output::warn(&format!("Could not update PR #{pr_number}: {e}"));
+                    }
+                }
+            }
+        }
+    }
+
+    // Repair PR bases for ghost parent fixes (Active Base Validation)
+    for repair in &reconcile_result.repaired {
+        if let Some(pr_number) = repair.pr_number {
+            let update = UpdatePullRequest {
+                title: None,
+                body: None,
+                base: Some(repair.new_parent.clone()),
+            };
+
+            match rt.block_on(client.update_pr(&owner, &repo_name, pr_number, update)) {
+                Ok(_) => {
+                    if !json {
+                        output::success(&format!(
+                            "Repaired PR #{} base: {} → {}",
+                            pr_number, repair.old_parent, repair.new_parent
+                        ));
+                    }
+                }
+                Err(e) => {
+                    if !json {
+                        output::warn(&format!("Could not repair PR #{pr_number}: {e}"));
                     }
                 }
             }
