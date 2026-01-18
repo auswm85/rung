@@ -394,14 +394,22 @@ impl GitHubClient {
         let status = response.status();
         if !status.is_success() {
             let status_code = status.as_u16();
-            return if status_code == 401 {
-                Err(Error::AuthenticationFailed)
-            } else {
-                let text = response.text().await.unwrap_or_default();
-                Err(Error::ApiError {
-                    status: status_code,
-                    message: text,
-                })
+            return match status_code {
+                401 => Err(Error::AuthenticationFailed),
+                403 if response
+                    .headers()
+                    .get("x-ratelimit-remaining")
+                    .is_some_and(|v| v == "0") =>
+                {
+                    Err(Error::RateLimited)
+                }
+                _ => {
+                    let text = response.text().await.unwrap_or_default();
+                    Err(Error::ApiError {
+                        status: status_code,
+                        message: text,
+                    })
+                }
             };
         }
 
