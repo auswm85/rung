@@ -184,6 +184,9 @@ pub fn reconcile_merged(
 /// Create a sync plan for the given stack.
 ///
 /// Analyzes which branches need rebasing based on their parent's current position.
+/// Uses proactive cascade: when a branch needs rebasing, all its descendants are
+/// automatically included in the plan, ensuring one sync handles the entire stack.
+///
 /// Branches are processed in stack order (parents before children) to ensure
 /// each branch is rebased onto the correct target.
 ///
@@ -198,6 +201,9 @@ pub fn create_sync_plan(
     base_branch: &str,
 ) -> Result<SyncPlan> {
     let mut actions = Vec::new();
+
+    // Track branches that need rebasing (including cascaded descendants)
+    let mut needs_rebase: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Process branches in stack order (parents before children)
     for branch in &stack.branches {
@@ -229,13 +235,24 @@ pub fn create_sync_plan(
         // Find where this branch diverged from parent
         let merge_base = repo.merge_base(branch_commit, parent_commit)?;
 
-        // If merge base is not the parent's tip, we need to rebase
-        if merge_base != parent_commit {
+        // Determine if this branch needs rebasing:
+        // 1. Its merge_base differs from parent tip (direct divergence), OR
+        // 2. It was marked for cascade rebase (parent was rebased)
+        let needs_direct_rebase = merge_base != parent_commit;
+        let needs_cascade_rebase = needs_rebase.contains(branch.name.as_str());
+
+        if needs_direct_rebase || needs_cascade_rebase {
             actions.push(SyncAction {
                 branch: branch.name.to_string(),
                 old_base: merge_base.to_string(),
                 new_base: parent_commit.to_string(),
             });
+
+            // Proactive cascade: mark all descendants as needing rebase
+            // This ensures the entire sub-tree is synced in one pass
+            for descendant in stack.descendants(&branch.name) {
+                needs_rebase.insert(descendant.name.to_string());
+            }
         }
     }
 
@@ -655,9 +672,73 @@ mod tests {
         stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
         stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
 
-        // Plan should have feature-a needing rebase (feature-b is still synced with feature-a)
+        // Plan should cascade: feature-a needs rebase, so feature-b is also included
+        // This ensures one sync handles the entire stack
         let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
-        assert_eq!(plan.branches.len(), 1);
+        assert_eq!(plan.branches.len(), 2);
         assert_eq!(plan.branches[0].branch, "feature-a");
+        assert_eq!(plan.branches[1].branch, "feature-b");
+    }
+
+    #[test]
+    fn test_sync_plan_cascade_deep_stack() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create a 4-branch deep stack: main → A → B → C → D
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        git_repo.set_head("refs/heads/feature-a").unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        add_commit(&temp, &git_repo, "a.txt", "A commit");
+
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-b", &head, false).unwrap();
+
+        git_repo.set_head("refs/heads/feature-b").unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        add_commit(&temp, &git_repo, "b.txt", "B commit");
+
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-c", &head, false).unwrap();
+
+        git_repo.set_head("refs/heads/feature-c").unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        add_commit(&temp, &git_repo, "c.txt", "C commit");
+
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-d", &head, false).unwrap();
+
+        // Go back to main and add a commit (causes cascade)
+        git_repo
+            .set_head(&format!("refs/heads/{main_branch}"))
+            .unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        add_commit(&temp, &git_repo, "main-update.txt", "Update main");
+
+        // Create stack
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-c", Some("feature-b")).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-d", Some("feature-c")).unwrap());
+
+        // Plan should cascade through entire stack in one pass
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        assert_eq!(plan.branches.len(), 4);
+        assert_eq!(plan.branches[0].branch, "feature-a");
+        assert_eq!(plan.branches[1].branch, "feature-b");
+        assert_eq!(plan.branches[2].branch, "feature-c");
+        assert_eq!(plan.branches[3].branch, "feature-d");
     }
 }
