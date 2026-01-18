@@ -34,10 +34,17 @@ _Current focus — actively being worked on or accepting contributions_
 
 These improvements make Rung more pleasant to use and easier to contribute to:
 
-- [ ] **Automated PR quality guardrails** (In Progress) — CI checks and tooling to maintain code quality across contributions
+- [x] **Automated PR quality guardrails** — CI checks and tooling to maintain code quality across contributions
+- [x] **--quiet flag** ([#19](https://github.com/auswm85/rung/issues/19)) — Suppress non-essential output for cleaner scripting
+- [x] **Shell completions** ([#18](https://github.com/auswm85/rung/issues/18)) — Tab completion for bash, zsh, and fish
+- [x] **rung log command** ([#22](https://github.com/auswm85/rung/issues/22)) — Show commits on the current stack branch
+- [x] **Interactive navigation** (`rung move`) — TUI picker to jump to any branch in the stack
 - [ ] **NO_COLOR support** ([#20](https://github.com/auswm85/rung/issues/20)) — Respect the `NO_COLOR` environment variable for accessibility and scripting
-- [ ] **--quiet flag** ([#19](https://github.com/auswm85/rung/issues/19)) — Suppress non-essential output for cleaner scripting
-- [ ] **top/bottom navigation** ([#21](https://github.com/auswm85/rung/issues/21)) — Jump directly to the top or bottom of the stack
+
+### Security & Safety
+
+- [x] **BranchName validation** ([#34](https://github.com/auswm85/rung/issues/34)) — Newtype with validation to prevent injection attacks
+- [x] **Token zeroization** ([#32](https://github.com/auswm85/rung/issues/32)) — Securely clear tokens from memory after use
 
 ### Testing & Reliability
 
