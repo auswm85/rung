@@ -28,6 +28,12 @@ pub struct PullRequest {
 
     /// PR URL.
     pub html_url: String,
+
+    /// Whether the PR is mergeable (None if GitHub is still computing).
+    pub mergeable: Option<bool>,
+
+    /// The mergeable state (e.g., "clean", "dirty", "blocked", "behind").
+    pub mergeable_state: Option<String>,
 }
 
 /// State of a pull request.

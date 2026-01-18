@@ -28,6 +28,10 @@ struct ApiPullRequest {
     html_url: String,
     head: ApiBranch,
     base: ApiBranch,
+    /// Whether the PR is mergeable (None if GitHub is still computing).
+    mergeable: Option<bool>,
+    /// The mergeable state (e.g., "clean", "dirty", "blocked", "behind").
+    mergeable_state: Option<String>,
 }
 
 /// Internal representation of a branch ref from the GitHub API.
@@ -59,6 +63,8 @@ impl ApiPullRequest {
             head_branch: self.head.ref_name,
             base_branch: self.base.ref_name,
             html_url: self.html_url,
+            mergeable: self.mergeable,
+            mergeable_state: self.mergeable_state,
         }
     }
 
@@ -73,6 +79,8 @@ impl ApiPullRequest {
             head_branch: self.head.ref_name,
             base_branch: self.base.ref_name,
             html_url: self.html_url,
+            mergeable: self.mergeable,
+            mergeable_state: self.mergeable_state,
         }
     }
 }
