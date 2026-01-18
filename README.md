@@ -95,6 +95,7 @@ rung status
 ### Global Options
 
 - `--json` - Output as JSON (for tooling integration). Supported by: `status`, `doctor`, `sync`, `submit`, `merge`
+- `-q, --quiet` - Suppress informational output. Only errors and essential results (like PR URLs) are printed. Exit code 0 indicates success. Cannot be used with `--json`.
 
 ### `rung init`
 
