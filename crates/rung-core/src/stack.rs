@@ -55,6 +55,25 @@ impl Stack {
             .collect()
     }
 
+    /// Get all descendants of a branch in topological order (parents before children).
+    ///
+    /// This includes children, grandchildren, etc. The branch itself is NOT included.
+    #[must_use]
+    pub fn descendants(&self, name: &str) -> Vec<&StackBranch> {
+        let mut result = Vec::new();
+        let mut stack = vec![name];
+
+        while let Some(current_parent) = stack.pop() {
+            for branch in &self.branches {
+                if branch.parent.as_deref() == Some(current_parent) {
+                    result.push(branch);
+                    stack.push(&branch.name);
+                }
+            }
+        }
+        result
+    }
+
     /// Get the ancestry chain for a branch (from root to the branch).
     #[must_use]
     pub fn ancestry(&self, name: &str) -> Vec<&StackBranch> {
@@ -219,6 +238,34 @@ mod tests {
         assert_eq!(ancestry[0].name, "a");
         assert_eq!(ancestry[1].name, "b");
         assert_eq!(ancestry[2].name, "c");
+    }
+
+    #[test]
+    fn test_descendants() {
+        let mut stack = Stack::new();
+        // Create tree: main → a → b → c
+        //                    ↘ d
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("b", Some("a")).unwrap());
+        stack.add_branch(StackBranch::try_new("c", Some("b")).unwrap());
+        stack.add_branch(StackBranch::try_new("d", Some("a")).unwrap());
+
+        // Descendants of "a" should be b, c, d (in some order based on traversal)
+        let descendants = stack.descendants("a");
+        assert_eq!(descendants.len(), 3);
+        let names: Vec<&str> = descendants.iter().map(|b| b.name.as_str()).collect();
+        assert!(names.contains(&"b"));
+        assert!(names.contains(&"c"));
+        assert!(names.contains(&"d"));
+
+        // Descendants of "b" should only be c
+        let descendants = stack.descendants("b");
+        assert_eq!(descendants.len(), 1);
+        assert_eq!(descendants[0].name, "c");
+
+        // Descendants of "c" (leaf) should be empty
+        let descendants = stack.descendants("c");
+        assert!(descendants.is_empty());
     }
 
     #[test]
