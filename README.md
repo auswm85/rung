@@ -77,13 +77,16 @@ cargo install --path crates/rung-cli
 # Initialize rung in a repository
 rung init
 
-# Create your first stacked branch
-rung create feature/auth
+# Create a branch and commit in one step
+rung create -m "feat: add user authentication"
+# → Creates branch 'feat-add-user-authentication' and commits
 
-# Make changes, commit, then create another branch on top
-rung create feature/auth-tests
+# Create another branch on top
+rung create -m "feat: add auth tests"
+# → Creates branch 'feat-add-auth-tests' and commits
 
 # Submit all branches as PRs
+# (branches created with -m use their commit message as PR title)
 rung submit
 
 # View stack status
@@ -105,13 +108,27 @@ Initialize rung in the current repository. Creates a `.git/rung/` directory to s
 rung init
 ```
 
-### `rung create <name>`
+### `rung create [name]`
 
 Create a new branch with the current branch as its parent. This establishes the branch relationship in the stack.
 
 ```bash
-rung create feature/new-feature
+rung create feature/new-feature              # Explicit branch name
+rung create -m "feat: add authentication"    # Derive name from message, commit changes
+rung create my-branch -m "feat: add auth"    # Explicit name with commit
 ```
+
+When using `-m`, rung will:
+1. Derive the branch name from the message (if not provided explicitly)
+2. Create and checkout the new branch
+3. Stage all changes
+4. Commit with the provided message
+
+The branch name is derived from the message by slugifying it (e.g., "feat: add auth" becomes `feat-add-auth`). The commit message is then used as the PR title when you run `rung submit`.
+
+**Options:**
+
+- `-m, --message <message>` - Commit message. Stages all changes and creates a commit. If no branch name is provided, derives it from the message.
 
 ### `rung status`
 
@@ -163,14 +180,14 @@ Push all stack branches and create/update PRs on GitHub. Each PR includes a stac
 rung submit                          # Submit all branches
 rung submit --draft                  # Create PRs as drafts
 rung submit --force                  # Force push
-rung submit --title "My PR title"    # Custom title for current branch
+rung submit --title "My PR title"    # Custom title (overrides commit message)
 ```
 
 **Options:**
 
 - `--draft` - Create PRs as drafts
 - `--force` - Force push even if remote has changes
-- `-t, --title <title>` - Custom PR title for current branch
+- `-t, --title <title>` - Custom PR title for current branch (overrides commit message)
 
 ### `rung merge`
 
