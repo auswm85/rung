@@ -32,9 +32,10 @@ fn main() {
         } => commands::sync::run(json, dry_run, continue_, abort, no_push, base.as_deref()),
         Commands::Submit {
             draft,
+            dry_run,
             force,
             title,
-        } => commands::submit::run(json, draft, force, title.as_deref()),
+        } => commands::submit::run(json, dry_run, draft, force, title.as_deref()),
         Commands::Undo => commands::undo::run(),
         Commands::Merge { method, no_delete } => commands::merge::run(json, &method, no_delete),
         Commands::Nxt => commands::navigate::run_next(),

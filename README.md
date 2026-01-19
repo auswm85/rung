@@ -184,6 +184,7 @@ Push all stack branches and create/update PRs on GitHub. Each PR includes a stac
 
 ```bash
 rung submit                          # Submit all branches
+rung submit --dry-run                # Preview what would happen without updating anything
 rung submit --draft                  # Create PRs as drafts
 rung submit --force                  # Force push
 rung submit --title "My PR title"    # Custom title (overrides commit message)

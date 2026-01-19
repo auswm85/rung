@@ -119,6 +119,10 @@ pub enum Commands {
         #[arg(long)]
         draft: bool,
 
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
+
         /// Force push even if lease check fails.
         #[arg(long)]
         force: bool,
