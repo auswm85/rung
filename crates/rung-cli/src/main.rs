@@ -44,7 +44,7 @@ fn main() {
         Commands::Doctor => commands::doctor::run(json),
         Commands::Update { check } => commands::update::run(check),
         Commands::Completions { shell } => commands::completions::run(shell),
-        Commands::Log => commands::log::run(),
+        Commands::Log => commands::log::run(json),
     };
 
     if let Err(e) = result {

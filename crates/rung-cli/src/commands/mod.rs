@@ -196,5 +196,5 @@ pub enum Commands {
     },
 
     /// Show commits between the base branch and HEAD
-    Log,
+    Log
 }

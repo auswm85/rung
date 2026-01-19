@@ -3,9 +3,31 @@
 use super::utils::open_repo_and_state;
 use crate::output;
 use anyhow::{Result, bail};
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+struct LogOutput {
+    commits: Vec<CommitInfo>,
+    branch: String,
+    parent: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CommitInfo {
+    hash: String,
+    message: String,
+    author: String
+}
+
+impl CommitInfo {
+    fn display(&self) {
+        let msg = format!("{:<10} {:<25}     {}", self.hash, self.message, self.author);
+        output::info(&msg); 
+    }
+}
 
 // Run the log command.
-pub fn run() -> Result<()> {
+pub fn run(json: bool) -> Result<()> {
     let (repo, state) = open_repo_and_state()?;
     let current = repo.current_branch()?;
     let stack = state.load_stack()?;
@@ -29,22 +51,37 @@ pub fn run() -> Result<()> {
     let commits = repo.commits_between(base_oid, head_oid)?;
 
     if commits.is_empty() {
-        output::warn("Current branch has no commits");
-        return Ok(());
+        bail!("Current branch has no commits");
     }
+
+    // Collect commits 
+    let commits_info: Result<Vec<CommitInfo>> = commits.iter().map(|&oid| { 
+        let commit = repo.find_commit(oid)?;
+        let hash = commit.id().to_string()[..7].to_owned();
+        let message = commit.message().unwrap_or("").trim().to_owned();
+        let sig =  commit.author();
+        let author = sig.name().unwrap_or("unknown").to_owned();
+        
+        Ok (CommitInfo { hash, message, author })
+
+    }).collect();
 
     // Print commits
-    for commit in commits {
-        let commit = repo.find_commit(commit)?;
-
-        let short_id = &commit.id().to_string()[..7];
-        let msg = commit.message().unwrap_or("").trim();
-        let sig = commit.author();
-        let author = sig.name().unwrap_or("unknown");
-
-        let msg = format!("{short_id:<10} {msg}     {author}");
-        output::info(&msg);
+    if !json {
+        commits_info?.iter().for_each(|commit| commit.display()); 
+        return Ok(())
     }
+    
+    //  Display json output
+    let log_output = LogOutput {
+        commits: commits_info?,
+        branch: current,
+        parent: base.to_string(),
+    };
+    
+    let json_log_output = serde_json::to_string_pretty(&log_output)?;
+    println!("{json_log_output}");
+
 
     Ok(())
 }
