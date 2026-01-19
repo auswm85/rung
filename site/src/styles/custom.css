@@ -1,0 +1,147 @@
+/* Custom styles for rung documentation */
+
+:root {
+  /* Brand colors - dark blue to match logo */
+  --sl-color-accent-low: #0f172a;
+  --sl-color-accent: #1e3a5f;
+  --sl-color-accent-high: #3b82f6;
+
+  /* Typography improvements */
+  --sl-font:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --sl-font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+:root[data-theme="dark"] {
+  /* Teal accent for dark mode */
+  --sl-color-accent-low: #134e4a;
+  --sl-color-accent: #14b8a6;
+  --sl-color-accent-high: #5eead4;
+}
+
+/* Hero button styling - dark blue for light mode */
+.hero a.primary {
+  background: #1e3a5f !important;
+  border-color: #1e3a5f !important;
+  color: white !important;
+}
+
+.hero a.primary:hover {
+  background: #152a45 !important;
+  border-color: #152a45 !important;
+}
+
+/* Hero button styling - teal for dark mode */
+:root[data-theme="dark"] .hero a.primary {
+  background: #14b8a6 !important;
+  border-color: #14b8a6 !important;
+}
+
+:root[data-theme="dark"] .hero a.primary:hover {
+  background: #0d9488 !important;
+  border-color: #0d9488 !important;
+}
+
+/* Site title - dark blue in light mode, teal in dark mode */
+.site-title {
+  color: #1e3a5f !important;
+}
+
+:root[data-theme="dark"] .site-title {
+  color: #14b8a6 !important;
+}
+
+/* Hero section styling */
+.hero {
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* Code block improvements */
+.expressive-code pre {
+  border-radius: 0.5rem;
+}
+
+/* Better inline code styling */
+:not(pre) > code {
+  background-color: var(--sl-color-gray-6);
+  padding: 0.15em 0.35em;
+  border-radius: 0.25em;
+  font-size: 0.9em;
+}
+
+/* Command reference cards */
+.command-card {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+/* Feature grid for landing page */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  background: var(--sl-color-gray-6);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+
+.feature-card h3 {
+  margin-top: 0;
+}
+
+/* Terminal output styling */
+.terminal-output {
+  background: #1a1a2e;
+  color: #e8e8e8;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  font-family: var(--sl-font-mono);
+  font-size: 0.875rem;
+  overflow-x: auto;
+}
+
+/* Callout improvements */
+.starlight-aside {
+  border-radius: 0.5rem;
+}
+
+/* Navigation improvements */
+.sidebar-content {
+  font-size: 0.9rem;
+}
+
+/* Better table styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+th,
+td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--sl-color-gray-5);
+}
+
+th {
+  background: var(--sl-color-gray-6);
+  font-weight: 600;
+}
+
+/* Mobile improvements */
+@media (max-width: 768px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+}
