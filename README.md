@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/logo.png" alt="rung logo" width="120">
+  <img src="https://raw.githubusercontent.com/auswm85/rung/main/assets/logo.png" alt="rung logo" width="120">
 </p>
 
 # rung
 
 A Git workflow tool for managing stacked PRs (pull request chains).
 
-![Demo](assets/demo.gif)
+![Demo](https://raw.githubusercontent.com/auswm85/rung/main/assets/demo.gif)
 
 ## Overview
 
