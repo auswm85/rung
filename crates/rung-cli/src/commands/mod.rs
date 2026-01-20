@@ -49,7 +49,7 @@ pub enum Commands {
     /// Initialize rung in the current repository.
     Init,
 
-    /// Create a new branch in the stack.
+    /// Create a new branch in the stack. [alias: c]
     ///
     /// Creates a new branch with the current branch as its parent.
     /// Optionally stages all changes and creates a commit with the given message.
@@ -71,7 +71,7 @@ pub enum Commands {
         message: Option<String>,
     },
 
-    /// Display the current stack status.
+    /// Display the current stack status. [alias: st]
     ///
     /// Shows a tree view of all branches in the stack with their
     /// sync state and PR status.
@@ -82,7 +82,7 @@ pub enum Commands {
         fetch: bool,
     },
 
-    /// Sync the stack by rebasing all branches.
+    /// Sync the stack by rebasing all branches. [alias: sy]
     ///
     /// Detects merged PRs, updates stack topology, rebases branches,
     /// updates GitHub PR base branches, and pushes all changes.
@@ -109,7 +109,7 @@ pub enum Commands {
         base: Option<String>,
     },
 
-    /// Push branches and create/update PRs.
+    /// Push branches and create/update PRs. [alias: sm]
     ///
     /// Pushes all stack branches to the remote and creates or
     /// updates pull requests with stack navigation links.
@@ -132,13 +132,13 @@ pub enum Commands {
         title: Option<String>,
     },
 
-    /// Undo the last sync operation.
+    /// Undo the last sync operation. [alias: un]
     ///
     /// Restores all branches to their state before the last sync.
     #[command(alias = "un")]
     Undo,
 
-    /// Merge the current branch's PR and clean up.
+    /// Merge the current branch's PR and clean up. [alias: m]
     ///
     /// Merges the PR via GitHub API, deletes the remote branch,
     /// removes it from the stack, and checks out the parent.
@@ -153,27 +153,27 @@ pub enum Commands {
         no_delete: bool,
     },
 
-    /// Navigate to the next branch in the stack (child).
+    /// Navigate to the next branch in the stack (child). [alias: n]
     #[command(alias = "n")]
     Nxt,
 
-    /// Navigate to the previous branch in the stack (parent).
+    /// Navigate to the previous branch in the stack (parent). [alias: p]
     #[command(alias = "p")]
     Prv,
 
-    /// Interactive branch picker for quick navigation.
+    /// Interactive branch picker for quick navigation. [alias: mv]
     ///
     /// Opens a TUI list to select and jump to any branch in the stack.
     #[command(alias = "mv")]
     Move,
 
-    /// Diagnose issues with the stack and repository.
+    /// Diagnose issues with the stack and repository. [alias: doc]
     ///
     /// Checks stack integrity, git state, sync status, and GitHub connectivity.
     #[command(alias = "doc")]
     Doctor,
 
-    /// Update rung to the latest version.
+    /// Update rung to the latest version. [alias: up]
     ///
     /// Checks crates.io for the latest version and installs it using
     /// cargo-binstall (fast) or cargo install (fallback).
@@ -184,7 +184,7 @@ pub enum Commands {
         check: bool,
     },
 
-    /// Generate shell completions.
+    /// Generate shell completions. [alias: comp]
     ///
     /// Outputs completion script to stdout. Redirect to a file and
     /// source it in your shell configuration.
