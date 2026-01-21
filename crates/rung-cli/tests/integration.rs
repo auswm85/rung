@@ -616,3 +616,94 @@ fn test_invalid_subcommand() {
         .failure()
         .stderr(predicate::str::contains("invalid"));
 }
+
+// ============================================================================
+// Absorb command tests
+// ============================================================================
+
+#[test]
+fn test_absorb_not_initialized() {
+    let temp = setup_git_repo();
+
+    rung()
+        .arg("absorb")
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not initialized"));
+}
+
+#[test]
+fn test_absorb_no_staged_changes() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a branch first (absorb requires being on a stack branch)
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Absorb with no staged changes should fail
+    rung()
+        .args(["absorb", "--base", "main"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No staged changes"));
+}
+
+#[test]
+fn test_absorb_dry_run_no_staged_changes() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a branch
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Absorb dry-run with no staged changes should still fail
+    rung()
+        .args(["absorb", "--dry-run", "--base", "main"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No staged changes"));
+}
+
+#[test]
+fn test_absorb_alias() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a branch
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Test alias 'ab' works (should fail with no staged changes)
+    rung()
+        .args(["ab", "--base", "main"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No staged changes"));
+}
+
+#[test]
+fn test_absorb_help_shows_in_main_help() {
+    rung()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("absorb"));
+}

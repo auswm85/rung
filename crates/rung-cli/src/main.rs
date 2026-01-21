@@ -45,6 +45,7 @@ fn main() {
         Commands::Update { check } => commands::update::run(check),
         Commands::Completions { shell } => commands::completions::run(shell),
         Commands::Log => commands::log::run(json),
+        Commands::Absorb { dry_run, base } => commands::absorb::run(dry_run, base.as_deref()),
     };
 
     if let Err(e) = result {

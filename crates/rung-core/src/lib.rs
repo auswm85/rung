@@ -3,6 +3,7 @@
 //! Core library for Rung providing stack management, state persistence,
 //! and the sync engine for dependent PR stacks.
 
+pub mod absorb;
 pub mod branch_name;
 pub mod config;
 pub mod error;
@@ -10,6 +11,7 @@ pub mod stack;
 pub mod state;
 pub mod sync;
 
+pub use absorb::{AbsorbPlan, AbsorbResult, UnmapReason};
 pub use branch_name::{BranchName, slugify};
 pub use config::Config;
 pub use error::{Error, Result};

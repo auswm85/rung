@@ -274,6 +274,44 @@ a1b2c3d    Add user authentication     alice
 e4f5g6h    Fix login redirect          alice
 ```
 
+### `rung absorb`
+
+Absorb staged changes into the appropriate commits in your stack. This analyzes staged hunks and automatically creates fixup commits targeting the commits that last modified those lines.
+
+```bash
+# Stage some changes first
+git add -p
+
+# Preview what would be absorbed
+rung absorb --dry-run
+
+# Absorb the changes (creates fixup commits)
+rung absorb
+
+# Then apply the fixups with an interactive rebase
+git rebase -i --autosquash main
+```
+
+This is useful when you have small fixes or tweaks that should go into earlier commits in your stack rather than being new commits.
+
+**Options:**
+
+- `--dry-run` - Show what would be absorbed without making changes
+- `-b, --base <branch>` - Base branch to determine rebaseable range (default: auto-detect)
+
+**How it works:**
+
+1. Parses your staged diff into hunks
+2. Uses `git blame` to find which commit last modified each hunk's lines
+3. Validates the target commit is in your stack (not already on the base branch)
+4. Creates `fixup!` commits targeting the appropriate commits
+
+**Limitations:**
+
+- New files cannot be absorbed (no blame history)
+- Hunks touching lines from multiple commits cannot be absorbed
+- Only works with commits in the rebaseable range (between base and HEAD)
+
 ### `rung doctor`
 
 Diagnose issues with the stack and repository. Checks:

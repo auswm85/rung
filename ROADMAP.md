@@ -66,7 +66,7 @@ _Near-term priorities — planned once current work stabilizes_
 
 ### Advanced Workflows
 
-- [ ] **`rung absorb`** ([#50](https://github.com/auswm85/rung/issues/50)) — Automatically distribute staged changes into the correct commits in history using git blame. This enables a workflow where you can make fixes and have them "absorbed" into the right place in your stack.
+- [x] **`rung absorb`** ([#50](https://github.com/auswm85/rung/issues/50)) — Automatically distribute staged changes into the correct commits in history using git blame. This enables a workflow where you can make fixes and have them "absorbed" into the right place in your stack.
 
 ## Later
 

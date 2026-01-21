@@ -2,6 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
+pub mod absorb;
 pub mod completions;
 pub mod create;
 pub mod doctor;
@@ -197,4 +198,19 @@ pub enum Commands {
 
     /// Show commits between the base branch and HEAD
     Log,
+
+    /// Absorb staged changes into the appropriate commits. [alias: ab]
+    ///
+    /// Analyzes staged hunks and automatically creates fixup commits
+    /// targeting the commits that last modified those lines.
+    #[command(alias = "ab")]
+    Absorb {
+        /// Show what would be absorbed without making changes.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Base branch to determine rebaseable range (defaults to auto-detect).
+        #[arg(long, short)]
+        base: Option<String>,
+    },
 }
