@@ -40,6 +40,7 @@ These improvements make Rung more pleasant to use and easier to contribute to:
 - [x] **rung log command** ([#22](https://github.com/auswm85/rung/issues/22)) — Show commits on the current stack branch
 - [x] **Interactive navigation** (`rung move`) — TUI picker to jump to any branch in the stack
 - [x] **NO_COLOR support** ([#20](https://github.com/auswm85/rung/issues/20)) — Respect the `NO_COLOR` environment variable for accessibility and scripting
+- [ ] **Color-coded PR status** ([#76](https://github.com/auswm85/rung/issues/76)) — Visual distinction between open, merged, and draft PRs in `rung status`
 
 ### Security & Safety
 
@@ -60,8 +61,9 @@ _Near-term priorities — planned once current work stabilizes_
 
 ### Developer Experience
 
-- [ ] **Improved error messages** — Actionable suggestions when operations fail
-- [ ] **`rung restack`** — Interactively reorder branches within a stack
+- [ ] **Improved error messages** ([#77](https://github.com/auswm85/rung/issues/77)) — Actionable suggestions when operations fail
+- [ ] **`rung restack`** ([#78](https://github.com/auswm85/rung/issues/78)) — Interactively reorder branches within a stack
+- [ ] **Divergence warnings** ([#79](https://github.com/auswm85/rung/issues/79)) — Warn when local branch has diverged from remote
 - [ ] **`rung adopt <branch>`** — Bring an existing branch into the stack
 
 ### Advanced Workflows
