@@ -16,10 +16,10 @@
 }
 
 :root[data-theme="dark"] {
-  /* Teal accent for dark mode */
-  --sl-color-accent-low: #134e4a;
-  --sl-color-accent: #14b8a6;
-  --sl-color-accent-high: #5eead4;
+  /* Teal accent for dark mode - matches logo #21B3B7 */
+  --sl-color-accent-low: #1a8a8d;
+  --sl-color-accent: #21B3B7;
+  --sl-color-accent-high: #5dd9dd;
 }
 
 /* Hero button styling - dark blue for light mode */
@@ -34,15 +34,15 @@
   border-color: #152a45 !important;
 }
 
-/* Hero button styling - teal for dark mode */
+/* Hero button styling - teal for dark mode (matches logo) */
 :root[data-theme="dark"] .hero a.primary {
-  background: #14b8a6 !important;
-  border-color: #14b8a6 !important;
+  background: #21B3B7 !important;
+  border-color: #21B3B7 !important;
 }
 
 :root[data-theme="dark"] .hero a.primary:hover {
-  background: #0d9488 !important;
-  border-color: #0d9488 !important;
+  background: #1a8a8d !important;
+  border-color: #1a8a8d !important;
 }
 
 /* Site title - dark blue in light mode, teal in dark mode */
@@ -51,7 +51,12 @@
 }
 
 :root[data-theme="dark"] .site-title {
-  color: #14b8a6 !important;
+  color: #21B3B7 !important;
+}
+
+/* Brighten logo in dark mode so navy is visible */
+:root[data-theme="dark"] .site-title img {
+  filter: brightness(1.4);
 }
 
 /* Hero section styling */
