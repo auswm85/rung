@@ -8,7 +8,7 @@ use crate::commands::utils;
 use crate::output;
 
 /// Run the create command.
-pub fn run(name: Option<&str>, message: Option<&str>) -> Result<()> {
+pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<()> {
     // Determine the branch name: explicit > derived from message > error
     let name = match (name, message) {
         (Some(n), _) => n.to_string(),
@@ -48,6 +48,13 @@ pub fn run(name: Option<&str>, message: Option<&str>) -> Result<()> {
     // Check if branch already exists
     if repo.branch_exists(&name) {
         bail!("Branch '{name}' already exists");
+    }
+
+    if dry_run {
+        output::info(&format!(
+            "Would create branch '{name}' with parent '{parent}'"
+        ));
+        return Ok(());
     }
 
     // Create the branch at current HEAD (parent's tip)
