@@ -264,7 +264,8 @@ Displays all branches and highlights the current branch. PR numbers are shown wh
 Show commits on the current branch (commits between parent branch and HEAD). Helps visualize what's in the current stack branch.
 
 ```bash
-rung log
+rung log           # Human-readable output
+rung log --json    # JSON output for tooling
 ```
 
 Example output:
@@ -273,6 +274,10 @@ Example output:
 a1b2c3d    Add user authentication     alice
 e4f5g6h    Fix login redirect          alice
 ```
+
+**Options:**
+
+- `--json` - Output as JSON (includes branch name, parent, and commit details)
 
 ### `rung absorb`
 

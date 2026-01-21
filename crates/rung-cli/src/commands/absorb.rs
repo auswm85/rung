@@ -59,9 +59,9 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
                 }
                 UnmapReason::BlameError(e) => format!("blame error: {e}"),
             };
-            println!("  {} ({})", unmapped.hunk.file_path, reason);
+            output::detail(&format!("  {} ({})", unmapped.hunk.file_path, reason));
         }
-        println!();
+        output::detail("");
     }
 
     if plan.actions.is_empty() {
@@ -85,9 +85,14 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     for (commit_sha, actions) in &by_target {
         let short_sha = &commit_sha[..8.min(commit_sha.len())];
         let message = &actions[0].target_message;
-        println!("  {} {} ({} hunk(s))", short_sha, message, actions.len());
+        output::detail(&format!(
+            "  {} {} ({} hunk(s))",
+            short_sha,
+            message,
+            actions.len()
+        ));
         for action in actions {
-            println!("    → {}", action.hunk.file_path);
+            output::detail(&format!("    → {}", action.hunk.file_path));
         }
     }
 

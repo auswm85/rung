@@ -133,23 +133,25 @@ pub fn create_absorb_plan(
             continue;
         }
 
-        // Insert-only hunks (adding lines without removing any) have no lines to blame
-        if hunk.old_lines == 0 {
-            unmapped.push(UnmappedHunk {
-                hunk,
-                reason: UnmapReason::InsertOnly,
-            });
-            continue;
-        }
+        // Determine blame range
+        // For insert-only hunks (old_lines == 0), blame an adjacent line instead
+        let (blame_start, blame_end) = if hunk.old_lines == 0 {
+            // Insert-only hunk: blame the line at old_start (or line 1 if at file start)
+            // old_start is the line number where insertion happens (1-indexed)
+            // If old_start is 0, the insertion is at the very start; blame line 1
+            let line = hunk.old_start.max(1);
+            (line, line)
+        } else {
+            (
+                hunk.old_start,
+                hunk.old_start
+                    .saturating_add(hunk.old_lines)
+                    .saturating_sub(1),
+            )
+        };
 
-        // Query blame for the original lines
-        let blame_result = match repo.blame_lines(
-            &hunk.file_path,
-            hunk.old_start,
-            hunk.old_start
-                .saturating_add(hunk.old_lines)
-                .saturating_sub(1),
-        ) {
+        // Query blame for the original lines (or adjacent line for insert-only hunks)
+        let blame_result = match repo.blame_lines(&hunk.file_path, blame_start, blame_end) {
             Ok(results) => results,
             Err(e) => {
                 unmapped.push(UnmappedHunk {

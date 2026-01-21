@@ -40,6 +40,15 @@ pub fn info(msg: &str) {
     }
 }
 
+/// Print a detail line without prefix (suppressed in quiet mode).
+///
+/// Use for indented detail lines that accompany info or warn messages.
+pub fn detail(msg: &str) {
+    if !is_quiet() {
+        println!("{msg}");
+    }
+}
+
 /// Print essential machine-readable output (always prints).
 ///
 /// Use for results that should be available for piping, like PR URLs.
