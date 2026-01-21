@@ -1,6 +1,6 @@
 ---
 title: Navigation Commands
-description: Move between branches in your stack with nxt, prv, move, and log.
+description: Move between branches in your stack with nxt, prv, and move.
 ---
 
 Rung provides several commands for navigating within your stack.
@@ -104,33 +104,6 @@ Use arrow keys to navigate, Enter to select.
 - Highlights current branch with `◀`
 - Displays PR numbers when available
 - Fuzzy search as you type
-
-## log
-
-Show commits on the current branch—specifically, commits between the parent branch and HEAD.
-
-### Usage
-
-```bash
-rung log
-```
-
-### Example
-
-```bash
-$ rung log
-
-a1b2c3d    Add user authentication     alice
-e4f5g6h    Fix login redirect          alice
-```
-
-This helps you see exactly what changes are in the current stack branch, excluding commits from parent branches.
-
-### Output Format
-
-```
-<short-sha>    <commit-message>    <author>
-```
 
 ## Navigation Workflow
 

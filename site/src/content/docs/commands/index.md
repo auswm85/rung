@@ -29,7 +29,8 @@ These options work with most commands:
 | [`nxt`](/commands/navigation/)          | `n`    | Navigate to child branch              |
 | [`prv`](/commands/navigation/)          | `p`    | Navigate to parent branch             |
 | [`move`](/commands/navigation/)         | `mv`   | Interactive branch picker             |
-| [`log`](/commands/navigation/)          |        | Show commits on current branch        |
+| [`log`](/commands/log/)                 |        | Show commits on current branch        |
+| [`absorb`](/commands/absorb/)           | `ab`   | Absorb staged changes into commits    |
 | [`undo`](/commands/undo/)               | `un`   | Restore stack to pre-sync state       |
 | [`doctor`](/commands/doctor/)           | `doc`  | Diagnose stack and repo issues        |
 | [`update`](/commands/update/)           | `up`   | Update rung to the latest version     |
@@ -68,6 +69,15 @@ rung log                             # Show branch commits
 rung merge                           # Squash merge (default)
 rung merge --method merge            # Regular merge
 rung merge --method rebase           # Rebase merge
+```
+
+### Absorbing Changes
+
+```bash
+git add -p                           # Stage changes selectively
+rung absorb --dry-run                # Preview what would be absorbed
+rung absorb                          # Create fixup commits
+git rebase -i --autosquash main      # Apply the fixups
 ```
 
 ### Recovery

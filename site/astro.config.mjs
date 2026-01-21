@@ -39,9 +39,11 @@ export default defineConfig({
             { label: "submit", slug: "commands/submit" },
             { label: "merge", slug: "commands/merge" },
             {
-              label: "Navigation (nxt, prv, move, log)",
+              label: "navigation (nxt, prv, move)",
               slug: "commands/navigation",
             },
+            { label: "log", slug: "commands/log" },
+            { label: "absorb", slug: "commands/absorb" },
             { label: "undo", slug: "commands/undo" },
             { label: "doctor", slug: "commands/doctor" },
             { label: "update", slug: "commands/update" },
