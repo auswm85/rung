@@ -30,3 +30,8 @@ CLAUDE.md
 .cursorrules
 .cursor/
 .github/copilot-instructions.md
+
+# Documentation site (Astro)
+site/node_modules/
+site/dist/
+site/.astro/

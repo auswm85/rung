@@ -1,0 +1,104 @@
+---
+title: rung
+description: Stacked PRs made simple. A CLI tool for managing stacked pull requests on GitHub.
+template: splash
+hero:
+  tagline: Stacked PRs made simple. Build, sync, and ship dependent branches with ease.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Get Started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/auswm85/rung
+      icon: external
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Why Stacked PRs?
+
+Large features are hard to review. Stacked PRs let you break them into small, focused changes that build on each other—making code review faster and merging safer.
+
+<CardGrid stagger>
+  <Card title="Small, Focused PRs" icon="document">
+    Break large features into reviewable chunks. Each PR does one thing well.
+  </Card>
+  <Card title="Fast Reviews" icon="rocket">
+    Reviewers can approve smaller changes quickly. No more 1000-line review
+    bottlenecks.
+  </Card>
+  <Card title="Easy Rebasing" icon="puzzle">
+    When parent branches change, `rung sync` automatically rebases all children
+    with one command.
+  </Card>
+  <Card title="GitHub Native" icon="github">
+    Creates real GitHub PRs with automatic stack navigation comments. Works with
+    your existing workflow.
+  </Card>
+</CardGrid>
+
+## Quick Start
+
+```bash
+# Install rung
+cargo install rung-cli
+
+# Initialize in your repo
+rung init
+
+# Create your first stack
+rung create -m "feat: add user model"
+# ... make changes ...
+rung create -m "feat: add user API"
+# ... make more changes ...
+rung create -m "feat: add user tests"
+
+# Submit all as PRs
+rung submit
+
+# View your stack
+rung status
+```
+
+## See It In Action
+
+```
+$ rung status
+
+  Stack
+  ──────────────────────────────────────────────────
+  ●   feat-add-user-model #41 ← main
+  ●   feat-add-user-api #42 ← feat-add-user-model
+  ● ▶ feat-add-user-tests #43 ← feat-add-user-api
+  ──────────────────────────────────────────────────
+
+  ● synced  ● needs sync  ● conflict
+```
+
+When the base branch moves forward, sync your entire stack:
+
+```bash
+$ rung sync
+✓ Synced feat-add-user-model (rebased 3 commits)
+✓ Synced feat-add-user-api (rebased 2 commits)
+✓ Synced feat-add-user-tests (rebased 1 commit)
+```
+
+## Features
+
+- **Branch Tracking** — Remembers which branches depend on which
+- **Automatic Rebasing** — One command syncs your entire stack
+- **Conflict Handling** — Pause, resolve, continue with `--continue` / `--abort`
+- **PR Management** — Creates and updates PRs with stack navigation
+- **Stack Comments** — Automatic comments showing the PR hierarchy
+- **Undo Support** — Made a mistake? `rung undo` restores your stack
+- **JSON Output** — `--json` flag for CI/CD integration
+
+## Requirements
+
+- Git 2.x
+- GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+- Rust 1.85+ (for building from source)
