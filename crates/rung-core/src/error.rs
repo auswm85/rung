@@ -76,4 +76,8 @@ pub enum Error {
     /// Git operation error.
     #[error("git error: {0}")]
     Git(#[from] rung_git::Error),
+
+    /// Absorb operation error.
+    #[error("absorb error: {0}")]
+    Absorb(String),
 }

@@ -286,10 +286,12 @@ git add -p
 rung absorb --dry-run
 
 # Absorb the changes (creates fixup commits)
-rung absorb
+# Use --base to specify the base branch if auto-detection fails
+rung absorb --base <base-branch>
 
 # Then apply the fixups with an interactive rebase
-git rebase -i --autosquash main
+# IMPORTANT: Use the same base branch as the absorb command above
+git rebase -i --autosquash <base-branch>
 ```
 
 This is useful when you have small fixes or tweaks that should go into earlier commits in your stack rather than being new commits.
@@ -297,7 +299,7 @@ This is useful when you have small fixes or tweaks that should go into earlier c
 **Options:**
 
 - `--dry-run` - Show what would be absorbed without making changes
-- `-b, --base <branch>` - Base branch to determine rebaseable range (default: auto-detect)
+- `-b, --base <branch>` - Base branch to determine rebaseable range (default: auto-detect). The same base should be used when running `git rebase --autosquash`.
 
 **How it works:**
 

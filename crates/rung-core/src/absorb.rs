@@ -42,6 +42,8 @@ pub struct UnmappedHunk {
 pub enum UnmapReason {
     /// New file - no blame history.
     NewFile,
+    /// Insert-only hunk (no deleted lines to blame).
+    InsertOnly,
     /// Lines touched by multiple commits.
     MultipleCommits,
     /// Target commit is not in the rebaseable range.
@@ -56,6 +58,7 @@ impl std::fmt::Display for UnmapReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NewFile => write!(f, "new file (no blame history)"),
+            Self::InsertOnly => write!(f, "insert-only hunk (no lines to blame)"),
             Self::MultipleCommits => write!(f, "lines touched by multiple commits"),
             Self::CommitNotInStack => write!(f, "target commit not in stack"),
             Self::CommitOnBaseBranch => write!(f, "target commit already on base branch"),
@@ -122,10 +125,19 @@ pub fn create_absorb_plan(
 
     for hunk in hunks {
         // New files have no blame history
-        if hunk.old_lines == 0 {
+        if hunk.is_new_file {
             unmapped.push(UnmappedHunk {
                 hunk,
                 reason: UnmapReason::NewFile,
+            });
+            continue;
+        }
+
+        // Insert-only hunks (adding lines without removing any) have no lines to blame
+        if hunk.old_lines == 0 {
+            unmapped.push(UnmappedHunk {
+                hunk,
+                reason: UnmapReason::InsertOnly,
             });
             continue;
         }
@@ -200,11 +212,14 @@ pub fn create_absorb_plan(
 
 /// Execute an absorb plan by creating fixup commits.
 ///
-/// Groups actions by target commit and creates one fixup per target.
+/// Creates a single fixup commit targeting the identified commit.
 /// This modifies the repository by creating new commits.
 ///
 /// # Errors
-/// Returns error if commit creation fails.
+/// Returns error if commit creation fails or if hunks target multiple commits.
+/// Multiple targets are not supported because git commit consumes the entire
+/// staging area, making it impossible to create separate fixup commits for
+/// different targets without per-hunk staging (a future enhancement).
 pub fn execute_absorb(repo: &Repository, plan: &AbsorbPlan) -> Result<AbsorbResult> {
     if plan.actions.is_empty() {
         return Ok(AbsorbResult {
@@ -223,12 +238,28 @@ pub fn execute_absorb(repo: &Repository, plan: &AbsorbPlan) -> Result<AbsorbResu
             .push(action);
     }
 
+    // Reject multi-target plans - git commit consumes the entire index,
+    // so we can't create separate fixup commits without per-hunk staging.
+    if by_target.len() > 1 {
+        let target_descriptions: Vec<String> = by_target
+            .iter()
+            .map(|(oid, actions)| {
+                let short_sha = &oid.to_string()[..8];
+                let msg = &actions[0].target_message;
+                format!("{short_sha} ({msg})")
+            })
+            .collect();
+        return Err(crate::error::Error::Absorb(format!(
+            "staged changes target {} different commits; selective hunk staging not supported. \
+             Targets: {}. Stage fewer changes so all hunks target the same commit.",
+            by_target.len(),
+            target_descriptions.join(", ")
+        )));
+    }
+
     let mut targeted_commits = Vec::new();
 
-    // Create fixup commits
-    // Note: In a real implementation, we'd need to stage only the relevant
-    // hunks for each target. For now, we assume all staged changes go to
-    // the same target (the most common case).
+    // Create fixup commit for the single target
     for target in by_target.keys() {
         repo.create_fixup_commit(*target)?;
         targeted_commits.push(*target);
@@ -250,6 +281,10 @@ mod tests {
         assert_eq!(
             UnmapReason::NewFile.to_string(),
             "new file (no blame history)"
+        );
+        assert_eq!(
+            UnmapReason::InsertOnly.to_string(),
+            "insert-only hunk (no lines to blame)"
         );
         assert_eq!(
             UnmapReason::MultipleCommits.to_string(),

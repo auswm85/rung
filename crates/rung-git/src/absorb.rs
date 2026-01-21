@@ -21,6 +21,8 @@ pub struct Hunk {
     pub new_lines: u32,
     /// The actual diff content (context + changes).
     pub content: String,
+    /// Whether this hunk is from a newly created file.
+    pub is_new_file: bool,
 }
 
 /// Result of a blame query for a line range.
@@ -44,7 +46,7 @@ impl Repository {
         let workdir = self.workdir().ok_or(Error::NotARepository)?;
 
         let output = std::process::Command::new("git")
-            .args(["diff", "--cached", "-U0"])
+            .args(["diff", "--cached", "-U0", "--no-color"])
             .current_dir(workdir)
             .output()
             .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
@@ -118,23 +120,33 @@ impl Repository {
 
         for line in output.lines() {
             // Format: <40-char-sha> <line-num> <content>
+            // Boundary commits start with '^': ^<39-char-sha> <line-num> <content>
             // With -s flag, no author/date info
-            if line.len() < 40 {
+
+            // Detect and skip boundary commits (start with ^) first
+            let (sha, is_boundary) = if line.starts_with('^') {
+                // Boundary commit: ^<39-char SHA> (40 chars total including ^)
+                if line.len() < 41 {
+                    continue;
+                }
+                (&line[1..41], true)
+            } else {
+                if line.len() < 40 {
+                    continue;
+                }
+                (&line[..40], false)
+            };
+
+            // Skip boundary commits - they're outside the blame range
+            if is_boundary {
                 continue;
             }
-
-            let sha = &line[..40];
 
             // Skip if we've already seen this commit
             if seen_commits.contains(sha) {
                 continue;
             }
             seen_commits.insert(sha.to_string());
-
-            // Skip boundary commits (start with ^)
-            if sha.starts_with('^') {
-                continue;
-            }
 
             let oid = Oid::from_str(sha)
                 .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
@@ -175,6 +187,7 @@ fn parse_diff_hunks(diff: &str) -> Vec<Hunk> {
     let mut current_file: Option<String> = None;
     let mut hunk_content = String::new();
     let mut current_hunk: Option<(u32, u32, u32, u32)> = None;
+    let mut is_new_file = false;
 
     for line in diff.lines() {
         // New file header: diff --git a/path b/path
@@ -190,15 +203,22 @@ fn parse_diff_hunks(diff: &str) -> Vec<Hunk> {
                     new_start,
                     new_lines,
                     content: hunk_content.clone(),
+                    is_new_file,
                 });
             }
             hunk_content.clear();
             current_hunk = None;
+            is_new_file = false;
 
             // Parse file path from "diff --git a/path b/path"
-            if let Some(b_path) = line.split(" b/").nth(1) {
-                current_file = Some(b_path.to_string());
-            }
+            // Use robust parsing to handle paths containing " b/"
+            current_file = parse_diff_git_path(line);
+            continue;
+        }
+
+        // Detect new file mode
+        if line.starts_with("new file mode") {
+            is_new_file = true;
             continue;
         }
 
@@ -215,6 +235,7 @@ fn parse_diff_hunks(diff: &str) -> Vec<Hunk> {
                     new_start,
                     new_lines,
                     content: hunk_content.clone(),
+                    is_new_file,
                 });
             }
             hunk_content.clear();
@@ -230,7 +251,6 @@ fn parse_diff_hunks(diff: &str) -> Vec<Hunk> {
         if line.starts_with("---")
             || line.starts_with("+++")
             || line.starts_with("index ")
-            || line.starts_with("new file")
             || line.starts_with("deleted file")
         {
             continue;
@@ -254,10 +274,53 @@ fn parse_diff_hunks(diff: &str) -> Vec<Hunk> {
             new_start,
             new_lines,
             content: hunk_content,
+            is_new_file,
         });
     }
 
     hunks
+}
+
+/// Parse file path from a "diff --git a/path b/path" line.
+///
+/// Handles edge cases like paths containing " b/" by using the fact that
+/// git's diff output format has symmetric a-path and b-path (except for renames).
+fn parse_diff_git_path(line: &str) -> Option<String> {
+    // Format: "diff --git a/<path> b/<path>"
+    let line = line.strip_prefix("diff --git ")?;
+
+    // For non-rename cases, a-path and b-path are identical.
+    // The line format is "a/<path> b/<path>".
+    let after_a = line.strip_prefix("a/")?;
+
+    // Since paths are symmetric: "<path> b/<path>"
+    // Total length = path_len + 3 (" b/") + path_len
+    // So: path_len = (total_len - 3) / 2
+    let total_len = after_a.len();
+    if total_len < 4 {
+        // Too short to contain " b/" + at least 1 char
+        return None;
+    }
+
+    // Calculate expected path length assuming symmetric paths
+    let path_len = (total_len - 3) / 2;
+
+    // Verify the separator is at the expected position
+    let expected_sep = &after_a[path_len..path_len + 3];
+    if expected_sep == " b/" {
+        let a_path = &after_a[..path_len];
+        let b_path = &after_a[path_len + 3..];
+
+        // Verify paths match (for non-renames)
+        if a_path == b_path {
+            return Some(b_path.to_string());
+        }
+        // For renames, paths differ; return b-path (destination)
+        return Some(b_path.to_string());
+    }
+
+    // Fallback for unusual cases: try simple split
+    line.split(" b/").nth(1).map(String::from)
 }
 
 /// Parse a hunk header line like "@@ -1,3 +1,4 @@" or "@@ -1 +1,2 @@"
@@ -311,6 +374,33 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_diff_git_path() {
+        // Simple path
+        assert_eq!(
+            parse_diff_git_path("diff --git a/src/main.rs b/src/main.rs"),
+            Some("src/main.rs".to_string())
+        );
+
+        // Path with spaces
+        assert_eq!(
+            parse_diff_git_path("diff --git a/path with spaces/file.rs b/path with spaces/file.rs"),
+            Some("path with spaces/file.rs".to_string())
+        );
+
+        // Path containing " b/" substring (edge case)
+        assert_eq!(
+            parse_diff_git_path("diff --git a/a b/c/file.rs b/a b/c/file.rs"),
+            Some("a b/c/file.rs".to_string())
+        );
+
+        // Nested directories
+        assert_eq!(
+            parse_diff_git_path("diff --git a/deep/nested/path/file.rs b/deep/nested/path/file.rs"),
+            Some("deep/nested/path/file.rs".to_string())
+        );
+    }
+
+    #[test]
     fn test_parse_diff_hunks_single_file() {
         let diff = r#"diff --git a/src/main.rs b/src/main.rs
 index abc123..def456 100644
@@ -329,6 +419,7 @@ index abc123..def456 100644
         assert_eq!(hunks[0].old_lines, 3);
         assert_eq!(hunks[0].new_start, 10);
         assert_eq!(hunks[0].new_lines, 4);
+        assert!(!hunks[0].is_new_file);
     }
 
     #[test]
@@ -350,6 +441,8 @@ index abc..def 100644
         assert_eq!(hunks.len(), 2);
         assert_eq!(hunks[0].old_start, 1);
         assert_eq!(hunks[1].old_start, 10);
+        assert!(!hunks[0].is_new_file);
+        assert!(!hunks[1].is_new_file);
     }
 
     #[test]
@@ -372,5 +465,6 @@ index 0000000..abc123
         assert_eq!(hunks[0].old_lines, 0);
         assert_eq!(hunks[0].new_start, 1);
         assert_eq!(hunks[0].new_lines, 3);
+        assert!(hunks[0].is_new_file);
     }
 }

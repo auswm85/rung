@@ -38,7 +38,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     let plan = absorb::create_absorb_plan(&repo, &state, &base_branch)?;
 
     if plan.actions.is_empty() && plan.unmapped.is_empty() {
-        output::info("No staged changes found");
+        output::info("Staged changes present but no absorbable hunks found");
         return Ok(());
     }
 
@@ -51,6 +51,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
         for unmapped in &plan.unmapped {
             let reason = match &unmapped.reason {
                 UnmapReason::NewFile => "new file".to_string(),
+                UnmapReason::InsertOnly => "insert-only (no lines to blame)".to_string(),
                 UnmapReason::MultipleCommits => "multiple commits touched these lines".to_string(),
                 UnmapReason::CommitNotInStack => "target commit not in stack".to_string(),
                 UnmapReason::CommitOnBaseBranch => {
