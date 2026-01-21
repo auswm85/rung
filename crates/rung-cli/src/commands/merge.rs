@@ -206,8 +206,12 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
                 }
             }
 
-            // Remove the merged branch from stack
-            stack.branches.retain(|b| b.name != current_branch);
+            // Mark the branch as merged (moves to merged list for history retention)
+            stack.mark_merged(&current_branch);
+
+            // Clear merged history when entire stack is done
+            stack.clear_merged_if_empty();
+
             state.save_stack(&stack)?;
 
             if !json && children_count > 0 {

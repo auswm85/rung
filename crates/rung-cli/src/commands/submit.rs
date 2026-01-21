@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use anyhow::{Context, Result, bail};
-use rung_core::{State, stack::StackBranch};
+use rung_core::{State, stack::Stack};
 use rung_git::Repository;
 use rung_github::{
     Auth, CreateComment, CreatePullRequest, GitHubClient, UpdateComment, UpdatePullRequest,
@@ -172,7 +172,7 @@ pub fn run(
 
     // Save state and update comments (only after real execution)
     state.save_stack(&stack)?;
-    update_stack_comments(&gh, &stack.branches, json)?;
+    update_stack_comments(&gh, &stack, json)?;
 
     let (created, updated) = branch_infos
         .iter()
@@ -662,25 +662,29 @@ fn print_summary(created: usize, updated: usize) {
 const STACK_COMMENT_MARKER: &str = "<!-- rung-stack -->";
 
 /// Generate stack comment for a PR.
-fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
+fn generate_stack_comment(stack: &Stack, current_pr: u64) -> String {
     let mut comment = String::from(STACK_COMMENT_MARKER);
     comment.push('\n');
+
+    let branches = &stack.branches;
 
     // Find the current branch
     let current_branch = branches.iter().find(|b| b.pr == Some(current_pr));
     let current_name = current_branch.map_or("", |b| b.name.as_str());
 
-    // Build the chain for this branch
-    let chain = build_branch_chain(branches, current_name);
+    // Build the chain for this branch (includes merged branches)
+    let chain = build_branch_chain(stack, current_name);
 
     // Build stack list in markdown format (newest at top, so iterate in reverse)
     for branch_name in chain.iter().rev() {
-        let branch = branches.iter().find(|b| &b.name == branch_name);
         let is_current = branch_name == current_name;
+        let pointer = if is_current { " 👈" } else { "" };
 
-        if let Some(b) = branch {
-            let pointer = if is_current { " 👈" } else { "" };
-
+        // Check if this is a merged branch
+        if let Some(merged) = stack.find_merged(branch_name) {
+            // Show merged branches with strikethrough
+            let _ = writeln!(comment, "* ~~**#{}**~~ ✓{pointer}", merged.pr);
+        } else if let Some(b) = branches.iter().find(|b| &b.name == branch_name) {
             if let Some(pr_num) = b.pr {
                 // GitHub auto-links and expands #number to show PR title
                 let _ = writeln!(comment, "* **#{pr_num}**{pointer}");
@@ -700,6 +704,12 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
                     if let Some(p) = branches.iter().find(|br| &br.name == parent) {
                         current = p;
                     } else {
+                        // Check if parent is a merged branch
+                        if stack.find_merged(parent).is_some() {
+                            // Continue walking up - the merged branch's parent info is lost
+                            // so we use the original parent name
+                            return Some(parent.as_str());
+                        }
                         return Some(parent.as_str());
                     }
                 } else {
@@ -716,21 +726,17 @@ fn generate_stack_comment(branches: &[StackBranch], current_pr: u64) -> String {
 }
 
 /// Update stack comments on all PRs in the stack.
-fn update_stack_comments(
-    gh: &GitHubContext<'_>,
-    branches: &[StackBranch],
-    json: bool,
-) -> Result<()> {
+fn update_stack_comments(gh: &GitHubContext<'_>, stack: &Stack, json: bool) -> Result<()> {
     if !json {
         output::info("Updating stack comments...");
     }
 
-    for branch in branches {
+    for branch in &stack.branches {
         let Some(pr_number) = branch.pr else {
             continue;
         };
 
-        let comment_body = generate_stack_comment(branches, pr_number);
+        let comment_body = generate_stack_comment(stack, pr_number);
 
         // Find existing rung comment
         let comments = gh
@@ -774,7 +780,10 @@ fn update_stack_comments(
 /// Build a chain of branches from root ancestor to all descendants.
 ///
 /// Returns branch names in order from oldest ancestor to newest descendant.
-fn build_branch_chain(branches: &[StackBranch], current_name: &str) -> Vec<String> {
+/// Includes merged branches in the chain for history preservation.
+fn build_branch_chain(stack: &Stack, current_name: &str) -> Vec<String> {
+    let branches = &stack.branches;
+
     // Find all ancestors (walk up the parent chain)
     let mut ancestors: Vec<String> = vec![];
     let mut current = current_name.to_string();
@@ -782,11 +791,17 @@ fn build_branch_chain(branches: &[StackBranch], current_name: &str) -> Vec<Strin
     loop {
         if let Some(branch) = branches.iter().find(|b| b.name == current) {
             if let Some(ref parent) = branch.parent {
-                // Check if parent is in the stack
+                // Check if parent is in the active stack
                 if branches.iter().any(|b| b.name == *parent) {
                     ancestors.push(parent.to_string());
                     current = parent.to_string();
                     continue;
+                }
+                // Check if parent is a merged branch (include in chain for history)
+                if stack.find_merged(parent).is_some() {
+                    ancestors.push(parent.to_string());
+                    // Can't walk further - merged branches don't track their parent
+                    break;
                 }
             }
         }

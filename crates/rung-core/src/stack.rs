@@ -12,13 +12,20 @@ use crate::BranchName;
 pub struct Stack {
     /// Ordered list of branches from base to tip.
     pub branches: Vec<StackBranch>,
+
+    /// Branches that have been merged (for preserving history in PR comments).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged: Vec<MergedBranch>,
 }
 
 impl Stack {
     /// Create a new empty stack.
     #[must_use]
     pub const fn new() -> Self {
-        Self { branches: vec![] }
+        Self {
+            branches: Vec::new(),
+            merged: Vec::new(),
+        }
     }
 
     /// Find a branch by name.
@@ -43,6 +50,46 @@ impl Stack {
             Some(self.branches.remove(pos))
         } else {
             None
+        }
+    }
+
+    /// Mark a branch as merged, moving it from active to merged list.
+    ///
+    /// This preserves the branch info for stack comment history.
+    /// Returns the removed branch if found.
+    pub fn mark_merged(&mut self, name: &str) -> Option<StackBranch> {
+        let branch = self.remove_branch(name)?;
+
+        if let Some(pr) = branch.pr {
+            self.merged.push(MergedBranch {
+                name: branch.name.clone(),
+                pr,
+                merged_at: Utc::now(),
+            });
+        }
+
+        Some(branch)
+    }
+
+    /// Find a merged branch by name.
+    #[must_use]
+    pub fn find_merged(&self, name: &str) -> Option<&MergedBranch> {
+        self.merged.iter().find(|b| b.name == name)
+    }
+
+    /// Find a merged branch by PR number.
+    #[must_use]
+    pub fn find_merged_by_pr(&self, pr: u64) -> Option<&MergedBranch> {
+        self.merged.iter().find(|b| b.pr == pr)
+    }
+
+    /// Clear merged branches when stack is empty.
+    ///
+    /// This should be called after merge operations to clean up
+    /// when the entire stack has been merged.
+    pub fn clear_merged_if_empty(&mut self) {
+        if self.branches.is_empty() {
+            self.merged.clear();
         }
     }
 
@@ -160,6 +207,19 @@ impl StackBranch {
         let parent = parent.map(BranchName::new).transpose()?;
         Ok(Self::new(name, parent))
     }
+}
+
+/// A branch that has been merged (for preserving history in PR comments).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergedBranch {
+    /// Branch name.
+    pub name: BranchName,
+
+    /// PR number that was merged.
+    pub pr: u64,
+
+    /// When this branch was merged.
+    pub merged_at: DateTime<Utc>,
 }
 
 /// Synchronization state of a branch relative to its parent.
