@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 use rung_core::{BranchName, State, slugify, stack::StackBranch};
 use rung_git::Repository;
 
+use crate::commands::utils;
 use crate::output;
 
 /// Run the create command.
@@ -36,6 +37,9 @@ pub fn run(name: Option<&str>, message: Option<&str>) -> Result<()> {
     if !state.is_initialized() {
         bail!("Rung not initialized - run `rung init` first");
     }
+
+    // Ensure on branch
+    utils::ensure_on_branch(&repo)?;
 
     // Get current branch (will be parent)
     let parent_str = repo.current_branch()?;

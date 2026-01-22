@@ -6,6 +6,7 @@ use rung_core::absorb::{self, UnmapReason};
 use rung_git::Repository;
 use rung_github::{Auth, GitHubClient};
 
+use crate::commands::utils;
 use crate::output;
 
 /// Run the absorb command.
@@ -21,6 +22,9 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     if !state.is_initialized() {
         bail!("Rung not initialized - run `rung init` first");
     }
+
+    // Ensure on branch
+    utils::ensure_on_branch(&repo)?;
 
     // Check for staged changes
     if !repo.has_staged_changes()? {

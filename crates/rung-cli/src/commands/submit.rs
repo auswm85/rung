@@ -10,6 +10,7 @@ use rung_github::{
 };
 use serde::Serialize;
 
+use crate::commands::utils;
 use crate::output;
 
 /// A planned action for a single branch.
@@ -137,6 +138,9 @@ pub fn run(
         output::info("No branches in stack - nothing to submit");
         return Ok(());
     }
+
+    // Ensure on branch
+    utils::ensure_on_branch(&repo)?;
 
     let config = SubmitConfig {
         draft,

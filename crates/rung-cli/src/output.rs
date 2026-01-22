@@ -28,6 +28,17 @@ pub fn error(msg: &str) {
     eprintln!("{} {}", "✗".red(), msg);
 }
 
+/// Print the detached HEAD error message with guidance (always to stderr).
+pub fn error_detached_head() {
+    error("Cannot run this command in detached HEAD state.");
+    eprintln!();
+    eprintln!("You are not on any branch. To fix this:");
+    eprintln!("  1. Create a new branch: git checkout -b <branch-name>");
+    eprintln!("  2. Or return to an existing branch: git checkout <branch-name>");
+    eprintln!();
+    eprintln!("Run `rung status` after switching to a branch.");
+}
+
 /// Print a warning message (always prints to stderr).
 pub fn warn(msg: &str) {
     eprintln!("{} {}", "!".yellow(), msg);

@@ -58,6 +58,15 @@ impl Repository {
         )
     }
 
+    /// Check if HEAD is detached (not pointing at a branch).
+    ///
+    /// # Errors
+    /// Returns error if HEAD cannot be read (e.g. unborn repo).
+    pub fn head_detached(&self) -> Result<bool> {
+        let head = self.inner.head()?;
+        Ok(!head.is_branch())
+    }
+
     // === Branch operations ===
 
     /// Get the name of the current branch.
