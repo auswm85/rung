@@ -14,6 +14,7 @@ use rung_git::Repository;
 use rung_github::{Auth, GitHubClient, PullRequestState, UpdatePullRequest};
 use serde::Serialize;
 
+use crate::commands::utils;
 use crate::output;
 
 /// JSON output for sync command.
@@ -84,6 +85,9 @@ pub fn run(
         output::success("Sync aborted - branches restored from backup");
         return Ok(());
     }
+
+    // Ensure on branch
+    utils::ensure_on_branch(&repo);
 
     // Handle continue
     if continue_ {

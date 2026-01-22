@@ -2,6 +2,8 @@ use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_git::Repository;
 
+use crate::output;
+
 /// Helper to open repo and state.
 pub fn open_repo_and_state() -> Result<(Repository, State)> {
     let repo = Repository::open_current().context("Not inside a git repository")?;
@@ -13,4 +15,14 @@ pub fn open_repo_and_state() -> Result<(Repository, State)> {
     }
 
     Ok((repo, state))
+}
+
+
+/// Ensure the repository is not in detached HEAD state.
+/// If detached, prints the detached-HEAD error message and exits with code 1.
+pub fn ensure_on_branch(repo: &Repository) {
+    if repo.head_detached() {
+        output::error_detached_head();
+        std::process::exit(1);
+    }
 }
