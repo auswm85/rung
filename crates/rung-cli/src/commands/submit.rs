@@ -784,28 +784,34 @@ fn update_stack_comments(gh: &GitHubContext<'_>, stack: &Stack, json: bool) -> R
 fn build_branch_chain(stack: &Stack, current_name: &str) -> Vec<String> {
     let branches = &stack.branches;
 
-    // Find all ancestors (walk up the parent chain)
+    // Find all ancestors (walk up the parent chain, including merged branches)
     let mut ancestors: Vec<String> = vec![];
     let mut current = current_name.to_string();
 
     loop {
-        if let Some(branch) = branches.iter().find(|b| b.name == current) {
-            if let Some(ref parent) = branch.parent {
-                // Check if parent is in the active stack
-                if branches.iter().any(|b| b.name == *parent) {
-                    ancestors.push(parent.to_string());
-                    current = parent.to_string();
-                    continue;
-                }
-                // Check if parent is a merged branch (include in chain for history)
-                if stack.find_merged(parent).is_some() {
-                    ancestors.push(parent.to_string());
-                    // Can't walk further - merged branches don't track their parent
-                    break;
-                }
-            }
+        // Get the parent of current (from active or merged branch)
+        let parent = branches
+            .iter()
+            .find(|b| b.name == current)
+            .and_then(|b| b.parent.as_ref())
+            .or_else(|| stack.find_merged(&current).and_then(|m| m.parent.as_ref()))
+            .map(ToString::to_string);
+
+        let Some(parent_name) = parent else {
+            break;
+        };
+
+        // Check if parent is in active stack or merged list
+        let in_active = branches.iter().any(|b| b.name == parent_name);
+        let in_merged = stack.find_merged(&parent_name).is_some();
+
+        if in_active || in_merged {
+            ancestors.push(parent_name.clone());
+            current = parent_name;
+        } else {
+            // Parent not in stack (reached base like main)
+            break;
         }
-        break;
     }
 
     // Reverse to get oldest ancestor first

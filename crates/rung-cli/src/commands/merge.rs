@@ -207,7 +207,9 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
             }
 
             // Mark the branch as merged (moves to merged list for history retention)
-            stack.mark_merged(&current_branch);
+            stack
+                .mark_merged(&current_branch)
+                .ok_or_else(|| anyhow::anyhow!("Branch '{current_branch}' missing from stack"))?;
 
             // Clear merged history when entire stack is done
             stack.clear_merged_if_empty();

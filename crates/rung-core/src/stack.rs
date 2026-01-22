@@ -55,7 +55,8 @@ impl Stack {
 
     /// Mark a branch as merged, moving it from active to merged list.
     ///
-    /// This preserves the branch info for stack comment history.
+    /// This preserves the branch info for stack comment history,
+    /// including the original parent for ancestry chain traversal.
     /// Returns the removed branch if found.
     pub fn mark_merged(&mut self, name: &str) -> Option<StackBranch> {
         let branch = self.remove_branch(name)?;
@@ -63,6 +64,7 @@ impl Stack {
         if let Some(pr) = branch.pr {
             self.merged.push(MergedBranch {
                 name: branch.name.clone(),
+                parent: branch.parent.clone(),
                 pr,
                 merged_at: Utc::now(),
             });
@@ -214,6 +216,10 @@ impl StackBranch {
 pub struct MergedBranch {
     /// Branch name.
     pub name: BranchName,
+
+    /// Original parent branch name (preserved for ancestry chain).
+    #[serde(default)]
+    pub parent: Option<BranchName>,
 
     /// PR number that was merged.
     pub pr: u64,
