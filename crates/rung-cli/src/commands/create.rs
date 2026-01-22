@@ -39,7 +39,7 @@ pub fn run(name: Option<&str>, message: Option<&str>) -> Result<()> {
     }
 
     // Ensure on branch
-    utils::ensure_on_branch(&repo);
+    utils::ensure_on_branch(&repo)?;
 
     // Get current branch (will be parent)
     let parent_str = repo.current_branch()?;

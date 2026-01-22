@@ -87,7 +87,7 @@ pub fn run(
     }
 
     // Ensure on branch
-    utils::ensure_on_branch(&repo);
+    utils::ensure_on_branch(&repo)?;
 
     // Handle continue
     if continue_ {

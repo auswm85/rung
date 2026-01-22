@@ -43,7 +43,7 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
     }
 
     // Ensure on branch
-    utils::ensure_on_branch(&repo);
+    utils::ensure_on_branch(&repo)?;
 
     // Get current branch
     let current_branch = repo.current_branch()?;

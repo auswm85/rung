@@ -140,7 +140,7 @@ pub fn run(
     }
 
     // Ensure on branch
-    utils::ensure_on_branch(&repo);
+    utils::ensure_on_branch(&repo)?;
 
     let config = SubmitConfig {
         draft,

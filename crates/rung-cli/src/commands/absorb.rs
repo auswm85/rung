@@ -24,7 +24,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     }
 
     // Ensure on branch
-    utils::ensure_on_branch(&repo);
+    utils::ensure_on_branch(&repo)?;
 
     // Check for staged changes
     if !repo.has_staged_changes()? {

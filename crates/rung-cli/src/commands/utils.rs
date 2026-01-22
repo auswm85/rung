@@ -17,12 +17,12 @@ pub fn open_repo_and_state() -> Result<(Repository, State)> {
     Ok((repo, state))
 }
 
-
 /// Ensure the repository is not in detached HEAD state.
-/// If detached, prints the detached-HEAD error message and exits with code 1.
-pub fn ensure_on_branch(repo: &Repository) {
-    if repo.head_detached() {
+/// If detached, prints the detached-HEAD error message and returns an error.
+pub fn ensure_on_branch(repo: &Repository) -> Result<()> {
+    if repo.head_detached()? {
         output::error_detached_head();
-        std::process::exit(1);
+        bail!("");
     }
+    Ok(())
 }
