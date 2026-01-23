@@ -72,6 +72,37 @@ export function registerCommands(
         }
       },
     ],
+    [
+      "rung.doctor",
+      async () => {
+        const result = await cli.doctor();
+
+        if (result.healthy) {
+          void vscode.window.showInformationMessage("Rung: All diagnostics passed!");
+          return;
+        }
+
+        // Show issues in output channel
+        const channel = vscode.window.createOutputChannel("Rung Diagnostics");
+        channel.clear();
+        channel.appendLine("=== Rung Diagnostics ===\n");
+
+        for (const issue of result.issues) {
+          const icon = issue.severity === "error" ? "❌" : "⚠️";
+          channel.appendLine(`${icon} [${issue.severity.toUpperCase()}] ${issue.message}`);
+        }
+
+        channel.appendLine(`\n--- Summary: ${result.errors} error(s), ${result.warnings} warning(s) ---`);
+        channel.show();
+
+        // Show notification
+        if (result.errors > 0) {
+          void vscode.window.showErrorMessage(`Rung: Found ${result.errors} error(s). See output for details.`);
+        } else {
+          void vscode.window.showWarningMessage(`Rung: Found ${result.warnings} warning(s). See output for details.`);
+        }
+      },
+    ],
   ];
 
   for (const [id, handler] of commands) {

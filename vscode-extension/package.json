@@ -96,6 +96,11 @@
         "command": "rung.init",
         "title": "Rung: Initialize Repository",
         "icon": "$(add)"
+      },
+      {
+        "command": "rung.doctor",
+        "title": "Rung: Run Diagnostics",
+        "icon": "$(beaker)"
       }
     ],
     "menus": {
@@ -114,6 +119,11 @@
           "command": "rung.submit",
           "when": "view == rungStack",
           "group": "navigation@3"
+        },
+        {
+          "command": "rung.doctor",
+          "when": "view == rungStack",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [

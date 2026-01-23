@@ -3,6 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import {
   StatusOutput,
+  DoctorOutput,
   RungConfig,
   RungError,
   ErrorType,
@@ -240,9 +241,9 @@ export class RungCli {
   /**
    * Run doctor diagnostics.
    */
-  async doctor(): Promise<string> {
-    const { stdout } = await this.execute(["doctor"]);
-    return stdout;
+  async doctor(): Promise<DoctorOutput> {
+    const { stdout } = await this.execute(["doctor", "--json"]);
+    return JSON.parse(stdout) as DoctorOutput;
   }
 
   /**
