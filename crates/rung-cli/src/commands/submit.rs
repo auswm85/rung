@@ -150,7 +150,7 @@ pub fn run(
         current_branch: repo.current_branch().ok(),
         default_branch: state
             .default_branch()
-            .unwrap_or_else(|_| "main".to_string()),
+            .context("Failed to load default branch from config")?,
     };
 
     let (owner, repo_name) = get_remote_info(&repo)?;

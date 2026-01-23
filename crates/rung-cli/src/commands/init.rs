@@ -27,12 +27,13 @@ pub fn run() -> Result<()> {
     state.init()?;
 
     // Detect and save default branch
-    let default_branch = repo.detect_default_branch();
-    if let Some(ref branch) = default_branch {
+    if let Some(branch) = repo.detect_default_branch() {
         let mut config = Config::default();
         config.general.default_branch = Some(branch.clone());
         state.save_config(&config)?;
         output::info(&format!("Detected default branch: {branch}"));
+    } else {
+        output::info("Could not detect default branch, using \"main\" as fallback");
     }
 
     output::success("Initialized rung in this repository");
