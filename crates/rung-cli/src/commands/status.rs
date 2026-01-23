@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use rung_core::{BranchState, State};
-use rung_git::Repository;
+use rung_git::{RemoteDivergence, Repository};
 use serde::Serialize;
 
 use crate::output;
@@ -41,12 +41,17 @@ pub fn run(json: bool, _fetch: bool) -> Result<()> {
 
     for branch in &stack.branches {
         let branch_state = compute_branch_state(&repo, branch, &stack)?;
+        let remote_divergence = repo
+            .remote_divergence(&branch.name)
+            .ok()
+            .map(|d| RemoteDivergenceInfo::from(&d));
         branches_with_state.push(BranchInfo {
             name: branch.name.to_string(),
             parent: branch.parent.as_ref().map(ToString::to_string),
             state: branch_state,
             pr: branch.pr,
             is_current: current.as_deref() == Some(branch.name.as_str()),
+            remote_divergence,
         });
     }
 
@@ -121,7 +126,15 @@ fn print_tree(branches: &[BranchInfo]) {
             .map(|p| format!(" ← {}", p.dimmed()))
             .unwrap_or_default();
 
-        println!("  {state_icon} {name} {pr}{parent_info}");
+        // Add remote divergence indicator if present
+        let divergence = branch
+            .remote_divergence
+            .as_ref()
+            .and_then(remote_divergence_indicator)
+            .map(|s| format!(" {s}"))
+            .unwrap_or_default();
+
+        println!("  {state_icon} {name} {pr}{parent_info}{divergence}");
     }
 
     output::hr();
@@ -135,6 +148,46 @@ fn print_tree(branches: &[BranchInfo]) {
         "●".red()
     );
     println!();
+
+    // Collect branches that need force push and print warnings
+    let diverged: Vec<_> = branches
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.remote_divergence,
+                Some(RemoteDivergenceInfo::Diverged { .. })
+            )
+        })
+        .collect();
+
+    if !diverged.is_empty() {
+        for b in &diverged {
+            if let Some(RemoteDivergenceInfo::Diverged { ahead, behind }) = &b.remote_divergence {
+                output::warn(&format!(
+                    "{} has diverged from origin ({} ahead, {} behind)",
+                    b.name, ahead, behind
+                ));
+            }
+        }
+        output::detail("  Run `rung submit --force` to safely update (uses --force-with-lease)");
+        println!();
+    }
+}
+
+/// Format remote divergence info as a compact indicator.
+fn remote_divergence_indicator(divergence: &RemoteDivergenceInfo) -> Option<String> {
+    match divergence {
+        RemoteDivergenceInfo::InSync | RemoteDivergenceInfo::NoRemote => None,
+        RemoteDivergenceInfo::Ahead { commits } => {
+            Some(format!("({commits}↑)").dimmed().to_string())
+        }
+        RemoteDivergenceInfo::Behind { commits } => {
+            Some(format!("({commits}↓)").yellow().to_string())
+        }
+        RemoteDivergenceInfo::Diverged { ahead, behind } => {
+            Some(format!("({ahead}↑ {behind}↓)").yellow().to_string())
+        }
+    }
 }
 
 use colored::Colorize;
@@ -162,4 +215,32 @@ struct BranchInfo {
     pr: Option<u64>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_current: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_divergence: Option<RemoteDivergenceInfo>,
+}
+
+/// Serializable remote divergence info for JSON output.
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum RemoteDivergenceInfo {
+    InSync,
+    Ahead { commits: usize },
+    Behind { commits: usize },
+    Diverged { ahead: usize, behind: usize },
+    NoRemote,
+}
+
+impl From<&RemoteDivergence> for RemoteDivergenceInfo {
+    fn from(d: &RemoteDivergence) -> Self {
+        match d {
+            RemoteDivergence::InSync => Self::InSync,
+            RemoteDivergence::Ahead { commits } => Self::Ahead { commits: *commits },
+            RemoteDivergence::Behind { commits } => Self::Behind { commits: *commits },
+            RemoteDivergence::Diverged { ahead, behind } => Self::Diverged {
+                ahead: *ahead,
+                behind: *behind,
+            },
+            RemoteDivergence::NoRemote => Self::NoRemote,
+        }
+    }
 }

@@ -4,7 +4,7 @@ use std::fmt::Write;
 
 use anyhow::{Context, Result, bail};
 use rung_core::{State, stack::Stack};
-use rung_git::Repository;
+use rung_git::{RemoteDivergence, Repository};
 use rung_github::{
     Auth, CreateComment, CreatePullRequest, GitHubClient, UpdateComment, UpdatePullRequest,
 };
@@ -312,6 +312,28 @@ fn create_submit_plan(
     Ok(SubmitPlan { actions })
 }
 
+/// Warn if a branch has diverged from its remote and force is not enabled.
+fn warn_if_diverged(repo: &Repository, branch: &str, force: bool, json: bool) {
+    if force || json {
+        return;
+    }
+    if let Ok(RemoteDivergence::Diverged { ahead, behind }) = repo.remote_divergence(branch) {
+        output::warn(&format!(
+            "{branch} has diverged from origin ({ahead} ahead, {behind} behind)"
+        ));
+        output::detail("  Use --force to safely update (uses --force-with-lease)");
+    }
+}
+
+/// Push a branch with optional progress output.
+fn push_branch(repo: &Repository, branch: &str, force: bool, json: bool) -> Result<()> {
+    if !json {
+        output::info(&format!("  Pushing {branch}..."));
+    }
+    repo.push(branch, force)
+        .with_context(|| format!("Failed to push {branch}"))
+}
+
 /// Execute the submit plan (mutations only).
 ///
 /// This function pushes branches and creates/updates PRs according to the plan.
@@ -339,14 +361,9 @@ fn execute_submit(
             } => {
                 if !json {
                     output::info(&format!("Processing {branch}..."));
-                    output::info(&format!("  Pushing {branch}..."));
                 }
-
-                // Push the branch
-                repo.push(branch, force)
-                    .with_context(|| format!("Failed to push {branch}"))?;
-
-                // Update the PR base branch
+                warn_if_diverged(repo, branch, force, json);
+                push_branch(repo, branch, force, json)?;
                 update_existing_pr(gh, *pr_number, base, json)?;
 
                 // Persist PR number if it was discovered during planning
@@ -372,12 +389,9 @@ fn execute_submit(
             } => {
                 if !json {
                     output::info(&format!("Processing {branch}..."));
-                    output::info(&format!("  Pushing {branch}..."));
                 }
-
-                // Push the branch
-                repo.push(branch, force)
-                    .with_context(|| format!("Failed to push {branch}"))?;
+                warn_if_diverged(repo, branch, force, json);
+                push_branch(repo, branch, force, json)?;
 
                 // Check if a PR was created between planning and execution
                 let existing = gh

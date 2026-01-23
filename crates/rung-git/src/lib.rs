@@ -11,4 +11,4 @@ mod repository;
 pub use absorb::{BlameResult, Hunk};
 pub use error::{Error, Result};
 pub use git2::Oid;
-pub use repository::Repository;
+pub use repository::{RemoteDivergence, Repository};

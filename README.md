@@ -150,6 +150,16 @@ rung status --json       # Output as JSON for tooling
 
 - `--fetch` - Fetch latest PR status from GitHub
 
+**Remote Divergence Indicators:**
+
+The status display shows how local branches compare to their remote counterparts:
+
+- `(2↑)` - Branch is 2 commits ahead of remote (safe to push)
+- `(1↓)` - Branch is 1 commit behind remote (remote has changes)
+- `(2↑ 1↓)` - Branch has diverged (2 ahead, 1 behind) - force push needed
+
+When branches have diverged, a warning is shown with guidance to use `rung submit --force` (which uses `--force-with-lease` for safety).
+
 ### `rung sync`
 
 Sync the stack by rebasing all branches when the base moves forward.
