@@ -7,7 +7,7 @@
 use anyhow::{Context, Result, bail};
 use inquire::Select;
 use rung_core::{RestackState, State};
-use rung_git::Repository;
+use rung_git::{RemoteDivergence, Repository};
 use serde::Serialize;
 
 use crate::commands::utils;
@@ -23,6 +23,15 @@ struct RestackOutput {
     new_parent: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     branches_rebased: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    diverged_branches: Vec<DivergenceInfo>,
+}
+
+#[derive(Debug, Serialize)]
+struct DivergenceInfo {
+    branch: String,
+    ahead: usize,
+    behind: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,10 +41,15 @@ enum RestackStatus {
     DryRun,
     Aborted,
     AlreadyBased,
+    Diverged,
 }
 
 /// Run the restack command.
-#[allow(clippy::fn_params_excessive_bools, clippy::too_many_lines)]
+#[allow(
+    clippy::fn_params_excessive_bools,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
 pub fn run(
     json: bool,
     branch: Option<&str>,
@@ -44,6 +58,7 @@ pub fn run(
     continue_: bool,
     abort: bool,
     include_children: bool,
+    force: bool,
 ) -> Result<()> {
     let (repo, state) = utils::open_repo_and_state()?;
 
@@ -111,6 +126,7 @@ pub fn run(
                 old_parent,
                 new_parent,
                 branches_rebased: vec![],
+                diverged_branches: vec![],
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else {
@@ -148,6 +164,7 @@ pub fn run(
                 old_parent,
                 new_parent,
                 branches_rebased: vec![],
+                diverged_branches: vec![],
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else if dry_run {
@@ -173,6 +190,7 @@ pub fn run(
                 old_parent,
                 new_parent,
                 branches_rebased: vec![target_branch.to_string()],
+                diverged_branches: vec![],
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else {
@@ -198,6 +216,32 @@ pub fn run(
         for desc in &descendants {
             branches_to_rebase.push(desc.name.to_string());
         }
+    }
+
+    // === Check for divergence from remote ===
+    let diverged = check_divergence(&repo, &branches_to_rebase);
+    if !diverged.is_empty() && !force {
+        if json {
+            let output = RestackOutput {
+                status: RestackStatus::Diverged,
+                branch: target_branch.to_string(),
+                old_parent,
+                new_parent,
+                branches_rebased: vec![],
+                diverged_branches: diverged,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            bail!("");
+        }
+        for info in &diverged {
+            output::warn(&format!(
+                "{} has diverged from remote ({} ahead, {} behind)",
+                info.branch, info.ahead, info.behind
+            ));
+        }
+        output::detail("  Use --force to proceed anyway");
+        output::detail("  (rebased branches will need force-push to update remote)");
+        bail!("Restack aborted: branches have diverged from remote");
     }
 
     // === Create backup of all affected branches ===
@@ -275,6 +319,7 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
             old_parent: restack_state.old_parent,
             new_parent: restack_state.new_parent,
             branches_rebased: vec![],
+            diverged_branches: vec![],
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
@@ -420,6 +465,7 @@ fn finalize_restack(
             old_parent: restack_state.old_parent.clone(),
             new_parent: restack_state.new_parent.clone(),
             branches_rebased: restack_state.completed.clone(),
+            diverged_branches: vec![],
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
@@ -525,4 +571,29 @@ fn select_new_parent(stack: &rung_core::Stack, target_branch: &str, json: bool) 
         .next()
         .map(String::from)
         .context("Invalid selection")
+}
+
+/// Check if any branches have diverged from their remote tracking branches.
+///
+/// Returns a list of branches that have diverged (both local and remote have unique commits).
+/// Branches without a remote tracking branch are skipped (not an error).
+fn check_divergence(repo: &Repository, branches: &[String]) -> Vec<DivergenceInfo> {
+    let mut diverged = Vec::new();
+
+    for branch in branches {
+        // Only block on Diverged status (both local and remote have unique commits).
+        // Behind: user can pull after restack
+        // NoRemote: first push, not an error
+        // InSync/Ahead: fine
+        // Errors: don't block on remote check failures
+        if let Ok(RemoteDivergence::Diverged { ahead, behind }) = repo.remote_divergence(branch) {
+            diverged.push(DivergenceInfo {
+                branch: branch.clone(),
+                ahead,
+                behind,
+            });
+        }
+    }
+
+    diverged
 }

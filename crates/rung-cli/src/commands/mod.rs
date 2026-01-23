@@ -197,6 +197,10 @@ pub enum Commands {
         /// Also move all descendant branches (children, grandchildren, etc.).
         #[arg(long)]
         include_children: bool,
+
+        /// Force restack even if branches have diverged from remote.
+        #[arg(long)]
+        force: bool,
     },
 
     /// Diagnose issues with the stack and repository. [alias: doc]

@@ -48,6 +48,7 @@ fn main() {
             continue_,
             abort,
             include_children,
+            force,
         } => commands::restack::run(
             json,
             branch.as_deref(),
@@ -56,6 +57,7 @@ fn main() {
             continue_,
             abort,
             include_children,
+            force,
         ),
         Commands::Doctor => commands::doctor::run(json),
         Commands::Update { check } => commands::update::run(check),
