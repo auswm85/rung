@@ -408,6 +408,17 @@ impl SyncState {
     }
 }
 
+/// Info about a branch that diverged from its remote tracking branch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DivergenceRecord {
+    /// Branch name.
+    pub branch: String,
+    /// Commits ahead of remote.
+    pub ahead: usize,
+    /// Commits behind remote.
+    pub behind: usize,
+}
+
 /// State tracked during an in-progress restack operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestackState {
@@ -440,6 +451,10 @@ pub struct RestackState {
 
     /// Whether the stack.json has been updated with new parent.
     pub stack_updated: bool,
+
+    /// Branches that were diverged from remote when restack started (--force was used).
+    #[serde(default)]
+    pub diverged_branches: Vec<DivergenceRecord>,
 }
 
 impl RestackState {
@@ -452,6 +467,7 @@ impl RestackState {
         old_parent: Option<String>,
         original_branch: String,
         branches_to_rebase: Vec<String>,
+        diverged_branches: Vec<DivergenceRecord>,
     ) -> Self {
         let current = branches_to_rebase.first().cloned().unwrap_or_default();
         let remaining: VecDeque<String> = branches_to_rebase.into_iter().skip(1).collect();
@@ -467,6 +483,7 @@ impl RestackState {
             completed: vec![],
             remaining,
             stack_updated: false,
+            diverged_branches,
         }
     }
 

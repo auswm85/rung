@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result, bail};
 use inquire::Select;
-use rung_core::{RestackState, State};
+use rung_core::{DivergenceRecord, RestackState, State};
 use rung_git::{RemoteDivergence, Repository};
 use serde::Serialize;
 
@@ -27,11 +27,31 @@ struct RestackOutput {
     diverged_branches: Vec<DivergenceInfo>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct DivergenceInfo {
     branch: String,
     ahead: usize,
     behind: usize,
+}
+
+impl From<&DivergenceRecord> for DivergenceInfo {
+    fn from(record: &DivergenceRecord) -> Self {
+        Self {
+            branch: record.branch.clone(),
+            ahead: record.ahead,
+            behind: record.behind,
+        }
+    }
+}
+
+impl From<&DivergenceInfo> for DivergenceRecord {
+    fn from(info: &DivergenceInfo) -> Self {
+        Self {
+            branch: info.branch.clone(),
+            ahead: info.ahead,
+            behind: info.behind,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -259,6 +279,8 @@ pub fn run(
     let backup_id = state.create_backup(&backup_refs)?;
 
     // === Create restack state for interruption recovery ===
+    let diverged_records: Vec<DivergenceRecord> =
+        diverged.iter().map(DivergenceRecord::from).collect();
     let restack_state = RestackState::new(
         backup_id,
         target_branch.to_string(),
@@ -266,6 +288,7 @@ pub fn run(
         old_parent,
         current.clone(),
         branches_to_rebase.clone(),
+        diverged_records,
     );
     state.save_restack_state(&restack_state)?;
 
@@ -460,13 +483,18 @@ fn finalize_restack(
 
     // Output results
     if json {
+        let diverged_info: Vec<DivergenceInfo> = restack_state
+            .diverged_branches
+            .iter()
+            .map(DivergenceInfo::from)
+            .collect();
         let output = RestackOutput {
             status: RestackStatus::Complete,
             branch: restack_state.target_branch.clone(),
             old_parent: restack_state.old_parent.clone(),
             new_parent: restack_state.new_parent.clone(),
             branches_rebased: restack_state.completed.clone(),
-            diverged_branches: vec![],
+            diverged_branches: diverged_info,
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
