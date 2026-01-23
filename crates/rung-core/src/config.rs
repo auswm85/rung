@@ -54,6 +54,11 @@ pub struct GeneralConfig {
     #[serde(default = "default_remote")]
     pub default_remote: String,
 
+    /// Default base branch (e.g., "main" or "master").
+    /// Detected during `rung init` from the remote's HEAD.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<String>,
+
     /// Number of backups to retain.
     #[serde(default = "default_backup_retention")]
     pub backup_retention: usize,
@@ -67,6 +72,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             default_remote: default_remote(),
+            default_branch: None,
             backup_retention: default_backup_retention(),
             auto_sync: false,
         }
@@ -111,6 +117,7 @@ mod tests {
         let config = Config {
             general: GeneralConfig {
                 default_remote: "upstream".into(),
+                default_branch: Some("develop".into()),
                 backup_retention: 10,
                 auto_sync: true,
             },
@@ -123,6 +130,7 @@ mod tests {
         let loaded = Config::load(&path).unwrap();
 
         assert_eq!(loaded.general.default_remote, "upstream");
+        assert_eq!(loaded.general.default_branch, Some("develop".into()));
         assert_eq!(loaded.general.backup_retention, 10);
         assert!(loaded.general.auto_sync);
         assert_eq!(
@@ -135,5 +143,6 @@ mod tests {
     fn test_missing_config_returns_default() {
         let config = Config::load("/nonexistent/path/config.toml").unwrap();
         assert_eq!(config.general.default_remote, "origin");
+        assert_eq!(config.general.default_branch, None);
     }
 }

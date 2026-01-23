@@ -1,6 +1,6 @@
 //! `rung doctor` command - Diagnose issues with the stack and repository.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use rung_core::State;
 use rung_git::Repository;
@@ -124,7 +124,7 @@ pub fn run(json: bool) -> Result<()> {
     if !json {
         print_check("Checking sync state...");
     }
-    check_sync_state(&repo, &state, &stack, &mut issues);
+    check_sync_state(&repo, &state, &stack, &mut issues)?;
     if !json {
         print_status(&issues, "sync state");
     }
@@ -337,7 +337,7 @@ fn check_sync_state(
     state: &State,
     stack: &rung_core::Stack,
     issues: &mut Vec<Issue>,
-) {
+) -> Result<()> {
     // Check if sync is in progress
     if state.is_sync_in_progress() {
         issues.push(
@@ -347,13 +347,16 @@ fn check_sync_state(
     }
 
     // Check each branch's sync state
+    let default_branch = state
+        .default_branch()
+        .context("Failed to load default branch from config")?;
     let mut needs_sync = 0;
     for branch in &stack.branches {
         if !repo.branch_exists(&branch.name) {
             continue;
         }
 
-        let parent_name = branch.parent.as_deref().unwrap_or("main");
+        let parent_name = branch.parent.as_deref().unwrap_or(&default_branch);
         if !repo.branch_exists(parent_name) {
             continue;
         }
@@ -377,6 +380,8 @@ fn check_sync_state(
                 .with_suggestion("Run `rung sync` to rebase"),
         );
     }
+
+    Ok(())
 }
 
 /// Check GitHub connectivity and PR state.
