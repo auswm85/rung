@@ -613,8 +613,17 @@ impl Repository {
         // but we've already checked local != remote, so we need to detect this case.
         let (ahead, behind) = match self.inner.graph_ahead_behind(local, remote) {
             Ok(counts) => counts,
+            Err(e) if e.code() == git2::ErrorCode::NotFound => {
+                // Unrelated histories - no merge base exists. Count all commits on each side.
+                let ahead_count = self.count_all_commits(local)?;
+                let behind_count = self.count_all_commits(remote)?;
+                return Ok(RemoteDivergence::Diverged {
+                    ahead: ahead_count,
+                    behind: behind_count,
+                });
+            }
             Err(e) => {
-                // If graph traversal fails (e.g., corrupt repo), fall back to error
+                // Other errors (e.g., corrupt repo) are fatal
                 return Err(Error::Git2(e));
             }
         };
