@@ -23,6 +23,7 @@ impl State {
     #[allow(dead_code)]
     const CONFIG_FILE: &'static str = "config.toml";
     const SYNC_STATE_FILE: &'static str = "sync_state";
+    const RESTACK_STATE_FILE: &'static str = "restack_state";
     const REFS_DIR: &'static str = "refs";
 
     /// Create a new State instance for the given repository.
@@ -140,6 +141,54 @@ impl State {
     /// Returns error if file removal fails.
     pub fn clear_sync_state(&self) -> Result<()> {
         let path = self.sync_state_path();
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    // === Restack state operations ===
+
+    fn restack_state_path(&self) -> PathBuf {
+        self.rung_dir.join(Self::RESTACK_STATE_FILE)
+    }
+
+    /// Check if a restack is in progress.
+    #[must_use]
+    pub fn is_restack_in_progress(&self) -> bool {
+        self.restack_state_path().exists()
+    }
+
+    /// Load the current restack state.
+    ///
+    /// # Errors
+    /// Returns error if no restack is in progress or file can't be read.
+    pub fn load_restack_state(&self) -> Result<RestackState> {
+        if !self.is_restack_in_progress() {
+            return Err(Error::NoBackupFound);
+        }
+
+        let content = fs::read_to_string(self.restack_state_path())?;
+        let state: RestackState = serde_json::from_str(&content)?;
+        Ok(state)
+    }
+
+    /// Save restack state (called during restack operation).
+    ///
+    /// # Errors
+    /// Returns error if serialization or write fails.
+    pub fn save_restack_state(&self, state: &RestackState) -> Result<()> {
+        let content = serde_json::to_string_pretty(state)?;
+        fs::write(self.restack_state_path(), content)?;
+        Ok(())
+    }
+
+    /// Clear restack state (called when restack completes or aborts).
+    ///
+    /// # Errors
+    /// Returns error if file removal fails.
+    pub fn clear_restack_state(&self) -> Result<()> {
+        let path = self.restack_state_path();
         if path.exists() {
             fs::remove_file(path)?;
         }
@@ -321,6 +370,89 @@ impl SyncState {
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.current_branch.is_empty() && self.remaining.is_empty()
+    }
+}
+
+/// State tracked during an in-progress restack operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestackState {
+    /// When the restack started.
+    pub started_at: DateTime<Utc>,
+
+    /// Backup ID for this restack.
+    pub backup_id: String,
+
+    /// The branch being restacked.
+    pub target_branch: String,
+
+    /// The new parent branch.
+    pub new_parent: String,
+
+    /// The old parent branch (for display/recovery).
+    pub old_parent: Option<String>,
+
+    /// Original branch user was on (to restore after completion).
+    pub original_branch: String,
+
+    /// Branch currently being rebased.
+    pub current_branch: String,
+
+    /// Branches that have been successfully rebased.
+    pub completed: Vec<String>,
+
+    /// Branches remaining to be rebased (target + children if `include_children`).
+    pub remaining: VecDeque<String>,
+
+    /// Whether the stack.json has been updated with new parent.
+    pub stack_updated: bool,
+}
+
+impl RestackState {
+    /// Create a new restack state.
+    #[must_use]
+    pub fn new(
+        backup_id: String,
+        target_branch: String,
+        new_parent: String,
+        old_parent: Option<String>,
+        original_branch: String,
+        branches_to_rebase: Vec<String>,
+    ) -> Self {
+        let current = branches_to_rebase.first().cloned().unwrap_or_default();
+        let remaining: VecDeque<String> = branches_to_rebase.into_iter().skip(1).collect();
+
+        Self {
+            started_at: Utc::now(),
+            backup_id,
+            target_branch,
+            new_parent,
+            old_parent,
+            original_branch,
+            current_branch: current,
+            completed: vec![],
+            remaining,
+            stack_updated: false,
+        }
+    }
+
+    /// Mark current branch as complete and move to next.
+    pub fn advance(&mut self) {
+        if !self.current_branch.is_empty() {
+            self.completed
+                .push(std::mem::take(&mut self.current_branch));
+        }
+        self.current_branch = self.remaining.pop_front().unwrap_or_default();
+    }
+
+    /// Check if restack is complete.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.current_branch.is_empty() && self.remaining.is_empty()
+    }
+
+    /// Mark the stack as updated.
+    pub const fn mark_stack_updated(&mut self) {
+        self.stack_updated = true;
     }
 }
 
