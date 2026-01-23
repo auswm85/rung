@@ -49,16 +49,19 @@ fn main() {
             abort,
             include_children,
             force,
-        } => commands::restack::run(
-            json,
-            branch.as_deref(),
-            onto.as_deref(),
-            dry_run,
-            continue_,
-            abort,
-            include_children,
-            force,
-        ),
+        } => {
+            let opts = commands::restack::RestackOptions {
+                json,
+                branch: branch.as_deref(),
+                onto: onto.as_deref(),
+                dry_run,
+                continue_,
+                abort,
+                include_children,
+                force,
+            };
+            commands::restack::run(&opts)
+        }
         Commands::Doctor => commands::doctor::run(json),
         Commands::Update { check } => commands::update::run(check),
         Commands::Completions { shell } => commands::completions::run(shell),
