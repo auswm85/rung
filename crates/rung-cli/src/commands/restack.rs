@@ -231,7 +231,8 @@ pub fn run(
                 diverged_branches: diverged,
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
-            bail!("");
+            // Return error to signal non-zero exit
+            return Err(anyhow::anyhow!("divergence_detected").context(""));
         }
         for info in &diverged {
             output::warn(&format!(
