@@ -152,16 +152,12 @@ impl Repository {
     /// Get the configured upstream ref for a branch, if any.
     ///
     /// Returns `None` if no upstream is configured or the branch doesn't exist.
+    /// Uses `branch_upstream_name` to read from git config, which works even when
+    /// the remote-tracking ref doesn't exist locally.
     fn branch_upstream_ref(&self, branch_name: &str) -> Option<String> {
-        let branch = self
-            .inner
-            .find_branch(branch_name, BranchType::Local)
-            .ok()?;
-
-        let upstream = branch.upstream().ok()?;
-        let upstream_ref = upstream.get();
-
-        upstream_ref.name().map(String::from)
+        let refname = format!("refs/heads/{branch_name}");
+        let upstream_buf = self.inner.branch_upstream_name(&refname).ok()?;
+        upstream_buf.as_str().map(String::from)
     }
 
     /// Create a new branch at the current HEAD.
@@ -585,9 +581,10 @@ impl Repository {
 
     // === Remote operations ===
 
-    /// Check how a local branch relates to its remote counterpart (`origin/<branch>`).
+    /// Check how a local branch relates to its remote counterpart.
     ///
-    /// This compares the local branch tip with the remote tracking branch to determine
+    /// Uses the configured upstream if set, otherwise falls back to `origin/<branch>`.
+    /// Compares the local branch tip with the remote tracking branch to determine
     /// if the local branch is ahead, behind, diverged, or in sync with the remote.
     ///
     /// Uses `graph_ahead_behind` for efficient single-traversal computation.
@@ -609,39 +606,22 @@ impl Repository {
         }
 
         // Use graph_ahead_behind for efficient single-traversal computation.
-        // This handles unrelated histories by returning (0, 0) when no merge base exists,
-        // but we've already checked local != remote, so we need to detect this case.
+        // NotFound means no merge base (unrelated histories) - treat as (0, 0).
         let (ahead, behind) = match self.inner.graph_ahead_behind(local, remote) {
             Ok(counts) => counts,
-            Err(e) if e.code() == git2::ErrorCode::NotFound => {
-                // Unrelated histories - no merge base exists. Count all commits on each side.
-                let ahead_count = self.count_all_commits(local)?;
-                let behind_count = self.count_all_commits(remote)?;
-                return Ok(RemoteDivergence::Diverged {
-                    ahead: ahead_count,
-                    behind: behind_count,
-                });
-            }
-            Err(e) => {
-                // Other errors (e.g., corrupt repo) are fatal
-                return Err(Error::Git2(e));
-            }
+            Err(e) if e.code() == git2::ErrorCode::NotFound => (0, 0),
+            Err(e) => return Err(Error::Git2(e)),
         };
 
-        // Handle edge case: unrelated histories where graph_ahead_behind returns (0, 0)
-        // but we know local != remote. Count all commits on each side.
+        // Unrelated histories: (0, 0) but local != remote. Count all commits on each side.
         if ahead == 0 && behind == 0 {
-            // Unrelated histories - count all reachable commits from each tip
-            let ahead_count = self.count_all_commits(local)?;
-            let behind_count = self.count_all_commits(remote)?;
             return Ok(RemoteDivergence::Diverged {
-                ahead: ahead_count,
-                behind: behind_count,
+                ahead: self.count_all_commits(local)?,
+                behind: self.count_all_commits(remote)?,
             });
         }
 
         Ok(match (ahead, behind) {
-            (0, 0) => RemoteDivergence::InSync,
             (a, 0) => RemoteDivergence::Ahead { commits: a },
             (0, b) => RemoteDivergence::Behind { commits: b },
             (a, b) => RemoteDivergence::Diverged {
