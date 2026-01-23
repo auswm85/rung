@@ -48,10 +48,9 @@ export function registerCommands(
     ["rung.create", async () => createCommand(cli, treeProvider)],
     [
       "rung.compare",
-      (item: unknown) => {
+      async (item: unknown) => {
         const typedItem = item instanceof StackTreeItem || typeof item === "string" ? item : undefined;
-        compareCommand(cli, treeProvider, typedItem);
-        return Promise.resolve();
+        await compareCommand(cli, treeProvider, typedItem);
       },
     ],
     [
@@ -100,6 +99,66 @@ export function registerCommands(
           void vscode.window.showErrorMessage(`Rung: Found ${result.errors} error(s). See output for details.`);
         } else {
           void vscode.window.showWarningMessage(`Rung: Found ${result.warnings} warning(s). See output for details.`);
+        }
+      },
+    ],
+    [
+      "rung.undo",
+      async () => {
+        const confirm = await vscode.window.showWarningMessage(
+          "Undo the last sync operation?",
+          { modal: true },
+          "Undo"
+        );
+        if (confirm !== "Undo") {
+          return;
+        }
+
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: "Undoing last sync...",
+            cancellable: false,
+          },
+          async () => {
+            await cli.undo();
+          }
+        );
+
+        void vscode.window.showInformationMessage("Rung: Sync undone successfully");
+        treeProvider.refresh();
+        if (statusBar) {
+          await statusBar.update();
+        }
+      },
+    ],
+    [
+      "rung.merge",
+      async () => {
+        const confirm = await vscode.window.showWarningMessage(
+          "Merge the current branch's PR and clean up?",
+          { modal: true },
+          "Merge"
+        );
+        if (confirm !== "Merge") {
+          return;
+        }
+
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: "Merging PR...",
+            cancellable: false,
+          },
+          async () => {
+            await cli.merge();
+          }
+        );
+
+        void vscode.window.showInformationMessage("Rung: PR merged and branch cleaned up");
+        treeProvider.refresh();
+        if (statusBar) {
+          await statusBar.update();
         }
       },
     ],

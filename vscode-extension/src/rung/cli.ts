@@ -247,6 +247,22 @@ export class RungCli {
   }
 
   /**
+   * Undo the last sync operation.
+   */
+  async undo(): Promise<string> {
+    const { stdout } = await this.execute(["undo"]);
+    return stdout;
+  }
+
+  /**
+   * Merge the current branch's PR and clean up.
+   */
+  async merge(): Promise<string> {
+    const { stdout } = await this.execute(["merge"]);
+    return stdout;
+  }
+
+  /**
    * Check if rung is initialized in the current repository.
    */
   async isInitialized(): Promise<boolean> {
