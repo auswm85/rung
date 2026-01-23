@@ -4,9 +4,27 @@
   "description": "Visualize and manage stacked PRs with rung",
   "version": "0.1.0",
   "publisher": "rung",
+  "license": "MIT",
+  "icon": "resources/rung-logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/auswm85/rung"
+  },
+  "homepage": "https://github.com/auswm85/rung#readme",
+  "bugs": {
+    "url": "https://github.com/auswm85/rung/issues"
+  },
+  "keywords": [
+    "git",
+    "stacked-prs",
+    "stacked-diffs",
+    "pull-requests",
+    "code-review",
+    "workflow"
+  ],
+  "galleryBanner": {
+    "color": "#1A3A5C",
+    "theme": "dark"
   },
   "engines": {
     "vscode": "^1.85.0"

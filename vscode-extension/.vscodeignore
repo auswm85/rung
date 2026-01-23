@@ -3,6 +3,10 @@
 src/**
 node_modules/**
 .gitignore
+.eslintrc.json
 tsconfig.json
+vitest.config.ts
+test.code-workspace
 *.map
 **/*.ts
+**/*.ts.map
