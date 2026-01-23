@@ -347,13 +347,16 @@ fn check_sync_state(
     }
 
     // Check each branch's sync state
+    let default_branch = state
+        .default_branch()
+        .unwrap_or_else(|_| "main".to_string());
     let mut needs_sync = 0;
     for branch in &stack.branches {
         if !repo.branch_exists(&branch.name) {
             continue;
         }
 
-        let parent_name = branch.parent.as_deref().unwrap_or("main");
+        let parent_name = branch.parent.as_deref().unwrap_or(&default_branch);
         if !repo.branch_exists(parent_name) {
             continue;
         }

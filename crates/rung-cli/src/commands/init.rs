@@ -1,7 +1,7 @@
 //! `rung init` command - Initialize rung in the current repository.
 
 use anyhow::{Context, Result};
-use rung_core::State;
+use rung_core::{Config, State};
 use rung_git::Repository;
 
 use crate::output;
@@ -25,6 +25,15 @@ pub fn run() -> Result<()> {
 
     // Initialize
     state.init()?;
+
+    // Detect and save default branch
+    let default_branch = repo.detect_default_branch();
+    if let Some(ref branch) = default_branch {
+        let mut config = Config::default();
+        config.general.default_branch = Some(branch.clone());
+        state.save_config(&config)?;
+        output::info(&format!("Detected default branch: {branch}"));
+    }
 
     output::success("Initialized rung in this repository");
     output::info(&format!("State stored in: {}", state.rung_dir().display()));

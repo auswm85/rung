@@ -20,7 +20,6 @@ pub struct State {
 impl State {
     /// File names within .git/rung/
     const STACK_FILE: &'static str = "stack.json";
-    #[allow(dead_code)]
     const CONFIG_FILE: &'static str = "config.toml";
     const SYNC_STATE_FILE: &'static str = "sync_state";
     const RESTACK_STATE_FILE: &'static str = "restack_state";
@@ -97,6 +96,42 @@ impl State {
         let content = serde_json::to_string_pretty(stack)?;
         fs::write(self.stack_path(), content)?;
         Ok(())
+    }
+
+    // === Config operations ===
+
+    fn config_path(&self) -> PathBuf {
+        self.rung_dir.join(Self::CONFIG_FILE)
+    }
+
+    /// Load the config from disk.
+    ///
+    /// Returns default config if file doesn't exist.
+    ///
+    /// # Errors
+    /// Returns error if file exists but can't be parsed.
+    pub fn load_config(&self) -> Result<crate::config::Config> {
+        crate::config::Config::load(self.config_path())
+    }
+
+    /// Save the config to disk.
+    ///
+    /// # Errors
+    /// Returns error if serialization or write fails.
+    pub fn save_config(&self, config: &crate::config::Config) -> Result<()> {
+        config.save(self.config_path())
+    }
+
+    /// Get the default branch name from config, falling back to "main".
+    ///
+    /// # Errors
+    /// Returns error if config can't be loaded.
+    pub fn default_branch(&self) -> Result<String> {
+        let config = self.load_config()?;
+        Ok(config
+            .general
+            .default_branch
+            .unwrap_or_else(|| "main".into()))
     }
 
     // === Sync state operations ===

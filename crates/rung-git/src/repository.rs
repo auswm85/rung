@@ -553,6 +553,23 @@ impl Repository {
             .ok_or_else(|| Error::RemoteNotFound("origin".into()))
     }
 
+    /// Detect the default branch from the remote's HEAD.
+    ///
+    /// Checks `refs/remotes/origin/HEAD` to determine the remote's default branch.
+    /// Returns `None` if the remote HEAD is not set (e.g., fresh clone without `--set-upstream`).
+    #[must_use]
+    pub fn detect_default_branch(&self) -> Option<String> {
+        // Try to resolve refs/remotes/origin/HEAD which points to the default branch
+        let reference = self.inner.find_reference("refs/remotes/origin/HEAD").ok()?;
+
+        // Resolve the symbolic reference to get the actual branch
+        let resolved = reference.resolve().ok()?;
+        let name = resolved.name()?;
+
+        // Extract branch name from "refs/remotes/origin/main" -> "main"
+        name.strip_prefix("refs/remotes/origin/").map(String::from)
+    }
+
     /// Parse owner and repo name from a GitHub URL.
     ///
     /// Supports both HTTPS and SSH URLs:

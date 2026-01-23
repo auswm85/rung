@@ -444,7 +444,8 @@ pub fn continue_sync(repo: &rung_git::Repository, state: &State) -> Result<SyncR
             .find_branch(&branch_name)
             .ok_or_else(|| crate::error::Error::NotInStack(branch_name.clone()))?;
 
-        let parent_name = branch.parent.as_deref().unwrap_or("main");
+        let default_branch = state.default_branch()?;
+        let parent_name = branch.parent.as_deref().unwrap_or(&default_branch);
         let parent_commit = repo.branch_commit(parent_name)?;
 
         // Rebase onto parent's tip

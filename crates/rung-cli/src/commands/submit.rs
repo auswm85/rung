@@ -102,6 +102,8 @@ struct SubmitConfig<'a> {
     custom_title: Option<&'a str>,
     /// Current branch name (for custom title matching).
     current_branch: Option<String>,
+    /// Default base branch (from config, falls back to "main").
+    default_branch: String,
 }
 
 /// Context for GitHub API operations.
@@ -146,6 +148,9 @@ pub fn run(
         draft,
         custom_title,
         current_branch: repo.current_branch().ok(),
+        default_branch: state
+            .default_branch()
+            .unwrap_or_else(|_| "main".to_string()),
     };
 
     let (owner, repo_name) = get_remote_info(&repo)?;
@@ -176,7 +181,7 @@ pub fn run(
 
     // Save state and update comments (only after real execution)
     state.save_stack(&stack)?;
-    update_stack_comments(&gh, &stack, json)?;
+    update_stack_comments(&gh, &stack, json, &config.default_branch)?;
 
     let (created, updated) = branch_infos
         .iter()
@@ -249,7 +254,11 @@ fn create_submit_plan(
 
     for branch in &stack.branches {
         let branch_name = &branch.name;
-        let base_branch = branch.parent.as_deref().unwrap_or("main").to_string();
+        let base_branch = branch
+            .parent
+            .as_deref()
+            .unwrap_or(&config.default_branch)
+            .to_string();
 
         // Get title and body from commit message, with custom title override for current branch
         let (mut title, body) = get_pr_title_and_body(repo, branch_name);
@@ -666,7 +675,7 @@ fn print_summary(created: usize, updated: usize) {
 const STACK_COMMENT_MARKER: &str = "<!-- rung-stack -->";
 
 /// Generate stack comment for a PR.
-fn generate_stack_comment(stack: &Stack, current_pr: u64) -> String {
+fn generate_stack_comment(stack: &Stack, current_pr: u64, default_branch: &str) -> String {
     let mut comment = String::from(STACK_COMMENT_MARKER);
     comment.push('\n');
 
@@ -717,11 +726,11 @@ fn generate_stack_comment(stack: &Stack, current_pr: u64) -> String {
                         return Some(parent.as_str());
                     }
                 } else {
-                    return Some("main");
+                    return Some(default_branch);
                 }
             }
         })
-        .unwrap_or("main");
+        .unwrap_or(default_branch);
 
     let _ = writeln!(comment, "* `{base}`");
     comment.push_str("\n---\n*Managed by [rung](https://github.com/auswm85/rung)*");
@@ -730,7 +739,12 @@ fn generate_stack_comment(stack: &Stack, current_pr: u64) -> String {
 }
 
 /// Update stack comments on all PRs in the stack.
-fn update_stack_comments(gh: &GitHubContext<'_>, stack: &Stack, json: bool) -> Result<()> {
+fn update_stack_comments(
+    gh: &GitHubContext<'_>,
+    stack: &Stack,
+    json: bool,
+    default_branch: &str,
+) -> Result<()> {
     if !json {
         output::info("Updating stack comments...");
     }
@@ -740,7 +754,7 @@ fn update_stack_comments(gh: &GitHubContext<'_>, stack: &Stack, json: bool) -> R
             continue;
         };
 
-        let comment_body = generate_stack_comment(stack, pr_number);
+        let comment_body = generate_stack_comment(stack, pr_number, default_branch);
 
         // Find existing rung comment
         let comments = gh
