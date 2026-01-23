@@ -20,6 +20,9 @@ export default defineConfig({
         baseUrl: "https://github.com/auswm85/rung/edit/main/site/",
       },
       customCss: ["./src/styles/custom.css"],
+      components: {
+        SiteTitle: "./src/components/SiteTitle.astro",
+      },
       sidebar: [
         {
           label: "Getting Started",
