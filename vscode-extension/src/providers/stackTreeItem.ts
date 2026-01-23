@@ -8,6 +8,7 @@ export enum TreeItemType {
   Branch = "branch",
   Base = "base",
   Message = "message",
+  Init = "init",
 }
 
 /**
@@ -28,9 +29,16 @@ export interface BaseData {
 }
 
 /**
+ * Data for an init action item.
+ */
+export interface InitData {
+  type: TreeItemType.Init;
+}
+
+/**
  * Union type for all tree item data.
  */
-export type TreeItemData = BranchInfo | MessageData | BaseData;
+export type TreeItemData = BranchInfo | MessageData | BaseData | InitData;
 
 /**
  * Check if data is a BranchInfo (does not have 'type' property).
@@ -56,6 +64,9 @@ export class StackTreeItem extends vscode.TreeItem {
       }
       if (data.type === TreeItemType.Base) {
         return `\u2193 ${data.name}`;
+      }
+      if (data.type === TreeItemType.Init) {
+        return "Initialize Rung";
       }
     }
 
@@ -85,6 +96,16 @@ export class StackTreeItem extends vscode.TreeItem {
           command: "rung.checkout",
           title: "Checkout",
           arguments: [data.name],
+        };
+        return;
+      }
+      if (data.type === TreeItemType.Init) {
+        this.tooltip = "Click to initialize rung in this repository";
+        this.iconPath = new vscode.ThemeIcon("add");
+        this.contextValue = "init";
+        this.command = {
+          command: "rung.init",
+          title: "Initialize Rung",
         };
         return;
       }

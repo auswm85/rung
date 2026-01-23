@@ -131,15 +131,18 @@ export class StackTreeProvider
     });
   }
 
+  private createInitItem(): StackTreeItem {
+    return new StackTreeItem({
+      type: TreeItemType.Init,
+    });
+  }
+
   private handleError(error: unknown): StackTreeItem[] {
     if (isRungError(error)) {
       switch (error.type) {
         case ErrorType.NotInitialized:
           return [
-            this.createMessageItem(
-              "Rung not initialized",
-              'Run "rung init" in the terminal to set up rung'
-            ),
+            this.createInitItem(),
           ];
         case ErrorType.NotGitRepo:
           return [

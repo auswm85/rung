@@ -226,8 +226,14 @@ export class RungCli {
   /**
    * Create a new branch in the stack.
    */
-  async create(name: string): Promise<string> {
-    const { stdout } = await this.execute(["create", name]);
+  async create(options: { name?: string; message?: string }): Promise<string> {
+    const args = ["create"];
+    if (options.message) {
+      args.push("-m", options.message);
+    } else if (options.name) {
+      args.push(options.name);
+    }
+    const { stdout } = await this.execute(args);
     return stdout;
   }
 
@@ -253,5 +259,13 @@ export class RungCli {
       // Re-throw other errors
       throw error;
     }
+  }
+
+  /**
+   * Initialize rung in the current repository.
+   */
+  async init(): Promise<string> {
+    const { stdout } = await this.execute(["init"]);
+    return stdout;
   }
 }

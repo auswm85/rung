@@ -16,7 +16,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:.git/rung"
+    "workspaceContains:.git"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -91,6 +91,11 @@
         "command": "rung.checkout",
         "title": "Rung: Checkout Branch",
         "icon": "$(git-branch)"
+      },
+      {
+        "command": "rung.init",
+        "title": "Rung: Initialize Repository",
+        "icon": "$(add)"
       }
     ],
     "menus": {

@@ -61,6 +61,17 @@ export function registerCommands(
         await openPRCommand(cli, treeProvider, typedPr);
       },
     ],
+    [
+      "rung.init",
+      async () => {
+        await cli.init();
+        void vscode.window.showInformationMessage("Rung initialized successfully!");
+        treeProvider.refresh();
+        if (statusBar) {
+          await statusBar.update();
+        }
+      },
+    ],
   ];
 
   for (const [id, handler] of commands) {
