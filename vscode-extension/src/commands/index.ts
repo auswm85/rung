@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
+import { StatusBarProvider } from "../providers/statusBarProvider";
 import { syncCommand, syncContinueCommand, syncAbortCommand } from "./sync";
 import { submitCommand } from "./submit";
 import { nextCommand, prevCommand, checkoutCommand } from "./navigate";
@@ -17,10 +18,19 @@ type CommandHandler = (...args: unknown[]) => Promise<void>;
 export function registerCommands(
   context: vscode.ExtensionContext,
   cli: RungCli,
-  treeProvider: StackTreeProvider
+  treeProvider: StackTreeProvider,
+  statusBar?: StatusBarProvider
 ): void {
   const commands: Array<[string, CommandHandler]> = [
-    ["rung.refresh", () => Promise.resolve(treeProvider.refresh())],
+    [
+      "rung.refresh",
+      async () => {
+        treeProvider.refresh();
+        if (statusBar) {
+          await statusBar.update();
+        }
+      },
+    ],
     ["rung.sync", async () => syncCommand(cli, treeProvider)],
     ["rung.sync.continue", async () => syncContinueCommand(cli, treeProvider)],
     ["rung.sync.abort", async () => syncAbortCommand(cli, treeProvider)],

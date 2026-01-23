@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { RungCli } from "./rung/cli";
 import { StackTreeProvider } from "./providers/stackTreeProvider";
+import { StatusBarProvider } from "./providers/statusBarProvider";
 import { GitWatcher } from "./watchers/gitWatcher";
 import { FileWatcher } from "./watchers/fileWatcher";
 import { registerCommands } from "./commands";
@@ -42,13 +43,26 @@ export async function activate(
   });
   context.subscriptions.push(treeView);
 
+  // Initialize status bar
+  const statusBar = new StatusBarProvider(cli);
+  context.subscriptions.push(statusBar);
+
+  // Initial status bar update
+  void statusBar.update();
+
   // Register commands
-  registerCommands(context, cli, treeProvider);
+  registerCommands(context, cli, treeProvider, statusBar);
 
   // Set up auto-refresh watchers
   const config = vscode.workspace.getConfiguration("rung");
   const autoRefresh = config.get("autoRefresh", true);
   const debounceMs = config.get("refreshDebounce", 1000);
+
+  // Combined refresh function for tree and status bar
+  const refreshAll = () => {
+    treeProvider.refresh();
+    void statusBar.update();
+  };
 
   if (autoRefresh) {
     outputChannel.appendLine(
@@ -56,18 +70,12 @@ export async function activate(
     );
 
     // Git event watcher
-    const gitWatcher = new GitWatcher(
-      () => treeProvider.refresh(),
-      debounceMs
-    );
+    const gitWatcher = new GitWatcher(refreshAll, debounceMs);
     gitWatcher.start();
     context.subscriptions.push({ dispose: () => gitWatcher.dispose() });
 
     // File save watcher
-    const fileWatcher = new FileWatcher(
-      () => treeProvider.refresh(),
-      debounceMs
-    );
+    const fileWatcher = new FileWatcher(refreshAll, debounceMs);
     fileWatcher.start();
     context.subscriptions.push({ dispose: () => fileWatcher.dispose() });
   }
