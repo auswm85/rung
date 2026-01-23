@@ -26,6 +26,7 @@ These options work with most commands:
 | [`sync`](/commands/sync/)               | `sy`   | Rebase all branches when parents move |
 | [`submit`](/commands/submit/)           | `sm`   | Push branches and create/update PRs   |
 | [`merge`](/commands/merge/)             | `m`    | Merge PR and update the stack         |
+| [`restack`](/commands/restack/)         | `re`   | Move branch to different parent       |
 | [`nxt`](/commands/navigation/)          | `n`    | Navigate to child branch              |
 | [`prv`](/commands/navigation/)          | `p`    | Navigate to parent branch             |
 | [`move`](/commands/navigation/)         | `mv`   | Interactive branch picker             |
@@ -69,6 +70,14 @@ rung log                             # Show branch commits
 rung merge                           # Squash merge (default)
 rung merge --method merge            # Regular merge
 rung merge --method rebase           # Rebase merge
+```
+
+### Restacking
+
+```bash
+rung restack --onto main             # Move current branch onto main
+rung restack feat/api --onto main    # Move specific branch
+rung restack --onto main --include-children  # Also move descendants
 ```
 
 ### Absorbing Changes

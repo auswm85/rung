@@ -76,14 +76,15 @@ A visual "HUD" for the CLI.
 
 ## 6. Preliminary Command Map
 
-| Command       | Alias   | Description                                     |
-| :------------ | :------ | :---------------------------------------------- |
-| `rung status` | `rg st` | Display the current stack tree and PR links.    |
-| `rung sync`   | `rg sy` | Update the whole stack against the base branch. |
-| `rung nxt`    | `rg n`  | Quickly navigate up the current stack.          |
-| `rung prv`    | `rg p`  | Quickly navigate down the current stack.        |
-| `rung submit` | `rg sm` | Push all changes and update/create GitHub PRs.  |
-| `rung undo`   | `rg un` | Revert the last sync or rebase operation.       |
+| Command        | Alias   | Description                                     |
+| :------------- | :------ | :---------------------------------------------- |
+| `rung status`  | `rg st` | Display the current stack tree and PR links.    |
+| `rung sync`    | `rg sy` | Update the whole stack against the base branch. |
+| `rung restack` | `rg re` | Move a branch to a different parent in stack.   |
+| `rung nxt`     | `rg n`  | Quickly navigate up the current stack.          |
+| `rung prv`     | `rg p`  | Quickly navigate down the current stack.        |
+| `rung submit`  | `rg sm` | Push all changes and update/create GitHub PRs.  |
+| `rung undo`    | `rg un` | Revert the last sync or rebase operation.       |
 
 ---
 

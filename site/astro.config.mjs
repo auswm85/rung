@@ -38,6 +38,7 @@ export default defineConfig({
             { label: "sync", slug: "commands/sync" },
             { label: "submit", slug: "commands/submit" },
             { label: "merge", slug: "commands/merge" },
+            { label: "restack", slug: "commands/restack" },
             {
               label: "navigation (nxt, prv, move)",
               slug: "commands/navigation",

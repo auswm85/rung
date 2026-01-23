@@ -259,6 +259,36 @@ Displays all branches and highlights the current branch. PR numbers are shown wh
   feat/ui
 ```
 
+### `rung restack`
+
+Move a branch to a different parent in the stack by rebasing it onto a new base.
+
+```bash
+rung restack --onto main              # Move current branch onto main
+rung restack feature/api --onto main  # Move specific branch
+rung restack --onto feature/base --include-children  # Also move descendants
+rung restack --dry-run                # Preview what would happen
+```
+
+If conflicts occur:
+
+```bash
+# Resolve conflicts, then:
+git add .
+rung restack --continue
+
+# Or abort and restore:
+rung restack --abort
+```
+
+**Options:**
+
+- `--onto <branch>` - New parent branch to rebase onto (interactive selection if not specified)
+- `--include-children` - Also rebase all descendant branches
+- `--dry-run` - Show what would be done without making changes
+- `--continue` - Continue after resolving conflicts
+- `--abort` - Abort and restore from backup
+
 ### `rung log`
 
 Show commits on the current branch (commits between parent branch and HEAD). Helps visualize what's in the current stack branch.
