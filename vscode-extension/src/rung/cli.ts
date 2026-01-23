@@ -66,9 +66,6 @@ export class RungCli {
         env: { ...process.env },
       });
 
-      if (result.stdout) {
-        this.outputChannel.appendLine(result.stdout);
-      }
       if (result.stderr) {
         this.outputChannel.appendLine(`stderr: ${result.stderr}`);
       }

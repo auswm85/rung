@@ -1,15 +1,11 @@
 import * as vscode from "vscode";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
+import { getWorkspaceRoot } from "../utils/workspace";
 
-// Type definitions for VS Code Git extension API
-interface GitRepository {
-  checkout(ref: string): Promise<void>;
-}
-
-interface GitAPI {
-  repositories: GitRepository[];
-}
+const execAsync = promisify(exec);
 
 /**
  * Navigate to the next (child) branch in the stack.
@@ -37,7 +33,7 @@ export async function prevCommand(
  * Checkout a specific branch by name.
  */
 export async function checkoutCommand(
-  _cli: RungCli,
+  cli: RungCli,
   treeProvider: StackTreeProvider,
   branchName: string
 ): Promise<void> {
@@ -46,26 +42,24 @@ export async function checkoutCommand(
     return;
   }
 
+  const cwd = getWorkspaceRoot();
+  if (!cwd) {
+    void vscode.window.showErrorMessage("No workspace folder open");
+    return;
+  }
+
   try {
-    // Use VS Code's built-in git extension for checkout
-    const gitExtension =
-      vscode.extensions.getExtension<{ getAPI: (version: number) => GitAPI }>(
-        "vscode.git"
-      );
-    if (!gitExtension) {
-      void vscode.window.showErrorMessage("Git extension not available");
-      return;
+    // Check if already on this branch
+    const { stdout: currentBranch } = await execAsync(
+      "git rev-parse --abbrev-ref HEAD",
+      { cwd }
+    );
+    if (currentBranch.trim() === branchName) {
+      return; // Already on this branch
     }
 
-    const git = gitExtension.exports.getAPI(1);
-    const repo = git.repositories[0];
-
-    if (!repo) {
-      void vscode.window.showErrorMessage("No Git repository found");
-      return;
-    }
-
-    await repo.checkout(branchName);
+    // Use git directly for checkout
+    await execAsync(`git checkout ${branchName}`, { cwd });
     treeProvider.refresh();
   } catch (error: unknown) {
     const message =

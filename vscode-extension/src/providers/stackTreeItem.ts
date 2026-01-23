@@ -80,6 +80,12 @@ export class StackTreeItem extends vscode.TreeItem {
         this.tooltip = `Base branch: ${data.name}`;
         this.iconPath = new vscode.ThemeIcon("git-branch");
         this.contextValue = "base";
+        // Click to checkout base branch
+        this.command = {
+          command: "rung.checkout",
+          title: "Checkout",
+          arguments: [data.name],
+        };
         return;
       }
     }
