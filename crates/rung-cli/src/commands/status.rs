@@ -164,7 +164,7 @@ fn print_tree(branches: &[BranchInfo]) {
         for b in &diverged {
             if let Some(RemoteDivergenceInfo::Diverged { ahead, behind }) = &b.remote_divergence {
                 output::warn(&format!(
-                    "{} has diverged from origin ({} ahead, {} behind)",
+                    "{} has diverged from remote ({} ahead, {} behind)",
                     b.name, ahead, behind
                 ));
             }

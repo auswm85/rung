@@ -319,7 +319,7 @@ fn warn_if_diverged(repo: &Repository, branch: &str, force: bool, json: bool) {
     }
     if let Ok(RemoteDivergence::Diverged { ahead, behind }) = repo.remote_divergence(branch) {
         output::warn(&format!(
-            "{branch} has diverged from origin ({ahead} ahead, {behind} behind)"
+            "{branch} has diverged from remote ({ahead} ahead, {behind} behind)"
         ));
         output::detail("  Use --force to safely update (uses --force-with-lease)");
     }

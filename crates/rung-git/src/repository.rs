@@ -6,7 +6,7 @@ use git2::{BranchType, Oid, RepositoryState, Signature};
 
 use crate::error::{Error, Result};
 
-/// Divergence state between a local branch and its remote counterpart (`origin/<branch>`).
+/// Divergence state between a local branch and its tracking remote (upstream, falls back to origin).
 ///
 /// This is distinct from `BranchState::Diverged` which tracks divergence from the
 /// *parent branch* (needs sync). `RemoteDivergence` tracks local vs remote (needs push/pull).
