@@ -154,6 +154,55 @@ impl Stack {
     pub fn len(&self) -> usize {
         self.branches.len()
     }
+
+    /// Check if reparenting `branch` to `new_parent` would create a cycle.
+    ///
+    /// A cycle would occur if the new parent is a descendant of the branch
+    /// (e.g., setting A's parent to B when B is already a child of A).
+    #[must_use]
+    pub fn would_create_cycle(&self, branch: &str, new_parent: &str) -> bool {
+        // Can't be your own parent
+        if branch == new_parent {
+            return true;
+        }
+
+        // Check if new_parent is a descendant of branch
+        self.descendants(branch)
+            .iter()
+            .any(|b| b.name == new_parent)
+    }
+
+    /// Reparent a branch to a new parent.
+    ///
+    /// Updates the parent field of the specified branch. Does not perform
+    /// any git operations - the caller is responsible for rebasing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the branch is not found or if the reparent
+    /// would create a cycle.
+    pub fn reparent(&mut self, branch: &str, new_parent: Option<&str>) -> crate::Result<()> {
+        // Check for cycle (only if new_parent is in the stack)
+        if let Some(parent) = new_parent {
+            if self.would_create_cycle(branch, parent) {
+                return Err(crate::error::Error::CyclicDependency(format!(
+                    "reparenting '{branch}' to '{parent}' would create a cycle"
+                )));
+            }
+        }
+
+        // Find and update the branch
+        let branch_entry = self
+            .find_branch_mut(branch)
+            .ok_or_else(|| crate::error::Error::BranchNotFound(branch.to_string()))?;
+
+        // Parent comes from an existing branch name, so it should be valid
+        branch_entry.parent = new_parent.map(BranchName::new).transpose().map_err(|_| {
+            crate::error::Error::BranchNotFound(new_parent.unwrap_or_default().to_string())
+        })?;
+
+        Ok(())
+    }
 }
 
 impl Default for Stack {
@@ -347,5 +396,106 @@ mod tests {
             files: vec!["src/main.rs".into()],
         };
         assert!(conflict.has_conflicts());
+    }
+
+    #[test]
+    fn test_would_create_cycle() {
+        let mut stack = Stack::new();
+        // Create tree: main → a → b → c
+        //                    ↘ d
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("b", Some("a")).unwrap());
+        stack.add_branch(StackBranch::try_new("c", Some("b")).unwrap());
+        stack.add_branch(StackBranch::try_new("d", Some("a")).unwrap());
+
+        // Can't be your own parent
+        assert!(stack.would_create_cycle("a", "a"));
+        assert!(stack.would_create_cycle("b", "b"));
+
+        // Can't set parent to a descendant
+        assert!(stack.would_create_cycle("a", "b")); // b is child of a
+        assert!(stack.would_create_cycle("a", "c")); // c is grandchild of a
+        assert!(stack.would_create_cycle("a", "d")); // d is child of a
+        assert!(stack.would_create_cycle("b", "c")); // c is child of b
+
+        // These are valid reparents (no cycle)
+        assert!(!stack.would_create_cycle("c", "a")); // c can have a as parent
+        assert!(!stack.would_create_cycle("c", "d")); // c can have d as parent (sibling of b)
+        assert!(!stack.would_create_cycle("d", "b")); // d can have b as parent
+        assert!(!stack.would_create_cycle("b", "d")); // b can have d as parent (they're siblings)
+    }
+
+    #[test]
+    fn test_reparent() {
+        let mut stack = Stack::new();
+        // Create tree: main → a → b
+        //                    ↘ c
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("b", Some("a")).unwrap());
+        stack.add_branch(StackBranch::try_new("c", Some("a")).unwrap());
+
+        // b's parent is a
+        assert_eq!(
+            stack
+                .find_branch("b")
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "a"
+        );
+
+        // Reparent b to c
+        stack.reparent("b", Some("c")).unwrap();
+        assert_eq!(
+            stack
+                .find_branch("b")
+                .unwrap()
+                .parent
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "c"
+        );
+
+        // Verify tree is now: main → a → c → b
+        let ancestry = stack.ancestry("b");
+        assert_eq!(ancestry.len(), 3);
+        assert_eq!(ancestry[0].name, "a");
+        assert_eq!(ancestry[1].name, "c");
+        assert_eq!(ancestry[2].name, "b");
+    }
+
+    #[test]
+    fn test_reparent_to_none() {
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("b", Some("a")).unwrap());
+
+        // Reparent b to None (make it a root branch)
+        stack.reparent("b", None).unwrap();
+        assert!(stack.find_branch("b").unwrap().parent.is_none());
+    }
+
+    #[test]
+    fn test_reparent_cycle_error() {
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("b", Some("a")).unwrap());
+
+        // Should fail: can't make a's parent be b (its child)
+        let result = stack.reparent("a", Some("b"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reparent_not_found() {
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("a", Some("main")).unwrap());
+
+        // Should fail: branch doesn't exist
+        let result = stack.reparent("nonexistent", Some("a"));
+        assert!(result.is_err());
     }
 }

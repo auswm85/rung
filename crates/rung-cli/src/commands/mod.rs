@@ -11,6 +11,7 @@ pub mod log;
 pub mod merge;
 pub mod mv;
 pub mod navigate;
+pub mod restack;
 pub mod status;
 pub mod submit;
 pub mod sync;
@@ -167,6 +168,36 @@ pub enum Commands {
     /// Opens a TUI list to select and jump to any branch in the stack.
     #[command(alias = "mv")]
     Move,
+
+    /// Move a branch to a different parent in the stack. [alias: re]
+    ///
+    /// Reparents a branch by rebasing it onto a new parent branch.
+    /// Updates the stack topology and optionally moves descendant branches.
+    #[command(alias = "re")]
+    Restack {
+        /// Branch to move. Defaults to the current branch.
+        branch: Option<String>,
+
+        /// New parent branch to rebase onto.
+        #[arg(long)]
+        onto: Option<String>,
+
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Continue a paused restack after resolving conflicts.
+        #[arg(long, name = "continue")]
+        continue_: bool,
+
+        /// Abort the current restack and restore from backup.
+        #[arg(long)]
+        abort: bool,
+
+        /// Also move all descendant branches (children, grandchildren, etc.).
+        #[arg(long)]
+        include_children: bool,
+    },
 
     /// Diagnose issues with the stack and repository. [alias: doc]
     ///
