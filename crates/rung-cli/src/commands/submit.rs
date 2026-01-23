@@ -170,7 +170,7 @@ pub fn run(
 
     // Single dry-run check point
     if dry_run {
-        return handle_dry_run_output(&plan, json, &gh);
+        return handle_dry_run_output(&plan, json, &config.default_branch);
     }
 
     // Phase 2: Execute the plan (mutations only)
@@ -468,17 +468,12 @@ struct DryRunOutput {
 }
 
 /// Handle dry-run output (both JSON and human-readable).
-fn handle_dry_run_output(plan: &SubmitPlan, json: bool, gh: &GitHubContext<'_>) -> Result<()> {
+fn handle_dry_run_output(plan: &SubmitPlan, json: bool, default_branch: &str) -> Result<()> {
     if json {
         return output_dry_run_json(plan);
     }
 
-    let default_branch = gh
-        .rt
-        .block_on(gh.client.get_default_branch(gh.owner, gh.repo_name))
-        .context("Failed to get default branch")?;
-
-    print_dry_run_summary(plan, &default_branch);
+    print_dry_run_summary(plan, default_branch);
     Ok(())
 }
 
