@@ -296,8 +296,11 @@ rung restack --abort
 - `--onto <branch>` - New parent branch to rebase onto (interactive selection if not specified)
 - `--include-children` - Also rebase all descendant branches
 - `--dry-run` - Show what would be done without making changes
+- `--force` - Proceed even if branches have diverged from remote
 - `--continue` - Continue after resolving conflicts
 - `--abort` - Abort and restore from backup
+
+**Note:** If any affected branches have diverged from their remote tracking branches (both local and remote have unique commits), restack will warn and abort. You can use `--force` to proceed anyway.
 
 ### `rung log`
 
