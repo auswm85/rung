@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { RungCli } from "../rung/cli";
-import { StatusOutput, BranchInfo, isRungError } from "../types";
+import { StatusOutput, BranchInfo, isRungError, ErrorType } from "../types";
 
 /**
  * Status bar item showing current stack state.
@@ -29,13 +29,18 @@ export class StatusBarProvider implements vscode.Disposable {
       this.render(status);
       this.statusBarItem.show();
     } catch (error: unknown) {
-      if (isRungError(error)) {
-        // Hide status bar if rung isn't initialized
+      if (isRungError(error) && error.type === ErrorType.NotInitialized) {
+        // Hide status bar only if rung isn't initialized
         this.statusBarItem.hide();
       } else {
-        // Show error state
+        // Show error state for all other errors
+        const errorMessage = isRungError(error)
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Unknown error";
         this.statusBarItem.text = "$(error) Rung";
-        this.statusBarItem.tooltip = "Error loading stack status";
+        this.statusBarItem.tooltip = `Error: ${errorMessage}`;
         this.statusBarItem.show();
       }
     }
