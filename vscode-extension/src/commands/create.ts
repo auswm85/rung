@@ -46,6 +46,9 @@ export async function createCommand(
           return "Branch name is required";
         }
         // Git branch name restrictions (see git-check-ref-format)
+        if (value === "@") {
+          return "Branch name cannot be '@'";
+        }
         if (value.includes(" ")) {
           return "Branch name cannot contain spaces";
         }

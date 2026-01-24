@@ -214,10 +214,14 @@ export class StatusBarProvider implements vscode.Disposable {
     switch (branch.state.status) {
       case "synced":
         return "Synced";
-      case "diverged":
-        return `${branch.state.commits_behind} commit(s) behind`;
-      case "conflict":
-        return `${branch.state.files.length} conflict(s)`;
+      case "diverged": {
+        const commitsBehind = branch.state.commits_behind ?? 0;
+        return `${commitsBehind} commit(s) behind`;
+      }
+      case "conflict": {
+        const fileCount = branch.state.files?.length ?? 0;
+        return `${fileCount} conflict(s)`;
+      }
       case "detached":
         return "Detached";
       default:

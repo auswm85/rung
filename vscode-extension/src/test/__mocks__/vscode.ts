@@ -235,7 +235,10 @@ export const window = {
   withProgress: async <T>(
     _options: unknown,
     task: (progress: unknown, token: unknown) => Thenable<T>
-  ) => task({}, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }),
+  ) => task(
+    { report: () => {} },
+    { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }
+  ),
   createTerminal: () => ({
     sendText: () => {},
     show: () => {},
