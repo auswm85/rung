@@ -62,6 +62,7 @@ export class StatusBarProvider implements vscode.Disposable {
 
   /**
    * Calculate stack position (1-indexed from base).
+   * Returns position in the current chain, not total branches in stack.
    */
   private getStackPosition(
     status: StatusOutput,
@@ -70,7 +71,20 @@ export class StatusBarProvider implements vscode.Disposable {
     const branches = status.branches;
     const stackNames = new Set(branches.map((b) => b.name));
 
-    // Find the chain from current to root
+    // Build children map for traversing down
+    const childrenMap = new Map<string, BranchInfo[]>();
+    for (const b of branches) {
+      if (b.parent) {
+        const existing = childrenMap.get(b.parent);
+        if (existing) {
+          existing.push(b);
+        } else {
+          childrenMap.set(b.parent, [b]);
+        }
+      }
+    }
+
+    // Count ancestors (depth from root to current)
     let depth = 1;
     let branch: BranchInfo | undefined = current;
     while (branch?.parent && stackNames.has(branch.parent)) {
@@ -78,7 +92,23 @@ export class StatusBarProvider implements vscode.Disposable {
       branch = branches.find((b) => b.name === branch!.parent);
     }
 
-    return { index: depth, total: branches.length };
+    // Count descendants (from current to deepest leaf in this chain)
+    let descendants = 0;
+    let node: BranchInfo | undefined = current;
+    while (node) {
+      const children = childrenMap.get(node.name);
+      if (!children || children.length === 0) {
+        break;
+      }
+      // Follow first child (main chain) for consistent counting
+      node = children[0];
+      descendants++;
+    }
+
+    // Total chain length = ancestors + current + descendants
+    const chainLength = depth + descendants;
+
+    return { index: depth, total: chainLength };
   }
 
   /**

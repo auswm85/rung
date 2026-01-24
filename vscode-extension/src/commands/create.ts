@@ -44,11 +44,39 @@ export async function createCommand(
         if (!value || value.trim().length === 0) {
           return "Branch name is required";
         }
+        // Git branch name restrictions (see git-check-ref-format)
         if (value.includes(" ")) {
           return "Branch name cannot contain spaces";
         }
         if (value.startsWith("-")) {
           return "Branch name cannot start with a dash";
+        }
+        if (value.startsWith(".") || value.includes("/./") || value.includes("/..")) {
+          return "Branch name cannot start with '.' or contain '/.' segments";
+        }
+        if (value.endsWith("/") || value.endsWith(".")) {
+          return "Branch name cannot end with '/' or '.'";
+        }
+        if (value.endsWith(".lock")) {
+          return "Branch name cannot end with '.lock'";
+        }
+        if (value.includes("..")) {
+          return "Branch name cannot contain '..'";
+        }
+        if (value.includes("@{")) {
+          return "Branch name cannot contain '@{'";
+        }
+        // Check for invalid characters: ~, ^, :, ?, *, [, \
+        if (/[~^:?*[\\]/.test(value)) {
+          return "Branch name contains invalid characters (~, ^, :, ?, *, [, \\)";
+        }
+        // Check for control characters (ASCII 0-31 and 127)
+        // eslint-disable-next-line no-control-regex
+        if (/[\x00-\x1f\x7f]/.test(value)) {
+          return "Branch name cannot contain control characters";
+        }
+        if (value.includes("//")) {
+          return "Branch name cannot contain consecutive slashes";
         }
         return undefined;
       },
