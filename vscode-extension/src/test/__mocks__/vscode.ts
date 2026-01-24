@@ -230,6 +230,7 @@ export const window = {
   showWarningMessage: async () => undefined,
   showErrorMessage: async () => undefined,
   showInputBox: async () => undefined,
+  showQuickPick: async () => undefined,
   withProgress: async <T>(
     _options: unknown,
     task: (progress: unknown) => Thenable<T>

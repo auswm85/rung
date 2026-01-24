@@ -81,6 +81,8 @@ export function registerCommands(
         const result = await cli.doctor();
 
         if (result.healthy) {
+          // Clear any stale diagnostics from previous runs
+          diagnosticsChannel.clear();
           void vscode.window.showInformationMessage("Rung: All diagnostics passed!");
           return;
         }

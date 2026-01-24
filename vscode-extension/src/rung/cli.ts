@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import {
   StatusOutput,
@@ -11,7 +11,7 @@ import {
 } from "../types";
 import { getWorkspaceRoot } from "../utils/workspace";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Wrapper for the rung CLI binary.
@@ -57,11 +57,12 @@ export class RungCli {
       throw this.createError(ErrorType.NotGitRepo, "No workspace folder open");
     }
 
-    const command = `${this.config.cliPath} ${args.join(" ")}`;
-    this.outputChannel.appendLine(`> ${command}`);
+    // Log command for debugging (display only, not executed as shell)
+    this.outputChannel.appendLine(`> ${this.config.cliPath} ${args.join(" ")}`);
 
     try {
-      const result = await execAsync(command, {
+      // Use execFile to avoid shell interpolation and command injection
+      const result = await execFileAsync(this.config.cliPath, args, {
         cwd,
         timeout: 30000, // 30s timeout
         env: { ...process.env },

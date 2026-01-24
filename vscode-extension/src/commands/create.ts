@@ -58,8 +58,13 @@ export async function createCommand(
       return; // User cancelled
     }
 
-    createOptions = { name };
-    progressTitle = `Creating branch '${name}'...`;
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return; // Empty after trimming
+    }
+
+    createOptions = { name: trimmedName };
+    progressTitle = `Creating branch '${trimmedName}'...`;
   } else {
     const message = await vscode.window.showInputBox({
       prompt: "Enter commit message",
@@ -76,7 +81,12 @@ export async function createCommand(
       return; // User cancelled
     }
 
-    createOptions = { message };
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      return; // Empty after trimming
+    }
+
+    createOptions = { message: trimmedMessage };
     progressTitle = "Creating branch from commit message...";
   }
 
