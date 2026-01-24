@@ -19,6 +19,20 @@ export type BranchState =
   | { status: "conflict"; files: string[] }
   | { status: "detached" };
 
+// Types matching rung CLI JSON output (from rung doctor --json)
+
+export interface DoctorOutput {
+  healthy: boolean;
+  errors: number;
+  warnings: number;
+  issues: DoctorIssue[];
+}
+
+export interface DoctorIssue {
+  severity: "error" | "warning";
+  message: string;
+}
+
 // Extension configuration
 
 export interface RungConfig {

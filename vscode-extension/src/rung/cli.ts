@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import {
   StatusOutput,
+  DoctorOutput,
   RungConfig,
   RungError,
   ErrorType,
@@ -10,7 +11,7 @@ import {
 } from "../types";
 import { getWorkspaceRoot } from "../utils/workspace";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Wrapper for the rung CLI binary.
@@ -56,19 +57,17 @@ export class RungCli {
       throw this.createError(ErrorType.NotGitRepo, "No workspace folder open");
     }
 
-    const command = `${this.config.cliPath} ${args.join(" ")}`;
-    this.outputChannel.appendLine(`> ${command}`);
+    // Log command for debugging (display only, not executed as shell)
+    this.outputChannel.appendLine(`> ${this.config.cliPath} ${args.join(" ")}`);
 
     try {
-      const result = await execAsync(command, {
+      // Use execFile to avoid shell interpolation and command injection
+      const result = await execFileAsync(this.config.cliPath, args, {
         cwd,
         timeout: 30000, // 30s timeout
         env: { ...process.env },
       });
 
-      if (result.stdout) {
-        this.outputChannel.appendLine(result.stdout);
-      }
       if (result.stderr) {
         this.outputChannel.appendLine(`stderr: ${result.stderr}`);
       }
@@ -229,16 +228,50 @@ export class RungCli {
   /**
    * Create a new branch in the stack.
    */
-  async create(name: string): Promise<string> {
-    const { stdout } = await this.execute(["create", name]);
+  async create(options: { name?: string; message?: string } = {}): Promise<string> {
+    const args = ["create"];
+    // Add name as positional arg if provided
+    if (options.name) {
+      args.push(options.name);
+    }
+    // Add message flag if provided (can be used with or without name)
+    if (options.message) {
+      args.push("-m", options.message);
+    }
+    const { stdout } = await this.execute(args);
     return stdout;
   }
 
   /**
    * Run doctor diagnostics.
    */
-  async doctor(): Promise<string> {
-    const { stdout } = await this.execute(["doctor"]);
+  async doctor(): Promise<DoctorOutput> {
+    const { stdout } = await this.execute(["doctor", "--json"]);
+    try {
+      return JSON.parse(stdout) as DoctorOutput;
+    } catch (err: unknown) {
+      const parseError = err instanceof Error ? err.message : String(err);
+      throw this.createError(
+        ErrorType.Unknown,
+        `Failed to parse doctor output: ${parseError}`,
+        stdout
+      );
+    }
+  }
+
+  /**
+   * Undo the last sync operation.
+   */
+  async undo(): Promise<string> {
+    const { stdout } = await this.execute(["undo"]);
+    return stdout;
+  }
+
+  /**
+   * Merge the current branch's PR and clean up.
+   */
+  async merge(): Promise<string> {
+    const { stdout } = await this.execute(["merge"]);
     return stdout;
   }
 
@@ -256,5 +289,13 @@ export class RungCli {
       // Re-throw other errors
       throw error;
     }
+  }
+
+  /**
+   * Initialize rung in the current repository.
+   */
+  async init(): Promise<string> {
+    const { stdout } = await this.execute(["init"]);
+    return stdout;
   }
 }

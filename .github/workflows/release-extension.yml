@@ -1,0 +1,60 @@
+name: Release Extension
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "vscode-extension/**"
+      - ".github/workflows/release-extension.yml"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: .github/release-please-config-extension.json
+          manifest-file: .github/.release-please-manifest-extension.json
+
+  publish:
+    name: Publish Extension
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: vscode-extension
+
+      - name: Package extension
+        run: npx vsce package
+        working-directory: vscode-extension
+
+      - name: Publish to Marketplace
+        run: npx vsce publish
+        working-directory: vscode-extension
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Upload vsix to release
+        run: gh release upload ${{ needs.release-please.outputs.tag_name }} vscode-extension/*.vsix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

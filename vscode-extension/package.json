@@ -4,9 +4,27 @@
   "description": "Visualize and manage stacked PRs with rung",
   "version": "0.1.0",
   "publisher": "rung",
+  "license": "MIT",
+  "icon": "resources/rung-logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/auswm85/rung"
+  },
+  "homepage": "https://github.com/auswm85/rung#readme",
+  "bugs": {
+    "url": "https://github.com/auswm85/rung/issues"
+  },
+  "keywords": [
+    "git",
+    "stacked-prs",
+    "stacked-diffs",
+    "pull-requests",
+    "code-review",
+    "workflow"
+  ],
+  "galleryBanner": {
+    "color": "#1A3A5C",
+    "theme": "dark"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -16,7 +34,7 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:.git/rung"
+    "workspaceContains:.git"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -24,7 +42,7 @@
       "activitybar": [
         {
           "id": "rung",
-          "title": "Rung Stack",
+          "title": "Rung",
           "icon": "resources/rung-logo.svg"
         }
       ]
@@ -91,6 +109,26 @@
         "command": "rung.checkout",
         "title": "Rung: Checkout Branch",
         "icon": "$(git-branch)"
+      },
+      {
+        "command": "rung.init",
+        "title": "Rung: Initialize Repository",
+        "icon": "$(add)"
+      },
+      {
+        "command": "rung.doctor",
+        "title": "Rung: Run Diagnostics",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "rung.undo",
+        "title": "Rung: Undo Last Sync",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "rung.merge",
+        "title": "Rung: Merge PR & Cleanup",
+        "icon": "$(git-merge)"
       }
     ],
     "menus": {
@@ -109,6 +147,16 @@
           "command": "rung.submit",
           "when": "view == rungStack",
           "group": "navigation@3"
+        },
+        {
+          "command": "rung.doctor",
+          "when": "view == rungStack",
+          "group": "navigation@4"
+        },
+        {
+          "command": "rung.undo",
+          "when": "view == rungStack",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
@@ -131,6 +179,11 @@
           "command": "rung.openPR",
           "when": "view == rungStack && viewItem =~ /hasPR/",
           "group": "1_actions@2"
+        },
+        {
+          "command": "rung.merge",
+          "when": "view == rungStack && viewItem =~ /hasPR/ && viewItem =~ /current/",
+          "group": "1_actions@3"
         },
         {
           "command": "rung.navigate.next",
@@ -169,7 +222,9 @@
     "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "watch": "npm run compile -- --watch",
     "package": "vsce package",
-    "lint": "eslint src --ext ts"
+    "lint": "eslint src --ext ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -178,6 +233,7 @@
     "@typescript-eslint/parser": "^7.0.0",
     "esbuild": "^0.25.0",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^3.0.0"
   }
 }

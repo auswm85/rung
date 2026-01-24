@@ -1,47 +1,150 @@
 import * as vscode from "vscode";
 import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
+import { isRungError } from "../types";
 
 /**
  * Create a new branch in the stack.
- * Prompts user for branch name.
+ * Prompts user to choose between branch name or commit message.
  */
 export async function createCommand(
   cli: RungCli,
   treeProvider: StackTreeProvider
 ): Promise<void> {
-  const name = await vscode.window.showInputBox({
-    prompt: "Enter branch name",
-    placeHolder: "feature/my-feature",
-    validateInput: (value) => {
-      if (!value || value.trim().length === 0) {
-        return "Branch name is required";
-      }
-      if (value.includes(" ")) {
-        return "Branch name cannot contain spaces";
-      }
-      if (value.startsWith("-")) {
-        return "Branch name cannot start with a dash";
-      }
-      return undefined;
-    },
-  });
-
-  if (!name) {
-    return; // User cancelled
-  }
-
-  await vscode.window.withProgress(
+  // Ask user how they want to create the branch
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: "$(git-branch) Branch Name",
+        description: "Enter a branch name directly",
+        value: "name",
+      },
+      {
+        label: "$(comment) Commit Message",
+        description: "Generate branch name from commit message",
+        value: "message",
+      },
+    ],
     {
-      location: vscode.ProgressLocation.Notification,
-      title: `Creating branch '${name}'...`,
-      cancellable: false,
-    },
-    async () => {
-      await cli.create(name);
+      placeHolder: "How would you like to create the branch?",
     }
   );
 
-  void vscode.window.showInformationMessage(`Branch '${name}' created`);
-  treeProvider.refresh();
+  if (!choice) {
+    return; // User cancelled
+  }
+
+  let createOptions: { name?: string; message?: string };
+  let progressTitle: string;
+
+  if (choice.value === "name") {
+    const name = await vscode.window.showInputBox({
+      prompt: "Enter branch name",
+      placeHolder: "feature/my-feature",
+      validateInput: (value) => {
+        if (!value || value.trim().length === 0) {
+          return "Branch name is required";
+        }
+        // Git branch name restrictions (see git-check-ref-format)
+        if (value === "@") {
+          return "Branch name cannot be '@'";
+        }
+        if (value.includes(" ")) {
+          return "Branch name cannot contain spaces";
+        }
+        if (value.startsWith("-")) {
+          return "Branch name cannot start with a dash";
+        }
+        // Check for path components starting with '.' (matches .foo, foo/.bar, foo/.., etc.)
+        if (/(^|\/)\./.test(value)) {
+          return "Branch name cannot have path components starting with '.'";
+        }
+        if (value.endsWith("/") || value.endsWith(".")) {
+          return "Branch name cannot end with '/' or '.'";
+        }
+        if (value.endsWith(".lock")) {
+          return "Branch name cannot end with '.lock'";
+        }
+        if (value.includes("..")) {
+          return "Branch name cannot contain '..'";
+        }
+        if (value.includes("@{")) {
+          return "Branch name cannot contain '@{'";
+        }
+        // Check for invalid characters: ~, ^, :, ?, *, [, \
+        if (/[~^:?*[\\]/.test(value)) {
+          return "Branch name contains invalid characters (~, ^, :, ?, *, [, \\)";
+        }
+        // Check for control characters using Unicode property escape
+        if (/\p{Cc}/u.test(value)) {
+          return "Branch name cannot contain control characters";
+        }
+        if (value.includes("//")) {
+          return "Branch name cannot contain consecutive slashes";
+        }
+        return undefined;
+      },
+    });
+
+    if (!name) {
+      return; // User cancelled
+    }
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return; // Empty after trimming
+    }
+
+    createOptions = { name: trimmedName };
+    progressTitle = `Creating branch '${trimmedName}'...`;
+  } else {
+    const message = await vscode.window.showInputBox({
+      prompt: "Enter commit message",
+      placeHolder: "Add user authentication feature",
+      validateInput: (value) => {
+        if (!value || value.trim().length === 0) {
+          return "Commit message is required";
+        }
+        return undefined;
+      },
+    });
+
+    if (!message) {
+      return; // User cancelled
+    }
+
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      return; // Empty after trimming
+    }
+
+    createOptions = { message: trimmedMessage };
+    progressTitle = "Creating branch from commit message...";
+  }
+
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: progressTitle,
+        cancellable: false,
+      },
+      async () => {
+        await cli.create(createOptions);
+      }
+    );
+
+    void vscode.window.showInformationMessage("Branch created");
+    treeProvider.refresh();
+  } catch (error: unknown) {
+    let message: string;
+    if (isRungError(error)) {
+      message = error.message;
+    } else if (error instanceof Error) {
+      message = error.message;
+    } else {
+      message = "Unknown error occurred";
+    }
+    void vscode.window.showErrorMessage(`Failed to create branch: ${message}`);
+  }
 }

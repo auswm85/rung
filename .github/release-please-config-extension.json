@@ -1,0 +1,23 @@
+{
+  "packages": {
+    "vscode-extension": {
+      "package-name": "rung-vscode",
+      "release-type": "node",
+      "changelog-path": "CHANGELOG.md",
+      "tag-separator": "-",
+      "include-component-in-tag": true,
+      "include-v-in-tag": true
+    }
+  },
+  "separate-pull-requests": true,
+  "tag-separator": "-",
+  "pull-request-title-pattern": "chore(extension): release ${version}",
+  "pull-request-header": "## VS Code Extension Release",
+  "changelog-sections": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "chore", "section": "Maintenance", "hidden": true }
+  ]
+}

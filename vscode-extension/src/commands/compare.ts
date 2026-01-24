@@ -3,10 +3,16 @@ import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
 import { StackTreeItem } from "../providers/stackTreeItem";
 import { isBranchInfo } from "../types";
+import { getWorkspaceRoot } from "../utils/workspace";
+import { gitExec } from "../utils/git";
+
+// Strict regex for valid git branch names (prevents injection via special chars)
+const SAFE_BRANCH_REGEX = /^[a-zA-Z0-9._\-/]+$/;
 
 // Type definitions for VS Code Git extension API
 interface GitRepository {
   checkout(ref: string): Promise<void>;
+  rootUri: vscode.Uri;
   state: {
     remotes: Array<{ name: string; fetchUrl?: string }>;
   };
@@ -14,17 +20,18 @@ interface GitRepository {
 
 interface GitAPI {
   repositories: GitRepository[];
+  toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
 }
 
 /**
  * Compare current branch with its parent (incremental diff).
  * Shows what changed in this stack level only.
  */
-export function compareCommand(
+export async function compareCommand(
   _cli: RungCli,
   treeProvider: StackTreeProvider,
   item?: StackTreeItem | string
-): void {
+): Promise<void> {
   let branchName: string;
 
   if (typeof item === "string") {
@@ -49,8 +56,14 @@ export function compareCommand(
     return;
   }
 
+  const cwd = getWorkspaceRoot();
+  if (!cwd) {
+    void vscode.window.showErrorMessage("No workspace folder open");
+    return;
+  }
+
   try {
-    // Use VS Code's built-in git extension for diff
+    // Get the Git extension API
     const gitExtension =
       vscode.extensions.getExtension<{ getAPI: (version: number) => GitAPI }>(
         "vscode.git"
@@ -68,13 +81,54 @@ export function compareCommand(
       return;
     }
 
-    // Show diff in terminal (VS Code git extension doesn't have branch-to-branch diff)
-    const terminal = vscode.window.createTerminal("Rung Diff");
-    terminal.sendText(`git diff ${branch.parent}..${branchName}`);
-    terminal.show();
+    // Validate branch names to prevent command injection
+    if (!SAFE_BRANCH_REGEX.test(branchName) || !SAFE_BRANCH_REGEX.test(branch.parent)) {
+      void vscode.window.showErrorMessage("Invalid branch name detected");
+      return;
+    }
 
-    void vscode.window.showInformationMessage(
-      `Comparing ${branchName} with parent ${branch.parent}`
+    // Get list of changed files between branches (using safe git exec with -- separator)
+    const { stdout } = await gitExec(
+      ["diff", "--name-only", branch.parent, branchName, "--"],
+      cwd
+    );
+
+    const files = stdout.trim().split("\n").filter((f) => f.length > 0);
+
+    if (files.length === 0) {
+      void vscode.window.showInformationMessage(
+        `No changes between ${branchName} and ${branch.parent}`
+      );
+      return;
+    }
+
+    // Show quick pick with changed files
+    const items = files.map((file) => ({
+      label: `$(file) ${file}`,
+      file,
+      description: "",
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: `${files.length} file(s) changed - select to view diff`,
+      matchOnDescription: true,
+    });
+
+    if (!selected) {
+      return;
+    }
+
+    // Create URIs for the diff using VS Code Git extension's toGitUri
+    const fileUri = vscode.Uri.joinPath(repo.rootUri, selected.file);
+    const leftUri = git.toGitUri(fileUri, branch.parent);
+    const rightUri = git.toGitUri(fileUri, branchName);
+
+    // Open the diff editor
+    await vscode.commands.executeCommand(
+      "vscode.diff",
+      leftUri,
+      rightUri,
+      `${selected.file} (${branch.parent} ↔ ${branchName})`
     );
   } catch (error: unknown) {
     const message =
