@@ -50,7 +50,11 @@ export class StatusBarProvider implements vscode.Disposable {
    * Render the status bar content based on stack status.
    */
   private render(status: StatusOutput): void {
-    const current = status.branches.find((b) => b.is_current);
+    // Try to find current branch by is_current flag, fall back to status.current name
+    let current = status.branches.find((b) => b.is_current);
+    if (!current && status.current) {
+      current = status.branches.find((b) => b.name === status.current);
+    }
     if (!current) {
       this.statusBarItem.text = "$(git-branch) Rung";
       this.statusBarItem.tooltip = "No branch in stack";
