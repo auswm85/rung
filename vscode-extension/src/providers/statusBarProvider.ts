@@ -129,11 +129,14 @@ export class StatusBarProvider implements vscode.Disposable {
         return "$(error)";
       case "detached":
         return "$(debug-disconnect)";
+      default:
+        return "$(question)";
     }
   }
 
   /**
    * Build rich tooltip with stack details.
+   * Uses appendText() for user-controlled data to prevent Markdown injection.
    */
   private buildTooltip(
     status: StatusOutput,
@@ -141,25 +144,35 @@ export class StatusBarProvider implements vscode.Disposable {
     position: { index: number; total: number },
   ): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
+    // Restrict trusted commands to only allow rung.openPR
+    md.isTrusted = { enabledCommands: ["rung.openPR"] };
 
     md.appendMarkdown(`**Rung Stack**\n\n`);
-    md.appendMarkdown(`Branch: \`${current.name}\`\n\n`);
+    md.appendMarkdown(`Branch: \``);
+    md.appendText(current.name); // User data - use appendText to prevent injection
+    md.appendMarkdown(`\`\n\n`);
     md.appendMarkdown(`Position: ${position.index} of ${position.total}\n\n`);
 
     if (current.parent) {
-      md.appendMarkdown(`Parent: \`${current.parent}\`\n\n`);
+      md.appendMarkdown(`Parent: \``);
+      md.appendText(current.parent); // User data - use appendText to prevent injection
+      md.appendMarkdown(`\`\n\n`);
     }
 
-    // Status with color
+    // Status - getStatusText returns safe text (numbers from internal state, not user input)
     const statusText = this.getStatusText(current);
     md.appendMarkdown(`Status: ${statusText}\n\n`);
 
     if (current.pr) {
-      md.appendMarkdown(`PR: [#${current.pr}](command:rung.openPR)\n\n`);
+      // PR number is from our internal state, safe to interpolate
+      // Use encoded command URI for safety
+      const prNumber = Number(current.pr);
+      if (Number.isInteger(prNumber) && prNumber > 0) {
+        md.appendMarkdown(`PR: [#${prNumber}](command:rung.openPR)\n\n`);
+      }
     }
 
-    // Count branches needing sync
+    // Count branches needing sync (internal state, safe)
     const needsSync = status.branches.filter(
       (b) => b.state.status === "diverged" || b.state.status === "conflict",
     ).length;
@@ -176,18 +189,20 @@ export class StatusBarProvider implements vscode.Disposable {
   }
 
   /**
-   * Get human-readable status text.
+   * Get human-readable status text (returns safe static text, no user data).
    */
   private getStatusText(branch: BranchInfo): string {
     switch (branch.state.status) {
       case "synced":
-        return "$(check) Synced";
+        return "Synced";
       case "diverged":
-        return `$(warning) ${branch.state.commits_behind} commit(s) behind`;
+        return `${branch.state.commits_behind} commit(s) behind`;
       case "conflict":
-        return `$(error) ${branch.state.files.length} conflict(s)`;
+        return `${branch.state.files.length} conflict(s)`;
       case "detached":
-        return "$(debug-disconnect) Detached";
+        return "Detached";
+      default:
+        return "Unknown";
     }
   }
 
