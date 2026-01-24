@@ -229,10 +229,13 @@ export class RungCli {
    */
   async create(options: { name?: string; message?: string }): Promise<string> {
     const args = ["create"];
+    // Add name as positional arg if provided
+    if (options.name) {
+      args.push(options.name);
+    }
+    // Add message flag if provided (can be used with or without name)
     if (options.message) {
       args.push("-m", options.message);
-    } else if (options.name) {
-      args.push(options.name);
     }
     const { stdout } = await this.execute(args);
     return stdout;
@@ -243,7 +246,16 @@ export class RungCli {
    */
   async doctor(): Promise<DoctorOutput> {
     const { stdout } = await this.execute(["doctor", "--json"]);
-    return JSON.parse(stdout) as DoctorOutput;
+    try {
+      return JSON.parse(stdout) as DoctorOutput;
+    } catch (err: unknown) {
+      const parseError = err instanceof Error ? err.message : String(err);
+      throw this.createError(
+        ErrorType.Unknown,
+        `Failed to parse doctor output: ${parseError}`,
+        stdout
+      );
+    }
   }
 
   /**

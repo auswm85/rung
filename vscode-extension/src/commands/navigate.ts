@@ -1,11 +1,8 @@
 import * as vscode from "vscode";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
 import { getWorkspaceRoot } from "../utils/workspace";
-
-const execAsync = promisify(exec);
+import { gitExec } from "../utils/git";
 
 /**
  * Navigate to the next (child) branch in the stack.
@@ -33,7 +30,7 @@ export async function prevCommand(
  * Checkout a specific branch by name.
  */
 export async function checkoutCommand(
-  cli: RungCli,
+  _cli: RungCli,
   treeProvider: StackTreeProvider,
   branchName: string
 ): Promise<void> {
@@ -49,17 +46,17 @@ export async function checkoutCommand(
   }
 
   try {
-    // Check if already on this branch
-    const { stdout: currentBranch } = await execAsync(
-      "git rev-parse --abbrev-ref HEAD",
-      { cwd }
+    // Check if already on this branch (using safe git exec)
+    const { stdout: currentBranch } = await gitExec(
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      cwd
     );
     if (currentBranch.trim() === branchName) {
       return; // Already on this branch
     }
 
-    // Use git directly for checkout
-    await execAsync(`git checkout ${branchName}`, { cwd });
+    // Use git directly for checkout (safe - no shell interpolation)
+    await gitExec(["checkout", branchName], cwd);
     treeProvider.refresh();
   } catch (error: unknown) {
     const message =

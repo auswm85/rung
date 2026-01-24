@@ -102,7 +102,31 @@ export class Uri {
   }
 
   static parse(value: string): Uri {
-    return new Uri("https", "", value, "", "");
+    // Handle custom schemes like file://, vscode://, git://
+    const schemeMatch = value.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//);
+    if (schemeMatch) {
+      const scheme = schemeMatch[1];
+      const rest = value.slice(schemeMatch[0].length);
+
+      // Split off fragment
+      const [withoutFragment, fragment = ""] = rest.split("#");
+      // Split off query
+      const [pathWithAuthority, query = ""] = withoutFragment.split("?");
+      // Split authority from path
+      const slashIndex = pathWithAuthority.indexOf("/");
+      const authority = slashIndex >= 0 ? pathWithAuthority.slice(0, slashIndex) : pathWithAuthority;
+      const path = slashIndex >= 0 ? pathWithAuthority.slice(slashIndex) : "";
+
+      return new Uri(scheme, authority, path, query, fragment);
+    }
+
+    // Fallback for relative paths or unknown formats
+    return new Uri("file", "", value, "", "");
+  }
+
+  static joinPath(base: Uri, ...pathSegments: string[]): Uri {
+    const joined = [base.path, ...pathSegments].join("/").replace(/\/+/g, "/");
+    return new Uri(base.scheme, base.authority, joined, base.query, base.fragment);
   }
 
   constructor(
@@ -115,6 +139,21 @@ export class Uri {
 
   get fsPath(): string {
     return this.path;
+  }
+
+  toString(): string {
+    let result = `${this.scheme}://`;
+    if (this.authority) {
+      result += this.authority;
+    }
+    result += this.path;
+    if (this.query) {
+      result += `?${this.query}`;
+    }
+    if (this.fragment) {
+      result += `#${this.fragment}`;
+    }
+    return result;
   }
 }
 

@@ -80,17 +80,23 @@ export async function createCommand(
     progressTitle = "Creating branch from commit message...";
   }
 
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: progressTitle,
-      cancellable: false,
-    },
-    async () => {
-      await cli.create(createOptions);
-    }
-  );
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: progressTitle,
+        cancellable: false,
+      },
+      async () => {
+        await cli.create(createOptions);
+      }
+    );
 
-  void vscode.window.showInformationMessage("Branch created");
-  treeProvider.refresh();
+    void vscode.window.showInformationMessage("Branch created");
+    treeProvider.refresh();
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Unknown error occurred";
+    void vscode.window.showErrorMessage(`Failed to create branch: ${message}`);
+  }
 }

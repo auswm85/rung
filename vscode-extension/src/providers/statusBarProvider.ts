@@ -15,7 +15,7 @@ export class StatusBarProvider implements vscode.Disposable {
       vscode.StatusBarAlignment.Left,
       100,
     );
-    this.statusBarItem.command = "rungStack.focus";
+    this.statusBarItem.command = "workbench.view.extension.rung";
     this.statusBarItem.name = "Rung Stack";
     this.disposables.push(this.statusBarItem);
   }

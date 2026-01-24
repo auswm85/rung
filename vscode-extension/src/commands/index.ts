@@ -21,6 +21,10 @@ export function registerCommands(
   treeProvider: StackTreeProvider,
   statusBar?: StatusBarProvider
 ): void {
+  // Create output channel once and register for disposal
+  const diagnosticsChannel = vscode.window.createOutputChannel("Rung Diagnostics");
+  context.subscriptions.push(diagnosticsChannel);
+
   const commands: Array<[string, CommandHandler]> = [
     [
       "rung.refresh",
@@ -81,18 +85,17 @@ export function registerCommands(
           return;
         }
 
-        // Show issues in output channel
-        const channel = vscode.window.createOutputChannel("Rung Diagnostics");
-        channel.clear();
-        channel.appendLine("=== Rung Diagnostics ===\n");
+        // Show issues in output channel (reuse shared channel)
+        diagnosticsChannel.clear();
+        diagnosticsChannel.appendLine("=== Rung Diagnostics ===\n");
 
         for (const issue of result.issues) {
           const icon = issue.severity === "error" ? "❌" : "⚠️";
-          channel.appendLine(`${icon} [${issue.severity.toUpperCase()}] ${issue.message}`);
+          diagnosticsChannel.appendLine(`${icon} [${issue.severity.toUpperCase()}] ${issue.message}`);
         }
 
-        channel.appendLine(`\n--- Summary: ${result.errors} error(s), ${result.warnings} warning(s) ---`);
-        channel.show();
+        diagnosticsChannel.appendLine(`\n--- Summary: ${result.errors} error(s), ${result.warnings} warning(s) ---`);
+        diagnosticsChannel.show();
 
         // Show notification
         if (result.errors > 0) {

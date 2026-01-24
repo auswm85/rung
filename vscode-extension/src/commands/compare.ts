@@ -1,13 +1,13 @@
 import * as vscode from "vscode";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
 import { StackTreeItem } from "../providers/stackTreeItem";
 import { isBranchInfo } from "../types";
 import { getWorkspaceRoot } from "../utils/workspace";
+import { gitExec } from "../utils/git";
 
-const execAsync = promisify(exec);
+// Strict regex for valid git branch names (prevents injection via special chars)
+const SAFE_BRANCH_REGEX = /^[a-zA-Z0-9._\-/]+$/;
 
 // Type definitions for VS Code Git extension API
 interface GitRepository {
@@ -81,10 +81,16 @@ export async function compareCommand(
       return;
     }
 
-    // Get list of changed files between branches
-    const { stdout } = await execAsync(
-      `git diff --name-only ${branch.parent}..${branchName}`,
-      { cwd }
+    // Validate branch names to prevent command injection
+    if (!SAFE_BRANCH_REGEX.test(branchName) || !SAFE_BRANCH_REGEX.test(branch.parent)) {
+      void vscode.window.showErrorMessage("Invalid branch name detected");
+      return;
+    }
+
+    // Get list of changed files between branches (using safe git exec with -- separator)
+    const { stdout } = await gitExec(
+      ["diff", "--name-only", branch.parent, branchName, "--"],
+      cwd
     );
 
     const files = stdout.trim().split("\n").filter((f) => f.length > 0);

@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   test: {
@@ -6,8 +7,9 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     alias: {
-      vscode: new URL("./src/test/__mocks__/vscode.ts", import.meta.url)
-        .pathname,
+      vscode: fileURLToPath(
+        new URL("./src/test/__mocks__/vscode.ts", import.meta.url)
+      ),
     },
   },
 });
