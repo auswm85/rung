@@ -228,7 +228,7 @@ export class RungCli {
   /**
    * Create a new branch in the stack.
    */
-  async create(options: { name?: string; message?: string }): Promise<string> {
+  async create(options: { name?: string; message?: string } = {}): Promise<string> {
     const args = ["create"];
     // Add name as positional arg if provided
     if (options.name) {

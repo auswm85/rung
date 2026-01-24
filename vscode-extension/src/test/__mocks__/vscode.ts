@@ -86,7 +86,8 @@ export class EventEmitter<T> {
   };
 
   fire(data: T): void {
-    for (const listener of this.listeners) {
+    // Iterate over copy to handle listener self-disposal during iteration
+    for (const listener of [...this.listeners]) {
       listener(data);
     }
   }
@@ -233,8 +234,8 @@ export const window = {
   showQuickPick: async () => undefined,
   withProgress: async <T>(
     _options: unknown,
-    task: (progress: unknown) => Thenable<T>
-  ) => task({}),
+    task: (progress: unknown, token: unknown) => Thenable<T>
+  ) => task({}, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }),
   createTerminal: () => ({
     sendText: () => {},
     show: () => {},
