@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { RungCli } from "../rung/cli";
 import { StackTreeProvider } from "../providers/stackTreeProvider";
+import { isRungError } from "../types";
 
 /**
  * Create a new branch in the stack.
@@ -133,8 +134,14 @@ export async function createCommand(
     void vscode.window.showInformationMessage("Branch created");
     treeProvider.refresh();
   } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    let message: string;
+    if (isRungError(error)) {
+      message = error.message;
+    } else if (error instanceof Error) {
+      message = error.message;
+    } else {
+      message = "Unknown error occurred";
+    }
     void vscode.window.showErrorMessage(`Failed to create branch: ${message}`);
   }
 }
