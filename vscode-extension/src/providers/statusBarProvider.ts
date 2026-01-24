@@ -90,23 +90,38 @@ export class StatusBarProvider implements vscode.Disposable {
     }
 
     // Count ancestors (depth from root to current)
+    // Track visited nodes to prevent infinite loops on cyclic graphs
     let depth = 1;
     let branch: BranchInfo | undefined = current;
+    const visitedAncestors = new Set<string>([current.name]);
     while (branch?.parent && stackNames.has(branch.parent)) {
+      // Cycle guard: stop if we've already visited this parent
+      if (visitedAncestors.has(branch.parent)) {
+        break;
+      }
+      visitedAncestors.add(branch.parent);
       depth++;
       branch = branches.find((b) => b.name === branch!.parent);
     }
 
     // Count descendants (from current to deepest leaf in this chain)
+    // Track visited nodes to prevent infinite loops on cyclic graphs
     let descendants = 0;
     let node: BranchInfo | undefined = current;
+    const visitedDescendants = new Set<string>([current.name]);
     while (node) {
       const children = childrenMap.get(node.name);
       if (!children || children.length === 0) {
         break;
       }
       // Follow first child (main chain) for consistent counting
-      node = children[0];
+      const nextNode = children[0];
+      // Cycle guard: stop if we've already visited this child
+      if (!nextNode.name || visitedDescendants.has(nextNode.name)) {
+        break;
+      }
+      visitedDescendants.add(nextNode.name);
+      node = nextNode;
       descendants++;
     }
 
