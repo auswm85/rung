@@ -860,8 +860,7 @@ mod tests {
                 assert!(conflict_files.contains(&"conflict.txt".to_string()));
             }
             _ => panic!(
-                "Expected sync to be paused by conflict, but got {:?}",
-                result
+                "Expected sync to be paused by conflict, but got {result:?}"
             ),
         }
 
