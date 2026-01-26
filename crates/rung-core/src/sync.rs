@@ -789,7 +789,7 @@ mod tests {
 
         let main_branch = rung_repo.current_branch().unwrap();
         
-        // Setuo a conflict: modify same line in the main feature-a
+        // Setup a conflict: modify same line in the main feature-a
         fs::write(temp.path().join("conflict.txt"), "Original\n").unwrap();
         add_commit(&temp, &git_repo, "conflict.txt", "Initial");
         
