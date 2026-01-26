@@ -32,6 +32,12 @@ fn setup_git_repo() -> TempDir {
         .output()
         .expect("Failed to set git name");
 
+    StdCommand::new("git")
+        .args(["config", "core.editor", "true"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to set git editor");        
+
     // Create initial commit so we have a valid HEAD
     let readme = temp.path().join("README.md");
     fs::write(&readme, "# Test Repo\n").expect("Failed to write README");
@@ -490,6 +496,76 @@ fn test_sync_nothing_to_sync() {
         .stdout(predicate::str::contains("up-to-date"));
 }
 
+#[test]
+fn test_sync_conflict_and_continue() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a base commit 
+    let file = temp.path().join("test.txt");
+    fs::write(&file, "test").expect("Failed to write file");
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "Base commit"]).current_dir(&temp).output().unwrap();
+
+    // Create a feature branch
+    rung().args(["create", "feature-1"]).current_dir(&temp).assert().success();
+    fs::write(&file, "Feature change\n").expect("Failed to write file");
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "Feature commit"]).current_dir(&temp).output().unwrap();
+
+    // Create conflict in main
+    StdCommand::new("git").args(["checkout", "main"]).current_dir(&temp).output().unwrap();
+    fs::write(&file, "Main change\n").expect("Failed to write file");
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "Main commit"]).current_dir(&temp).output().unwrap();
+
+    // Try to sync (should fail with conflic)
+    rung().args(["sync", "--base", "main"]).current_dir(&temp).assert().success().stdout(predicate::str::contains("Conflict").or(predicate::str::contains("Paused")));
+
+
+    // Resolve conflic manually
+    fs::write(&file, "Resolved content\n").expect("Failed to write file");
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+
+    // Continue sync
+    rung().args(["sync", "--continue"]).current_dir(&temp).assert().success().stdout(predicate::str::contains("Synced"));
+}
+
+
+#[test]
+fn test_sync_abort_restores_branches() {
+    let temp = setup_git_repo();
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Setup conflict 
+    let file = temp.path().join("test.txt");
+    fs::write(&file, "base").unwrap();
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "base"]).current_dir(&temp).output().unwrap();
+
+    rung().args(["create", "feature-1"]).current_dir(&temp).assert().success();
+    fs::write(&file, "feature").unwrap();
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "feature"]).current_dir(&temp).output().unwrap();
+    let original_sha = fs::read_to_string(temp.path().join(".git/refs/heads/feature-1")).unwrap();
+
+    StdCommand::new("git").args(["checkout", "main"]).current_dir(&temp).output().unwrap();
+    fs::write(&file, "main").unwrap();
+    StdCommand::new("git").args(["add", "."]).current_dir(&temp).output().unwrap();
+    StdCommand::new("git").args(["commit", "-m", "main"]).current_dir(&temp).output().unwrap();
+
+    // Sync pauses on conflict
+    rung().args(["sync", "--base", "main"]).current_dir(&temp).assert().success();
+
+    // Abort sync
+    rung().args(["sync", "--abort"]).current_dir(&temp).assert().success();
+
+    // Verify original state is restored
+    let restored_sha = fs::read_to_string(temp.path().join(".git/refs/heads/feature-1")).unwrap();
+    assert_eq!(original_sha, restored_sha, "Abort should restore branches to pre-sync state");
+}
+
 // ============================================================================
 // Undo command tests
 // ============================================================================
@@ -707,3 +783,4 @@ fn test_absorb_help_shows_in_main_help() {
         .success()
         .stdout(predicate::str::contains("absorb"));
 }
+

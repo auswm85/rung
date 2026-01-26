@@ -742,4 +742,111 @@ mod tests {
         assert_eq!(plan.branches[2].branch, "feature-c");
         assert_eq!(plan.branches[3].branch, "feature-d");
     }
+
+
+  #[test]
+    fn test_remove_stale_branches() {
+        let (temp, rung_repo,git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+        
+        let main_branch = rung_repo.current_branch().unwrap();
+        
+        // Create two branches
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+        git_repo.branch("feature-b", &head, false).unwrap();
+        
+
+        // Create stack: main -> feature-a -> feature-b
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        // Delete feature-a git (making stale)
+        rung_repo.delete_branch("feature-a").unwrap();
+
+        // Run stale branch removal
+        let result = remove_stale_branches(&rung_repo, &state).unwrap();
+
+        assert_eq!(result.removed.len(), 1);
+        assert_eq!(result.removed[0], "feature-a");
+
+        // Verify stack was updated: feature-b sgould now point to main
+
+        let updated_stack = state.load_stack().unwrap();
+        assert_eq!(updated_stack.len(), 1);
+        let b = updated_stack.find_branch("feature-b").unwrap();
+        assert_eq!(b.parent.as_ref().unwrap().as_str(), main_branch.as_str());
+    }
+
+    #[test]
+    fn test_execute_sync_with_conflict() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+        
+        // Setuo a conflict: modify same line in the main feature-a
+        fs::write(temp.path().join("conflict.txt"), "Original\n").unwrap();
+        add_commit(&temp, &git_repo, "conflict.txt", "Initial");
+        
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Change on main
+        {
+            let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+            fs::write(temp.path().join("conflict.txt"), "Main content\n").unwrap(); // UNIQUE
+            let mut index = git_repo.index().unwrap();
+            index.add_path(std::path::Path::new("conflict.txt")).unwrap();
+            index.write().unwrap();
+            let tree_id = index.write_tree().unwrap();
+            let tree = git_repo.find_tree(tree_id).unwrap();
+            let parent = git_repo.head().unwrap().peel_to_commit().unwrap();
+            git_repo.commit(Some("HEAD"), &sig, &sig, "Main change", &tree, &[&parent]).unwrap();
+        }
+        
+
+        // Change on feature-a
+        git_repo.set_head("refs/heads/feature-a").unwrap();
+
+        git_repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+         {
+            let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+            fs::write(temp.path().join("conflict.txt"), "Feature content\n").unwrap(); // UNIQUE
+            let mut index = git_repo.index().unwrap();
+            index.add_path(std::path::Path::new("conflict.txt")).unwrap();
+            index.write().unwrap();
+            let tree_id = index.write_tree().unwrap();
+            let tree = git_repo.find_tree(tree_id).unwrap();
+            let parent = git_repo.head().unwrap().peel_to_commit().unwrap();
+            git_repo.commit(Some("HEAD"), &sig, &sig, "Feature-a change", &tree, &[&parent]).unwrap();
+        }
+
+
+        // Create stack
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        // Plan sync
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        
+
+        // Execute sync - should be paused by conflict
+        let result = execute_sync(&rung_repo, &state, plan).unwrap();
+        match result {
+            SyncResult::Paused { at_branch, conflict_files, ..} =>{
+                assert_eq!(at_branch, "feature-a");
+                assert!(conflict_files.contains(&"conflict.txt".to_string()));
+            }
+            _ => panic!("Expected sync to be paused by conflict, but got {:?}", result),
+        }
+
+        assert!(state.is_sync_in_progress());
+    }
 }
+
