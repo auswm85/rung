@@ -859,9 +859,7 @@ mod tests {
                 assert_eq!(at_branch, "feature-a");
                 assert!(conflict_files.contains(&"conflict.txt".to_string()));
             }
-            _ => panic!(
-                "Expected sync to be paused by conflict, but got {result:?}"
-            ),
+            _ => panic!("Expected sync to be paused by conflict, but got {result:?}"),
         }
 
         assert!(state.is_sync_in_progress());
