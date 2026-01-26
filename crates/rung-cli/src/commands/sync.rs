@@ -86,7 +86,7 @@ pub fn run(
         return Ok(());
     }
 
-   // Ensure on branch (unless we are continuing/aborting a sync)
+    // Ensure on branch (unless we are continuing/aborting a sync)
     if !continue_ && !abort {
         utils::ensure_on_branch(&repo)?;
     }
