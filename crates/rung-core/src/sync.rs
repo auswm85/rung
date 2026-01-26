@@ -773,7 +773,7 @@ mod tests {
         assert_eq!(result.removed.len(), 1);
         assert_eq!(result.removed[0], "feature-a");
 
-        // Verify stack was updated: feature-b sgould now point to main
+        // Verify stack was updated: feature-b should now point to main
 
         let updated_stack = state.load_stack().unwrap();
         assert_eq!(updated_stack.len(), 1);
