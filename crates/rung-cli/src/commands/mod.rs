@@ -71,6 +71,10 @@ pub enum Commands {
         /// Commit message. If provided, stages all changes and creates a commit.
         #[arg(long, short)]
         message: Option<String>,
+
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Display the current stack status. [alias: st]

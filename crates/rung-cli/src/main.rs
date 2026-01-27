@@ -19,9 +19,11 @@ fn main() {
 
     let result = match cli.command {
         Commands::Init => commands::init::run(),
-        Commands::Create { name, message } => {
-            commands::create::run(name.as_deref(), message.as_deref())
-        }
+        Commands::Create {
+            name,
+            message,
+            dry_run,
+        } => commands::create::run(name.as_deref(), message.as_deref(), dry_run),
         Commands::Status { fetch } => commands::status::run(json, fetch),
         Commands::Sync {
             dry_run,
