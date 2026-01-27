@@ -38,6 +38,7 @@ version-resolver:
 exclude-labels:
   - "skip-changelog"
   - "extension"
+  - "test"
 autolabeler:
   - label: "extension"
     title:
@@ -54,6 +55,9 @@ autolabeler:
   - label: "documentation"
     title:
       - "/^docs/i"
+  - label: "test"
+    title:
+      - "/^test/i"
 template: |
   ## What's Changed
 
