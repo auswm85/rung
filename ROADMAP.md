@@ -63,7 +63,7 @@ _Near-term priorities — planned once current work stabilizes_
 
 - [ ] **Improved error messages** ([#77](https://github.com/auswm85/rung/issues/77)) — Actionable suggestions when operations fail
 - [x] **`rung restack`** ([#78](https://github.com/auswm85/rung/issues/78)) — Move branches to a different parent in the stack
-- [ ] **Divergence warnings** ([#79](https://github.com/auswm85/rung/issues/79)) — Warn when local branch has diverged from remote
+- [x] **Divergence warnings** ([#79](https://github.com/auswm85/rung/issues/79)) — Warn when local branch has diverged from remote
 - [ ] **`rung adopt <branch>`** — Bring an existing branch into the stack
 
 ### Advanced Workflows

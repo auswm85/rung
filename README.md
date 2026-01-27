@@ -121,6 +121,7 @@ Create a new branch with the current branch as its parent. This establishes the 
 rung create feature/new-feature              # Explicit branch name
 rung create -m "feat: add authentication"    # Derive name from message, commit changes
 rung create my-branch -m "feat: add auth"    # Explicit name with commit
+rung create feature/test --dry-run           # Preview without making changes
 ```
 
 When using `-m`, rung will:
@@ -135,6 +136,7 @@ The branch name is derived from the message by slugifying it (e.g., "feat: add a
 **Options:**
 
 - `-m, --message <message>` - Commit message. Stages all changes and creates a commit. If no branch name is provided, derives it from the message.
+- `--dry-run` - Preview what would happen without making changes
 
 ### `rung status`
 
@@ -186,7 +188,7 @@ rung sync --abort
 - `--dry-run` - Show what would be done without making changes
 - `--continue` - Continue after resolving conflicts
 - `--abort` - Abort and restore from backup
-- `-b, --base <branch>` - Base branch to sync against (default: "main")
+- `-b, --base <branch>` - Base branch to sync against (default: repository's default branch)
 
 ### `rung submit`
 
