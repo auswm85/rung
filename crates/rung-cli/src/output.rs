@@ -90,10 +90,35 @@ pub fn branch_name(name: &str, is_current: bool) -> String {
     }
 }
 
+/// Status of a pull request for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrStatus {
+    /// PR is open and ready for review.
+    Open,
+    /// PR is a draft.
+    Draft,
+    /// PR has been merged.
+    Merged,
+    /// PR was closed without merging.
+    Closed,
+}
+
 /// Format a PR reference.
 #[must_use]
-pub fn pr_ref(number: Option<u64>) -> String {
-    number.map_or_else(String::new, |n| format!("#{n}").dimmed().to_string())
+pub fn pr_ref(number: Option<u64>, status: Option<PrStatus>) -> String {
+    let Some(n) = number else {
+        return String::new();
+    };
+
+    let text = format!("#{n}");
+
+    match status {
+        Some(PrStatus::Open) => text,                        // Default/White
+        Some(PrStatus::Draft) => text.yellow().to_string(),  // Yellow
+        Some(PrStatus::Merged) => text.green().to_string(),  // Green
+        Some(PrStatus::Closed) => text.red().to_string(),    // Red
+        None => text.dimmed().to_string(),                   // Dimmed (Unknown state)
+    }
 }
 
 /// Print a horizontal line (suppressed in quiet mode).
