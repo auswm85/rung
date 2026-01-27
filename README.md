@@ -144,13 +144,13 @@ Display the current stack as a tree view with sync state and PR status.
 
 ```bash
 rung status              # Basic status
-rung status --fetch      # Fetch latest PR status from GitHub
+rung status --fetch      # Fetch from remote first for fresh divergence info
 rung status --json       # Output as JSON for tooling
 ```
 
 **Options:**
 
-- `--fetch` - Fetch latest PR status from GitHub
+- `--fetch` - Fetch latest remote state before showing status
 
 **Remote Divergence Indicators:**
 

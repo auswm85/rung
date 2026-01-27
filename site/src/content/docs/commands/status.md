@@ -10,6 +10,7 @@ Display the current stack as a tree view showing branch relationships, sync stat
 
 ```bash
 rung status
+rung status --fetch  # Fetch from remote first for fresh divergence info
 rung status --json
 ```
 
@@ -92,11 +93,19 @@ $ rung status --json
 | `conflict` | Rebase resulted in conflicts   |
 | `detached` | Orphaned (parent deleted)      |
 
+## Options
+
+| Option    | Description                                                                 |
+| --------- | --------------------------------------------------------------------------- |
+| `--fetch` | Run `git fetch` before showing status to get fresh remote divergence info   |
+| `--json`  | Output as JSON for tooling integration                                      |
+
 ## Notes
 
 - PR numbers are stored locally in `.git/rung/stack.json`
 - Use `--json` for CI/CD integration and scripting
 - The `is_current` field is only included when `true`
+- Remote divergence indicators are based on cached data; use `--fetch` for current state
 
 ## Related Commands
 
