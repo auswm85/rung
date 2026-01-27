@@ -1,6 +1,7 @@
 ---
 title: undo
 description: Undo the last sync operation, restoring all branches to their previous state.
+since: "0.1.0"
 ---
 
 Restore all branches to their state before the last sync operation.

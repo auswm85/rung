@@ -1,6 +1,7 @@
 ---
 title: create
 description: Create a new branch with the current branch as its parent.
+since: "0.1.0"
 ---
 
 Create a new branch in the stack with the current branch as its parent. This establishes the branch relationship that rung uses for syncing and PR management.

@@ -1,6 +1,7 @@
 ---
 title: sync
 description: Sync the stack by rebasing all branches when the base moves forward.
+since: "0.1.0"
 ---
 
 Sync the stack by rebasing all branches when their parent branches have moved forward. This is the core command for keeping your stack up-to-date.
