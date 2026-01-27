@@ -1,6 +1,7 @@
 ---
 title: doctor
 description: Diagnose issues with the stack and repository.
+since: "0.1.0"
 ---
 
 Diagnose issues with your stack and repository. Checks for common problems and provides actionable suggestions.

@@ -1,6 +1,7 @@
 ---
 title: log
 description: Show commits on the current branch between the parent branch and HEAD.
+since: "0.2.0"
 ---
 
 Show commits on the current branch—specifically, commits between the parent branch and HEAD. This helps you see exactly what changes are in the current stack branch, excluding commits from parent branches.

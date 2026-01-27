@@ -1,6 +1,7 @@
 ---
 title: restack
 description: Move a branch to a different parent in the stack by rebasing it onto a new base.
+since: "0.4.0"
 ---
 
 Move a branch to a different parent in the stack. This is useful when you need to reorganize your stack topology—for example, moving a feature branch from one parent to another.

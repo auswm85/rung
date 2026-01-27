@@ -1,6 +1,7 @@
 ---
 title: status
 description: Display the current stack as a tree view with sync state and PR status.
+since: "0.1.0"
 ---
 
 Display the current stack as a tree view showing branch relationships, sync state, and PR status.

@@ -1,6 +1,7 @@
 ---
 title: adopt
 description: Bring an existing Git branch into the rung stack.
+since: "0.6.0"
 ---
 
 Adopt an existing Git branch into the rung stack by establishing its parent relationship. Use this when you have branches created outside of rung that you want to manage as part of your stack.

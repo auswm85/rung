@@ -22,6 +22,7 @@ export default defineConfig({
       customCss: ["./src/styles/custom.css"],
       components: {
         SiteTitle: "./src/components/SiteTitle.astro",
+        PageTitle: "./src/components/PageTitle.astro",
       },
       sidebar: [
         {
