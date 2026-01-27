@@ -19,6 +19,11 @@ fn main() {
 
     let result = match cli.command {
         Commands::Init => commands::init::run(),
+        Commands::Adopt {
+            branch,
+            parent,
+            dry_run,
+        } => commands::adopt::run(branch.as_deref(), parent.as_deref(), dry_run),
         Commands::Create {
             name,
             message,

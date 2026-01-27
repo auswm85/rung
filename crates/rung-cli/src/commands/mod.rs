@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 
 pub mod absorb;
+pub mod adopt;
 pub mod completions;
 pub mod create;
 pub mod doctor;
@@ -50,6 +51,25 @@ pub struct Cli {
 pub enum Commands {
     /// Initialize rung in the current repository.
     Init,
+
+    /// Adopt an existing branch into the stack. [alias: ad]
+    ///
+    /// Brings an existing Git branch into the rung stack by establishing
+    /// its parent relationship. The branch must already exist in Git.
+    #[command(alias = "ad")]
+    Adopt {
+        /// Branch to adopt. Defaults to the current branch.
+        branch: Option<String>,
+
+        /// Parent branch for the adopted branch.
+        /// If not provided, an interactive picker is shown.
+        #[arg(long, short)]
+        parent: Option<String>,
+
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
+    },
 
     /// Create a new branch in the stack. [alias: c]
     ///
