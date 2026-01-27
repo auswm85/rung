@@ -11,6 +11,7 @@ Sync the stack by rebasing all branches when their parent branches have moved fo
 rung sync
 rung sync --dry-run
 rung sync --base develop
+rung sync --force
 rung sync --continue
 rung sync --abort
 rung sync --no-push
@@ -22,13 +23,14 @@ rung sync --no-push
 
 ## Options
 
-| Option                | Description                                                        |
-| --------------------- | ------------------------------------------------------------------ |
-| `--dry-run`           | Show what would be done without making changes                     |
-| `-b, --base <branch>` | Base branch to sync against (auto-detected from GitHub by default) |
-| `--continue`          | Continue after resolving conflicts                                 |
-| `--abort`             | Abort and restore from backup                                      |
-| `--no-push`           | Skip pushing branches to remote after sync                         |
+| Option                | Description                                                              |
+| --------------------- | ------------------------------------------------------------------------ |
+| `--dry-run`           | Show what would be done without making changes                           |
+| `-b, --base <branch>` | Base branch to sync against (default: repository's default branch)       |
+| `--force`             | Proceed even if branches have diverged from remote                       |
+| `--continue`          | Continue after resolving conflicts                                       |
+| `--abort`             | Abort and restore from backup                                            |
+| `--no-push`           | Skip pushing branches to remote after sync                               |
 
 ## How It Works
 
@@ -103,7 +105,7 @@ This restores all branches to their pre-sync state using the backup refs.
 
 ## Using a Different Base
 
-By default, rung syncs against `main`. To use a different base:
+By default, rung auto-detects your repository's default branch. To use a different base:
 
 ```bash
 rung sync --base develop
@@ -155,12 +157,25 @@ Or if there's a conflict:
 }
 ```
 
+## Divergence Detection
+
+If any branches have diverged from their remote tracking branches (both local and remote have unique commits), sync will warn and abort:
+
+```bash
+$ rung sync
+⚠ Branch feat-add-api has diverged from remote (2 ahead, 1 behind)
+Error: Cannot sync with diverged branches. Use --force to proceed anyway.
+```
+
+Use `--force` to proceed with diverged branches. This is safe because rung creates backups before any rebase operation.
+
 ## Notes
 
 - Always commit or stash your changes before syncing
 - The sync algorithm processes branches bottom-up (from root to tips)
 - Backup refs are stored in `.git/rung/backups/` for undo capability
 - If no branches need syncing, rung reports "Already synced"
+- Use `--force` when you intentionally want to sync branches that have diverged from remote
 
 ## Related Commands
 

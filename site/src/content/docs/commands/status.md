@@ -40,6 +40,18 @@ $ rung status
 | `#N`   | PR number                                        |
 | `←`    | Shows parent branch                              |
 
+### Remote Divergence Indicators
+
+The status display shows how local branches compare to their remote counterparts:
+
+| Indicator | Meaning                                               |
+| --------- | ----------------------------------------------------- |
+| `(2↑)`    | Branch is 2 commits ahead of remote (safe to push)    |
+| `(1↓)`    | Branch is 1 commit behind remote (remote has changes) |
+| `(2↑ 1↓)` | Branch has diverged (2 ahead, 1 behind)               |
+
+When branches have diverged, a warning is shown with guidance to use `rung submit --force` (which uses `--force-with-lease` for safety).
+
 ## JSON Output
 
 For integration with other tools:
