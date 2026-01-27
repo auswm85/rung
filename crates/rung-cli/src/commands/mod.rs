@@ -82,6 +82,7 @@ pub enum Commands {
     #[command(group(
         clap::ArgGroup::new("create_input")
             .required(true)
+            .multiple(true)
             .args(["name", "message"])
     ))]
     Create {
