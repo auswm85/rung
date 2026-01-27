@@ -49,22 +49,19 @@ These improvements make Rung more pleasant to use and easier to contribute to:
 
 ### Testing & Reliability
 
-- [ ] **Sync conflict integration tests** ([#23](https://github.com/auswm85/rung/issues/23)) — Ensure conflict resolution workflows are well-tested
+- [x] **Sync conflict integration tests** ([#23](https://github.com/auswm85/rung/issues/23)) — Ensure conflict resolution workflows are well-tested
+- [ ] **Submit command tests** ([#70](https://github.com/auswm85/rung/issues/70)) — Test PR creation and update workflows
 
 ## Next
 
 _Near-term priorities — planned once current work stabilizes_
 
-### Performance
-
-- [ ] **O(1) branch lookup** ([#33](https://github.com/auswm85/rung/issues/33)) — Optimize for large stacks with many branches
-
 ### Developer Experience
 
-- [ ] **Improved error messages** ([#77](https://github.com/auswm85/rung/issues/77)) — Actionable suggestions when operations fail
+- [x] **Improved error messages** ([#77](https://github.com/auswm85/rung/issues/77)) — Actionable suggestions when operations fail
 - [x] **`rung restack`** ([#78](https://github.com/auswm85/rung/issues/78)) — Move branches to a different parent in the stack
 - [x] **Divergence warnings** ([#79](https://github.com/auswm85/rung/issues/79)) — Warn when local branch has diverged from remote
-- [ ] **`rung adopt <branch>`** — Bring an existing branch into the stack
+- [x] **`rung adopt <branch>`** ([#100](https://github.com/auswm85/rung/issues/100)) — Bring an existing branch into the stack
 
 ### Advanced Workflows
 
