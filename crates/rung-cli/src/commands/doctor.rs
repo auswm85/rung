@@ -309,16 +309,16 @@ fn check_stack_integrity(repo: &Repository, stack: &rung_core::Stack, issues: &m
 }
 
 /// Check if a branch has a circular dependency.
-fn has_circular_dependency(
-    stack: &rung_core::Stack,
-    branch_name: &str,
-    visited: &mut Vec<String>,
+fn has_circular_dependency<'a>(
+    stack: &'a rung_core::Stack,
+    branch_name: &'a str,
+    visited: &mut Vec<&'a str>,
 ) -> bool {
-    if visited.contains(&branch_name.to_string()) {
+    if visited.contains(&branch_name) {
         return true;
     }
 
-    visited.push(branch_name.to_string());
+    visited.push(branch_name);
 
     if let Some(branch) = stack.find_branch(branch_name) {
         if let Some(parent) = &branch.parent {

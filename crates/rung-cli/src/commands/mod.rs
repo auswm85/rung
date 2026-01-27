@@ -104,7 +104,7 @@ pub enum Commands {
     /// sync state and PR status.
     #[command(alias = "st")]
     Status {
-        /// Fetch latest PR status from GitHub.
+        /// Fetch latest remote state before showing status.
         #[arg(long)]
         fetch: bool,
     },
