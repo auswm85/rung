@@ -872,202 +872,59 @@ fn test_absorb_help_shows_in_main_help() {
 }
 
 // ============================================================================
-// Adopt command tests
+// Submit command tests
 // ============================================================================
 
 #[test]
-fn test_adopt_not_initialized() {
-    let temp = setup_git_repo();
-
-    // Create a branch to adopt
-    StdCommand::new("git")
-        .args(["checkout", "-b", "feature-to-adopt"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create branch");
-
-    rung()
-        .arg("adopt")
-        .current_dir(&temp)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("not initialized"));
-}
-
-#[test]
-fn test_adopt_branch_not_exist() {
+fn test_submit_requires_origin_remote() {
     let temp = setup_git_repo();
 
     rung().arg("init").current_dir(&temp).assert().success();
 
-    rung()
-        .args(["adopt", "nonexistent-branch", "--parent", "main"])
-        .current_dir(&temp)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("does not exist"));
-}
-
-#[test]
-fn test_adopt_with_explicit_parent() {
-    let temp = setup_git_repo();
-
-    rung().arg("init").current_dir(&temp).assert().success();
-
-    // Create a branch outside of rung
-    StdCommand::new("git")
-        .args(["checkout", "-b", "feature-to-adopt"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create branch");
-
-    // Adopt it with explicit parent
-    rung()
-        .args(["adopt", "--parent", "main"])
-        .current_dir(&temp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Adopted"));
-
-    // Verify it's in the stack
-    rung()
-        .arg("status")
-        .current_dir(&temp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("feature-to-adopt"));
-}
-
-#[test]
-fn test_adopt_already_in_stack() {
-    let temp = setup_git_repo();
-
-    rung().arg("init").current_dir(&temp).assert().success();
-
-    // Create a branch via rung (adds to stack)
     rung()
         .args(["create", "feature-1"])
         .current_dir(&temp)
         .assert()
         .success();
 
-    // Try to adopt the same branch
+    git_commit("Add feature", &temp);
+
     rung()
-        .args(["adopt", "feature-1", "--parent", "main"])
+        .args(["submit", "--dry-run"])
         .current_dir(&temp)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("already in the stack"));
+        .stderr(predicate::str::contains("No origin remote configured"));
 }
 
 #[test]
-fn test_adopt_dry_run() {
+fn test_submit_accepts_force_flag() {
     let temp = setup_git_repo();
 
     rung().arg("init").current_dir(&temp).assert().success();
 
-    // Create a branch outside of rung
-    StdCommand::new("git")
-        .args(["checkout", "-b", "feature-to-adopt"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create branch");
-
-    // Dry run should not add to stack
     rung()
-        .args(["adopt", "--parent", "main", "--dry-run"])
+        .args(["create", "feature-1"])
         .current_dir(&temp)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("Would adopt"));
+        .success();
 
-    // Verify it's NOT in the stack
+    git_commit("Add feature", &temp);
+
     rung()
-        .arg("status")
-        .current_dir(&temp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("No branches in stack"));
-}
-
-#[test]
-fn test_adopt_alias() {
-    let temp = setup_git_repo();
-
-    rung().arg("init").current_dir(&temp).assert().success();
-
-    // Create a branch outside of rung
-    StdCommand::new("git")
-        .args(["checkout", "-b", "feature-to-adopt"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create branch");
-
-    // Use 'ad' alias
-    rung()
-        .args(["ad", "--parent", "main"])
-        .current_dir(&temp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Adopted"));
-}
-
-#[test]
-fn test_adopt_invalid_parent() {
-    let temp = setup_git_repo();
-
-    rung().arg("init").current_dir(&temp).assert().success();
-
-    // Create a branch outside of rung
-    StdCommand::new("git")
-        .args(["checkout", "-b", "feature-to-adopt"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create branch");
-
-    // Try to adopt with non-existent parent
-    rung()
-        .args(["adopt", "--parent", "nonexistent"])
+        .args(["submit", "--force", "--dry-run"])
         .current_dir(&temp)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("does not exist"));
+        .stderr(predicate::str::contains("No origin remote configured"));
 }
 
 #[test]
-fn test_adopt_parent_not_in_stack() {
-    let temp = setup_git_repo();
-
-    rung().arg("init").current_dir(&temp).assert().success();
-
-    // Create two branches outside of rung
-    StdCommand::new("git")
-        .args(["checkout", "-b", "parent-branch"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create parent branch");
-
-    StdCommand::new("git")
-        .args(["checkout", "-b", "child-branch"])
-        .current_dir(&temp)
-        .output()
-        .expect("Failed to create child branch");
-
-    // Try to adopt child with parent that's not in stack
+fn test_submit_help_shows_force_flag() {
     rung()
-        .args(["adopt", "--parent", "parent-branch"])
-        .current_dir(&temp)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("not in the stack"));
-}
-
-#[test]
-fn test_adopt_help_shows_in_main_help() {
-    rung()
-        .arg("--help")
+        .args(["submit", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("adopt"))
-        .stdout(predicate::str::contains("Adopt an existing branch"));
+        .stdout(predicate::str::contains("--force"))
+        .stdout(predicate::str::contains("sync"));
 }
