@@ -22,6 +22,7 @@ export default defineConfig({
       customCss: ["./src/styles/custom.css"],
       components: {
         SiteTitle: "./src/components/SiteTitle.astro",
+        PageTitle: "./src/components/PageTitle.astro",
       },
       sidebar: [
         {
@@ -37,6 +38,7 @@ export default defineConfig({
             { label: "Overview", slug: "commands" },
             { label: "init", slug: "commands/init" },
             { label: "create", slug: "commands/create" },
+            { label: "adopt", slug: "commands/adopt" },
             { label: "status", slug: "commands/status" },
             { label: "sync", slug: "commands/sync" },
             { label: "submit", slug: "commands/submit" },

@@ -1,6 +1,7 @@
 ---
 title: status
 description: Display the current stack as a tree view with sync state and PR status.
+since: "0.1.0"
 ---
 
 Display the current stack as a tree view showing branch relationships, sync state, and PR status.
@@ -9,6 +10,7 @@ Display the current stack as a tree view showing branch relationships, sync stat
 
 ```bash
 rung status
+rung status --fetch  # Fetch from remote first for fresh divergence info
 rung status --json
 ```
 
@@ -39,6 +41,18 @@ $ rung status
 | `●`    | Green: synced, Yellow: needs sync, Red: conflict |
 | `#N`   | PR number                                        |
 | `←`    | Shows parent branch                              |
+
+### Remote Divergence Indicators
+
+The status display shows how local branches compare to their remote counterparts:
+
+| Indicator | Meaning                                               |
+| --------- | ----------------------------------------------------- |
+| `(2↑)`    | Branch is 2 commits ahead of remote (safe to push)    |
+| `(1↓)`    | Branch is 1 commit behind remote (remote has changes) |
+| `(2↑ 1↓)` | Branch has diverged (2 ahead, 1 behind)               |
+
+When branches have diverged, a warning is shown with guidance to use `rung submit --force` (which uses `--force-with-lease` for safety).
 
 ## JSON Output
 
@@ -79,11 +93,19 @@ $ rung status --json
 | `conflict` | Rebase resulted in conflicts   |
 | `detached` | Orphaned (parent deleted)      |
 
+## Options
+
+| Option    | Description                                                                 |
+| --------- | --------------------------------------------------------------------------- |
+| `--fetch` | Run `git fetch` before showing status to get fresh remote divergence info   |
+| `--json`  | Output as JSON for tooling integration                                      |
+
 ## Notes
 
 - PR numbers are stored locally in `.git/rung/stack.json`
 - Use `--json` for CI/CD integration and scripting
 - The `is_current` field is only included when `true`
+- Remote divergence indicators are based on cached data; use `--fetch` for current state
 
 ## Related Commands
 

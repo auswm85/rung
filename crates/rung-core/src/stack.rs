@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::BranchName;
 
 /// A stack of dependent branches forming a PR chain.
-// TODO(long-term): For large stacks (>20 branches), consider adding a HashMap<String, usize>
-// index for O(1) lookup in find_branch() and find_branch_mut() instead of linear search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stack {
     /// Ordered list of branches from base to tip.

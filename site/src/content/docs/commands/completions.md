@@ -1,6 +1,7 @@
 ---
 title: completions
 description: Generate shell completions for rung commands.
+since: "0.1.4"
 ---
 
 Generate shell completion scripts for tab-completion of rung commands and options.

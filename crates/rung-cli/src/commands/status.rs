@@ -8,7 +8,7 @@ use serde::Serialize;
 use crate::output;
 
 /// Run the status command.
-pub fn run(json: bool, _fetch: bool) -> Result<()> {
+pub fn run(json: bool, fetch: bool) -> Result<()> {
     // Open repository
     let repo = Repository::open_current().context("Not inside a git repository")?;
 
@@ -19,6 +19,14 @@ pub fn run(json: bool, _fetch: bool) -> Result<()> {
     // Ensure initialized
     if !state.is_initialized() {
         bail!("Rung not initialized - run `rung init` first");
+    }
+
+    // Fetch latest from remote if requested
+    if fetch {
+        if !json {
+            output::info("Fetching from remote...");
+        }
+        repo.fetch_all().context("Failed to fetch from remote")?;
     }
 
     // Get current branch

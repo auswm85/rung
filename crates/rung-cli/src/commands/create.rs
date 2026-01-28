@@ -8,7 +8,7 @@ use crate::commands::utils;
 use crate::output;
 
 /// Run the create command.
-pub fn run(name: Option<&str>, message: Option<&str>) -> Result<()> {
+pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<()> {
     // Determine the branch name: explicit > derived from message > error
     let name = match (name, message) {
         (Some(n), _) => n.to_string(),
@@ -50,41 +50,56 @@ pub fn run(name: Option<&str>, message: Option<&str>) -> Result<()> {
         bail!("Branch '{name}' already exists");
     }
 
-    // Create the branch at current HEAD (parent's tip)
-    repo.create_branch(&name)?;
+    if dry_run {
+        output::info(&format!(
+            "Would create branch '{name}' with parent '{parent}'"
+        ));
 
-    // Add to stack
-    let mut stack = state.load_stack()?;
-    let branch = StackBranch::new(branch_name, Some(parent.clone()));
-    stack.add_branch(branch);
-    state.save_stack(&stack)?;
-
-    // Checkout the new branch
-    repo.checkout(&name)?;
-
-    // If message is provided, stage all changes and create a commit on the NEW branch
-    if let Some(msg) = message {
-        // Check for changes before staging to provide clearer feedback
-        if repo.is_clean()? {
-            output::warn("Working directory is clean - branch created without commit");
-        } else {
-            repo.stage_all().context("Failed to stage changes")?;
-
-            if repo.has_staged_changes()? {
-                repo.create_commit(msg).context("Failed to create commit")?;
-                output::info(&format!("Created commit: {msg}"));
+        if let Some(msg) = message {
+            if repo.is_clean()? {
+                output::warn("Working directory is clean - branch would be created without commit");
             } else {
-                output::warn("No staged changes to commit (untracked files may exist)");
+                // Real path calls stage_all() which stages all changes, so if not clean we'd commit
+                output::info(&format!("Would create commit with message: {msg}"));
             }
         }
-    }
+    } else {
+        // Create the branch at current HEAD (parent's tip)
+        repo.create_branch(&name)?;
 
-    output::success(&format!("Created branch '{name}' with parent '{parent}'"));
+        // Add to stack
+        let mut stack = state.load_stack()?;
+        let branch = StackBranch::new(branch_name, Some(parent.clone()));
+        stack.add_branch(branch);
+        state.save_stack(&stack)?;
 
-    // Show position in stack
-    let ancestry = stack.ancestry(&name);
-    if ancestry.len() > 1 {
-        output::info(&format!("Stack depth: {}", ancestry.len()));
+        // Checkout the new branch
+        repo.checkout(&name)?;
+
+        // If message is provided, stage all changes and create a commit on the NEW branch
+        if let Some(msg) = message {
+            // Check for changes before staging to provide clearer feedback
+            if repo.is_clean()? {
+                output::warn("Working directory is clean - branch created without commit");
+            } else {
+                repo.stage_all().context("Failed to stage changes")?;
+
+                if repo.has_staged_changes()? {
+                    repo.create_commit(msg).context("Failed to create commit")?;
+                    output::info(&format!("Created commit: {msg}"));
+                } else {
+                    output::warn("No staged changes to commit (untracked files may exist)");
+                }
+            }
+        }
+
+        output::success(&format!("Created branch '{name}' with parent '{parent}'"));
+
+        // Show position in stack
+        let ancestry = stack.ancestry(&name);
+        if ancestry.len() > 1 {
+            output::info(&format!("Stack depth: {}", ancestry.len()));
+        }
     }
 
     Ok(())

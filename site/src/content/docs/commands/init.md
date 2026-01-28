@@ -1,6 +1,7 @@
 ---
 title: init
 description: Initialize rung in a Git repository.
+since: "0.1.0"
 ---
 
 Initialize rung in the current Git repository. This creates the `.git/rung/` directory to store stack state.

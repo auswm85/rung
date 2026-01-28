@@ -1,6 +1,7 @@
 ---
 title: update
 description: Update rung to the latest version.
+since: "0.1.2"
 ---
 
 Update rung to the latest version from crates.io.

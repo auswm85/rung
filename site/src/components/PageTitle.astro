@@ -1,0 +1,51 @@
+---
+import type { Props } from "@astrojs/starlight/props";
+
+const PAGE_TITLE_ID = "_top";
+const { entry } = Astro.props;
+const entryData = entry.data as any;
+const since = entryData.since;
+---
+
+<div class="page-title-wrapper">
+  <h1 id={PAGE_TITLE_ID}>{entry.data.title}</h1>
+  {since && (
+    <span class:list={["version-badge", { unreleased: since === "unreleased" }]}>
+      {since === "unreleased" ? "unreleased" : `v${since}+`}
+    </span>
+  )}
+</div>
+
+<style>
+  .page-title-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: var(--sl-text-h1);
+    line-height: var(--sl-line-height-headings);
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+
+  .version-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 4px;
+    background-color: var(--sl-color-accent);
+    color: var(--sl-color-black);
+  }
+
+  .version-badge.unreleased {
+    background-color: var(--sl-color-gray-5);
+    color: var(--sl-color-gray-2);
+    border: 1px dashed var(--sl-color-gray-4);
+  }
+</style>

@@ -1,6 +1,7 @@
 ---
 title: merge
 description: Merge the current branch's PR via GitHub API and update the stack.
+since: "0.1.0"
 ---
 
 Merge the current branch's pull request via the GitHub API. Automatically handles rebasing descendants and updating PR bases.

@@ -1,6 +1,7 @@
 ---
 title: Navigation Commands
 description: Move between branches in your stack with nxt, prv, and move.
+since: "0.1.0"
 ---
 
 Rung provides several commands for navigating within your stack.

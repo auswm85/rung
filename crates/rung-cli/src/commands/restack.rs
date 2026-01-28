@@ -64,37 +64,38 @@ enum RestackStatus {
     Diverged,
 }
 
+/// Options for the restack command.
+#[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)] // CLI options map directly to flags
+pub struct RestackOptions<'a> {
+    pub json: bool,
+    pub branch: Option<&'a str>,
+    pub onto: Option<&'a str>,
+    pub dry_run: bool,
+    pub continue_: bool,
+    pub abort: bool,
+    pub include_children: bool,
+    pub force: bool,
+}
+
 /// Run the restack command.
-#[allow(
-    clippy::fn_params_excessive_bools,
-    clippy::too_many_arguments,
-    clippy::too_many_lines
-)]
-pub fn run(
-    json: bool,
-    branch: Option<&str>,
-    onto: Option<&str>,
-    dry_run: bool,
-    continue_: bool,
-    abort: bool,
-    include_children: bool,
-    force: bool,
-) -> Result<()> {
+#[allow(clippy::too_many_lines)]
+pub fn run(opts: &RestackOptions<'_>) -> Result<()> {
     let (repo, state) = utils::open_repo_and_state()?;
 
     // Check for conflicting flags
-    if continue_ && abort {
+    if opts.continue_ && opts.abort {
         bail!("Cannot use --continue and --abort together");
     }
 
     // Handle abort
-    if abort {
-        return handle_abort(&repo, &state, json);
+    if opts.abort {
+        return handle_abort(&repo, &state, opts.json);
     }
 
     // Handle continue
-    if continue_ {
-        return handle_continue(&repo, &state, json);
+    if opts.continue_ {
+        return handle_continue(&repo, &state, opts.json);
     }
 
     // Check for existing restack in progress
@@ -106,7 +107,7 @@ pub fn run(
 
     // Determine branch to restack
     let current = repo.current_branch()?;
-    let target_branch = branch.unwrap_or(&current);
+    let target_branch = opts.branch.unwrap_or(&current);
 
     // Load stack
     let stack = state.load_stack()?;
@@ -121,9 +122,9 @@ pub fn run(
         .map(std::string::ToString::to_string);
 
     // Determine new parent
-    let new_parent = match onto {
+    let new_parent = match opts.onto {
         Some(parent) => parent.to_string(),
-        None => select_new_parent(&stack, target_branch, json)?,
+        None => select_new_parent(&stack, target_branch, opts.json)?,
     };
 
     // Validate new parent exists (either in stack or is a valid branch)
@@ -139,7 +140,7 @@ pub fn run(
 
     // Check if it's a no-op (already has this parent)
     if old_parent.as_deref() == Some(&new_parent) {
-        if json {
+        if opts.json {
             let output = RestackOutput {
                 status: RestackStatus::AlreadyBased,
                 branch: target_branch.to_string(),
@@ -167,15 +168,15 @@ pub fn run(
 
     if !needs_rebase {
         // Branch is already based on new parent's tip, just update the stack
-        if !dry_run {
+        if !opts.dry_run {
             let mut stack = state.load_stack()?;
             stack.reparent(target_branch, Some(&new_parent))?;
             state.save_stack(&stack)?;
         }
 
-        if json {
+        if opts.json {
             let output = RestackOutput {
-                status: if dry_run {
+                status: if opts.dry_run {
                     RestackStatus::DryRun
                 } else {
                     RestackStatus::Complete
@@ -187,7 +188,7 @@ pub fn run(
                 diverged_branches: vec![],
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
-        } else if dry_run {
+        } else if opts.dry_run {
             output::info("Dry run - no changes made");
             output::detail(&format!(
                 "'{target_branch}' is already based on '{new_parent}' - only stack topology would be updated"
@@ -202,8 +203,8 @@ pub fn run(
     }
 
     // Dry run output
-    if dry_run {
-        if json {
+    if opts.dry_run {
+        if opts.json {
             let output = RestackOutput {
                 status: RestackStatus::DryRun,
                 branch: target_branch.to_string(),
@@ -230,7 +231,7 @@ pub fn run(
 
     // === Build list of branches to rebase ===
     let mut branches_to_rebase = vec![target_branch.to_string()];
-    if include_children {
+    if opts.include_children {
         // Add all descendants in topological order (children first, then grandchildren, etc.)
         let descendants = stack.descendants(target_branch);
         for desc in &descendants {
@@ -240,8 +241,8 @@ pub fn run(
 
     // === Check for divergence from remote ===
     let diverged = check_divergence(&repo, &branches_to_rebase);
-    if !diverged.is_empty() && !force {
-        if json {
+    if !diverged.is_empty() && !opts.force {
+        if opts.json {
             let output = RestackOutput {
                 status: RestackStatus::Diverged,
                 branch: target_branch.to_string(),
@@ -292,8 +293,8 @@ pub fn run(
     );
     state.save_restack_state(&restack_state)?;
 
-    if !json {
-        if include_children && branches_to_rebase.len() > 1 {
+    if !opts.json {
+        if opts.include_children && branches_to_rebase.len() > 1 {
             output::info(&format!(
                 "Restacking '{target_branch}' and {} descendant(s) onto '{new_parent}'...",
                 branches_to_rebase.len() - 1
@@ -306,7 +307,7 @@ pub fn run(
     }
 
     // Execute rebase
-    execute_restack(&repo, &state, json, &current)
+    execute_restack(&repo, &state, opts.json, &current)
 }
 
 /// Handle --abort flag

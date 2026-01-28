@@ -1,6 +1,7 @@
 ---
 title: restack
 description: Move a branch to a different parent in the stack by rebasing it onto a new base.
+since: "0.4.0"
 ---
 
 Move a branch to a different parent in the stack. This is useful when you need to reorganize your stack topology—for example, moving a feature branch from one parent to another.
@@ -12,6 +13,7 @@ rung restack --onto main
 rung restack feature/api --onto main
 rung restack --onto feature/base --include-children
 rung restack --dry-run
+rung restack --force
 rung restack --continue
 rung restack --abort
 ```
@@ -22,13 +24,14 @@ rung restack --abort
 
 ## Options
 
-| Option               | Description                                    |
-| -------------------- | ---------------------------------------------- |
-| `--onto <branch>`    | New parent branch to rebase onto (required)    |
-| `--include-children` | Also rebase all descendant branches            |
-| `--dry-run`          | Show what would be done without making changes |
-| `--continue`         | Continue after resolving conflicts             |
-| `--abort`            | Abort and restore from backup                  |
+| Option               | Description                                                      |
+| -------------------- | ---------------------------------------------------------------- |
+| `--onto <branch>`    | New parent branch to rebase onto (required)                      |
+| `--include-children` | Also rebase all descendant branches                              |
+| `--dry-run`          | Show what would be done without making changes                   |
+| `--force`            | Proceed even if branches have diverged from remote               |
+| `--continue`         | Continue after resolving conflicts                               |
+| `--abort`            | Abort and restore from backup                                    |
 
 ## How It Works
 
@@ -141,12 +144,25 @@ During a restack operation, rung writes state to `.git/rung/restack_state.json`:
 
 This allows `--continue` to resume from where it left off.
 
+## Divergence Detection
+
+If any affected branches have diverged from their remote tracking branches (both local and remote have unique commits), restack will warn and abort:
+
+```bash
+$ rung restack --onto main
+⚠ Branch feat-add-api has diverged from remote (2 ahead, 1 behind)
+Error: Cannot restack with diverged branches. Use --force to proceed anyway.
+```
+
+Use `--force` to proceed with diverged branches. This is safe because rung creates backups before any rebase operation.
+
 ## Notes
 
 - Always commit or stash your changes before restacking
 - The stack topology is updated after all rebases complete successfully
 - Backup refs are stored in `.git/rung/backups/` for undo capability
 - Use `--include-children` when you want to preserve the relative structure of descendant branches
+- Use `--force` when you intentionally want to restack branches that have diverged from remote
 
 ## Related Commands
 

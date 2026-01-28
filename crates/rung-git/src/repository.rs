@@ -730,6 +730,27 @@ impl Repository {
         }
     }
 
+    /// Fetch all remote tracking refs from origin.
+    ///
+    /// # Errors
+    /// Returns error if fetch fails.
+    pub fn fetch_all(&self) -> Result<()> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+
+        let output = std::process::Command::new("git")
+            .args(["fetch", "origin", "--prune"])
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| Error::FetchFailed(e.to_string()))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(Error::FetchFailed(stderr.to_string()))
+        }
+    }
+
     /// Fetch a branch from origin.
     ///
     /// # Errors

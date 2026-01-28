@@ -1,6 +1,7 @@
 ---
 title: submit
 description: Push all stack branches and create/update PRs on GitHub.
+since: "0.1.0"
 ---
 
 Push all stack branches and create or update pull requests on GitHub. Each PR includes a stack comment showing the branch hierarchy.

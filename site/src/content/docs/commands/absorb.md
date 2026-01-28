@@ -1,6 +1,7 @@
 ---
 title: absorb
 description: Absorb staged changes into the appropriate commits in your stack.
+since: "0.4.0"
 ---
 
 Absorb staged changes into the appropriate commits in your stack. This analyzes staged hunks and automatically creates fixup commits targeting the commits that last modified those lines.

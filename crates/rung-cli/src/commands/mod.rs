@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 
 pub mod absorb;
+pub mod adopt;
 pub mod completions;
 pub mod create;
 pub mod doctor;
@@ -51,6 +52,25 @@ pub enum Commands {
     /// Initialize rung in the current repository.
     Init,
 
+    /// Adopt an existing branch into the stack. [alias: ad]
+    ///
+    /// Brings an existing Git branch into the rung stack by establishing
+    /// its parent relationship. The branch must already exist in Git.
+    #[command(alias = "ad")]
+    Adopt {
+        /// Branch to adopt. Defaults to the current branch.
+        branch: Option<String>,
+
+        /// Parent branch for the adopted branch.
+        /// If not provided, an interactive picker is shown.
+        #[arg(long, short)]
+        parent: Option<String>,
+
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Create a new branch in the stack. [alias: c]
     ///
     /// Creates a new branch with the current branch as its parent.
@@ -62,6 +82,7 @@ pub enum Commands {
     #[command(group(
         clap::ArgGroup::new("create_input")
             .required(true)
+            .multiple(true)
             .args(["name", "message"])
     ))]
     Create {
@@ -71,6 +92,10 @@ pub enum Commands {
         /// Commit message. If provided, stages all changes and creates a commit.
         #[arg(long, short)]
         message: Option<String>,
+
+        /// Show what would be done without making changes.
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Display the current stack status. [alias: st]
@@ -79,7 +104,7 @@ pub enum Commands {
     /// sync state and PR status.
     #[command(alias = "st")]
     Status {
-        /// Fetch latest PR status from GitHub.
+        /// Fetch latest remote state before showing status.
         #[arg(long)]
         fetch: bool,
     },

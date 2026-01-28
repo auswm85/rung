@@ -19,9 +19,16 @@ fn main() {
 
     let result = match cli.command {
         Commands::Init => commands::init::run(),
-        Commands::Create { name, message } => {
-            commands::create::run(name.as_deref(), message.as_deref())
-        }
+        Commands::Adopt {
+            branch,
+            parent,
+            dry_run,
+        } => commands::adopt::run(branch.as_deref(), parent.as_deref(), dry_run),
+        Commands::Create {
+            name,
+            message,
+            dry_run,
+        } => commands::create::run(name.as_deref(), message.as_deref(), dry_run),
         Commands::Status { fetch } => commands::status::run(json, fetch),
         Commands::Sync {
             dry_run,
@@ -49,16 +56,19 @@ fn main() {
             abort,
             include_children,
             force,
-        } => commands::restack::run(
-            json,
-            branch.as_deref(),
-            onto.as_deref(),
-            dry_run,
-            continue_,
-            abort,
-            include_children,
-            force,
-        ),
+        } => {
+            let opts = commands::restack::RestackOptions {
+                json,
+                branch: branch.as_deref(),
+                onto: onto.as_deref(),
+                dry_run,
+                continue_,
+                abort,
+                include_children,
+                force,
+            };
+            commands::restack::run(&opts)
+        }
         Commands::Doctor => commands::doctor::run(json),
         Commands::Update { check } => commands::update::run(check),
         Commands::Completions { shell } => commands::completions::run(shell),

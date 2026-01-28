@@ -1,6 +1,7 @@
 ---
 title: create
 description: Create a new branch with the current branch as its parent.
+since: "0.1.0"
 ---
 
 Create a new branch in the stack with the current branch as its parent. This establishes the branch relationship that rung uses for syncing and PR management.
@@ -11,6 +12,7 @@ Create a new branch in the stack with the current branch as its parent. This est
 rung create [name]
 rung create -m <message>
 rung create [name] -m <message>
+rung create [name] --dry-run
 ```
 
 ## Aliases
@@ -22,6 +24,7 @@ rung create [name] -m <message>
 | Option                    | Description                                                                                                                |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `-m, --message <message>` | Commit message. Stages all changes and creates a commit. If no branch name is provided, derives the name from the message. |
+| `--dry-run`               | Preview what would happen without making changes.                                                                          |
 
 ## Examples
 
