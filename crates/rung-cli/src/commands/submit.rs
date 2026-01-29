@@ -164,14 +164,10 @@ pub fn run(
         owner: &owner,
         repo_name: &repo_name,
     };
-    // Determine the base branch (needed for sync validation and planning)
-    let base_branch = gh
-        .rt
-        .block_on(gh.client.get_default_branch(gh.owner, gh.repo_name))
-        .context("Failed to get default branch from GitHub")?;
+    
     // Phase 0: Sync Protection
     if !force {
-        validate_sync_state(&repo, &stack, &base_branch, json)?;
+        validate_sync_state(&repo, &stack, &config.default_branch, json)?;
     }
 
     // Phase 1: Create the plan (read-only, checks existing PRs)
