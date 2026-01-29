@@ -89,10 +89,7 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
                     PrStatus::Open
                 };
 
-                (
-                    Some(format!("{status:?}").to_lowercase()),
-                    Some(status),
-                )
+                (Some(format!("{status:?}").to_lowercase()), Some(status))
             } else {
                 (None, None)
             }

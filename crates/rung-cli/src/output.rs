@@ -113,11 +113,11 @@ pub fn pr_ref(number: Option<u64>, status: Option<PrStatus>) -> String {
     let text = format!("#{n}");
 
     match status {
-        Some(PrStatus::Open) => text,                        // Default/White
-        Some(PrStatus::Draft) => text.yellow().to_string(),  // Yellow
-        Some(PrStatus::Merged) => text.green().to_string(),  // Green
-        Some(PrStatus::Closed) => text.red().to_string(),    // Red
-        None => text.dimmed().to_string(),                   // Dimmed (Unknown state)
+        Some(PrStatus::Open) => text,                       // Default/White
+        Some(PrStatus::Draft) => text.yellow().to_string(), // Yellow
+        Some(PrStatus::Merged) => text.green().to_string(), // Green
+        Some(PrStatus::Closed) => text.red().to_string(),   // Red
+        None => text.dimmed().to_string(),                  // Dimmed (Unknown state)
     }
 }
 
@@ -125,5 +125,35 @@ pub fn pr_ref(number: Option<u64>, status: Option<PrStatus>) -> String {
 pub fn hr() {
     if !is_quiet() {
         println!("{}", "─".repeat(50).dimmed());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PrStatus, pr_ref};
+    use colored::Colorize;
+
+    #[test]
+    fn pr_ref_colors_match_status() {
+        colored::control::set_override(true);
+
+        let text = "#42";
+        assert_eq!(pr_ref(None, Some(PrStatus::Open)), "");
+        assert_eq!(pr_ref(Some(42), Some(PrStatus::Open)), text);
+        assert_eq!(
+            pr_ref(Some(42), Some(PrStatus::Draft)),
+            text.yellow().to_string()
+        );
+        assert_eq!(
+            pr_ref(Some(42), Some(PrStatus::Merged)),
+            text.green().to_string()
+        );
+        assert_eq!(
+            pr_ref(Some(42), Some(PrStatus::Closed)),
+            text.red().to_string()
+        );
+        assert_eq!(pr_ref(Some(42), None), text.dimmed().to_string());
+
+        colored::control::set_override(false);
     }
 }
