@@ -1085,7 +1085,7 @@ mod test {
     }
 
     #[test]
-    fn test_valide_sync_state_fetch_error_continues() {
+    fn test_validate_sync_state_fetch_error_continues() {
         let (_temp, repo) = setup_test_repo();
         let stack = Stack::new();
 
