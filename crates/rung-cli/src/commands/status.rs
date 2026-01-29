@@ -47,23 +47,13 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Fetch PRs if requested
+    // Fetch PRs if requested (best-effort - don't fail status command on GitHub errors)
     let mut pr_cache = HashMap::new();
     if fetch {
-        let origin_url = repo.origin_url().context("No origin remote configured")?;
-        let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
-            .context("Could not parse GitHub remote URL")?;
-
-        let client =
-            GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
-        let rt = tokio::runtime::Runtime::new()?;
-
-        let pr_numbers: Vec<u64> = stack.branches.iter().filter_map(|b| b.pr).collect();
-        if !pr_numbers.is_empty() {
+        if let Err(e) = fetch_pr_statuses(&repo, &stack, &mut pr_cache, json) {
             if !json {
-                output::info(&format!("Fetching status for {} PRs...", pr_numbers.len()));
+                output::warn(&format!("Could not fetch PR statuses: {e}"));
             }
-            pr_cache = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))?;
         }
     }
 
@@ -77,25 +67,23 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
             .ok()
             .map(|d| RemoteDivergenceInfo::from(&d));
 
-        let (pr_state, display_status) = if let Some(pr_num) = branch.pr {
-            if let Some(pr) = pr_cache.get(&pr_num) {
-                let status = if pr.state == PullRequestState::Merged {
-                    PrStatus::Merged
-                } else if pr.state == PullRequestState::Closed {
-                    PrStatus::Closed
-                } else if pr.draft {
-                    PrStatus::Draft
-                } else {
-                    PrStatus::Open
+        let (pr_state, display_status) = branch.pr.map_or((None, None), |pr_num| {
+            pr_cache.get(&pr_num).map_or((None, None), |pr| {
+                let status = match (pr.state, pr.draft) {
+                    (PullRequestState::Merged, _) => PrStatus::Merged,
+                    (PullRequestState::Closed, _) => PrStatus::Closed,
+                    (_, true) => PrStatus::Draft,
+                    _ => PrStatus::Open,
                 };
-
-                (Some(format!("{status:?}").to_lowercase()), Some(status))
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
+                let pr_state = match status {
+                    PrStatus::Open => "open",
+                    PrStatus::Draft => "draft",
+                    PrStatus::Merged => "merged",
+                    PrStatus::Closed => "closed",
+                };
+                (Some(pr_state.to_string()), Some(status))
+            })
+        });
 
         branches_with_state.push(BranchInfo {
             name: branch.name.to_string(),
@@ -119,6 +107,34 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         print_tree(&branches_with_state);
     }
 
+    Ok(())
+}
+
+/// Fetch PR statuses from GitHub (best-effort).
+fn fetch_pr_statuses(
+    repo: &Repository,
+    stack: &rung_core::Stack,
+    pr_cache: &mut HashMap<u64, rung_github::PullRequest>,
+    json: bool,
+) -> Result<()> {
+    let origin_url = repo.origin_url().context("No origin remote configured")?;
+    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
+        .context("Could not parse GitHub remote URL")?;
+
+    let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
+    let rt = tokio::runtime::Runtime::new()?;
+
+    let pr_numbers: Vec<u64> = stack.branches.iter().filter_map(|b| b.pr).collect();
+    if !pr_numbers.is_empty() {
+        if !json {
+            let label = if pr_numbers.len() == 1 { "PR" } else { "PRs" };
+            output::info(&format!(
+                "Fetching status for {} {label}...",
+                pr_numbers.len(),
+            ));
+        }
+        *pr_cache = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))?;
+    }
     Ok(())
 }
 
