@@ -3,7 +3,7 @@
 //! This service encapsulates the business logic for the merge command,
 //! accepting trait-based dependencies for testability.
 
-#![allow(dead_code)] // Services not yet wired up to commands
+#![allow(dead_code)] // Some fields not yet fully utilized
 
 use std::collections::HashMap;
 
