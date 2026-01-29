@@ -934,7 +934,7 @@ mod test {
     fn setup_test_repo() -> (TempDir, Repository) {
         let temp = TempDir::new().expect("Failed to create temp dir");
 
-        // Intilaize git repo
+        // Initialize git repo
         StdCommand::new("git")
             .args(["init"])
             .current_dir(&temp)
@@ -1019,7 +1019,7 @@ mod test {
     }
 
     #[test]
-    fn test_valide_sync_state_needs_sync() {
+    fn test_validate_sync_state_needs_sync() {
         let (temp, repo) = setup_test_repo();
 
         // Create feature branch
@@ -1085,7 +1085,7 @@ mod test {
     }
 
     #[test]
-    fn test_valide_sync_state_fetch_error_continue() {
+    fn test_valide_sync_state_fetch_error_continues() {
         let (_temp, repo) = setup_test_repo();
         let stack = Stack::new();
 
