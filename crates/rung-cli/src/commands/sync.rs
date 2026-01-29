@@ -42,7 +42,7 @@ enum SyncStatus {
 }
 
 /// Run the sync command.
-#[allow(clippy::fn_params_excessive_bools, clippy::too_many_lines)]
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn run(
     json: bool,
     dry_run: bool,
@@ -51,65 +51,31 @@ pub fn run(
     no_push: bool,
     base: Option<&str>,
 ) -> Result<()> {
-    // Open repository
     let repo = Repository::open_current().context("Not inside a git repository")?;
-
-    // Get state manager
     let workdir = repo.workdir().context("Cannot run in bare repository")?;
     let state = State::new(workdir)?;
 
-    // Ensure initialized
     if !state.is_initialized() {
         bail!("Rung not initialized - run `rung init` first");
     }
 
-    // Check for conflicting flags
     if continue_ && abort {
         bail!("Cannot use --continue and --abort together");
     }
 
-    // Handle abort
+    // Handle abort (no GitHub needed)
     if abort {
-        if !state.is_sync_in_progress() {
-            bail!("No sync in progress to abort");
-        }
-        sync::abort_sync(&repo, &state)?;
-        if json {
-            return output_json(&SyncOutput {
-                status: SyncStatus::Aborted,
-                branches_rebased: None,
-                backup_id: None,
-                conflict_branch: None,
-                conflict_files: vec![],
-            });
-        }
-        output::success("Sync aborted - branches restored from backup");
-        return Ok(());
+        return handle_abort(&repo, &state, json);
     }
 
-    // Ensure on branch (unless we are continuing/aborting a sync)
-    if !continue_ && !abort {
+    // Ensure on branch (unless continuing)
+    if !continue_ {
         utils::ensure_on_branch(&repo)?;
     }
 
-    // Handle continue
+    // Handle continue (no GitHub needed)
     if continue_ {
-        if !state.is_sync_in_progress() {
-            bail!("No sync in progress to continue");
-        }
-        if !json {
-            output::info("Continuing sync...");
-        }
-        let result = sync::continue_sync(&repo, &state)?;
-
-        // If sync completed successfully, push the branches
-        if let SyncResult::Complete { .. } = &result {
-            if !no_push {
-                push_stack_branches(&repo, &state, json)?;
-            }
-        }
-
-        return handle_sync_result(result, json);
+        return handle_continue(&repo, &state, json, no_push);
     }
 
     // Check for existing sync in progress
@@ -117,7 +83,6 @@ pub fn run(
         bail!("Sync already in progress - use --continue to resume or --abort to cancel");
     }
 
-    // Ensure working directory is clean
     repo.require_clean()?;
 
     // Try to get GitHub remote info (optional - needed for PR operations)
@@ -126,22 +91,10 @@ pub fn run(
         .ok()
         .and_then(|url| Repository::parse_github_remote(&url).ok());
 
-    // Determine base branch: use --base if provided, otherwise query GitHub
-    let base_branch = if let Some(b) = base {
-        b.to_string()
-    } else {
-        let (owner, repo_name) = github_info.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("No origin remote configured. Use --base <branch> to specify manually.")
-        })?;
-        let client = GitHubClient::new(&Auth::auto()).context(
-            "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
-        )?;
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(client.get_default_branch(owner, repo_name))
-            .context("Could not fetch default branch. Use --base <branch> to specify manually.")?
-    };
+    // Determine base branch
+    let base_branch = determine_base_branch(base, github_info.as_ref())?;
 
-    // === Phase 0: Fetch base branch to ensure we have latest ===
+    // Fetch base branch
     if !json {
         output::info(&format!("Fetching {base_branch}..."));
     }
@@ -149,65 +102,129 @@ pub fn run(
         if !json {
             output::warn(&format!("Could not fetch {base_branch}: {e}"));
         }
-        // Continue anyway - we'll work with what we have
     }
 
-    // Create GitHub client and service for PR operations (requires origin remote)
-    let client_and_info = github_info.as_ref().and_then(|(owner, repo_name)| {
-        GitHubClient::new(&Auth::auto()).map_or_else(
-            |_| {
+    // Create GitHub client (if available)
+    let client = github_info.as_ref().and_then(|_| {
+        GitHubClient::new(&Auth::auto())
+            .map_err(|_| {
                 if !json {
                     output::warn("GitHub auth unavailable - skipping merge detection");
                 }
-                None
-            },
-            |c| Some((c, owner.clone(), repo_name.clone())),
-        )
+            })
+            .ok()
     });
 
     let rt = tokio::runtime::Runtime::new()?;
 
-    // === Phase 1: Detect merged PRs and validate PR bases (Active Base Validation) ===
-    let reconcile_result = if let Some((ref client, ref owner, ref repo_name)) = client_and_info {
-        if !json {
-            output::info("Checking PRs and validating bases...");
+    // Run the main sync phases
+    run_sync_phases(
+        &repo,
+        &state,
+        &base_branch,
+        github_info.as_ref(),
+        client.as_ref(),
+        &rt,
+        json,
+        dry_run,
+        no_push,
+    )
+}
+
+/// Handle --abort flag.
+fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
+    if !state.is_sync_in_progress() {
+        bail!("No sync in progress to abort");
+    }
+    sync::abort_sync(repo, state)?;
+    if json {
+        return output_json(&SyncOutput {
+            status: SyncStatus::Aborted,
+            branches_rebased: None,
+            backup_id: None,
+            conflict_branch: None,
+            conflict_files: vec![],
+        });
+    }
+    output::success("Sync aborted - branches restored from backup");
+    Ok(())
+}
+
+/// Handle --continue flag.
+fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) -> Result<()> {
+    if !state.is_sync_in_progress() {
+        bail!("No sync in progress to continue");
+    }
+    if !json {
+        output::info("Continuing sync...");
+    }
+    let result = sync::continue_sync(repo, state)?;
+
+    // If sync completed successfully, push the branches
+    if let SyncResult::Complete { .. } = &result {
+        if !no_push {
+            push_stack_branches(repo, state, json)?;
         }
+    }
 
-        let service = SyncService::new(&repo, client, owner.clone(), repo_name.clone());
-        let result = rt.block_on(service.detect_and_reconcile_merged(&state, &base_branch))?;
+    handle_sync_result(result, json)
+}
 
-        // Output merged PR notifications
-        if !json {
-            for merged in &result.merged {
-                output::success(&format!(
-                    "PR #{} ({}) merged into {}",
-                    merged.pr_number, merged.name, merged.merged_into
-                ));
+/// Determine base branch from --base flag or GitHub API.
+fn determine_base_branch(
+    base: Option<&str>,
+    github_info: Option<&(String, String)>,
+) -> Result<String> {
+    if let Some(b) = base {
+        return Ok(b.to_string());
+    }
+
+    let (owner, repo_name) = github_info.ok_or_else(|| {
+        anyhow::anyhow!("No origin remote configured. Use --base <branch> to specify manually.")
+    })?;
+    let client = GitHubClient::new(&Auth::auto()).context(
+        "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
+    )?;
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client.get_default_branch(owner, repo_name))
+        .context("Could not fetch default branch. Use --base <branch> to specify manually.")
+}
+
+/// Run the main sync phases.
+#[allow(clippy::too_many_arguments)]
+fn run_sync_phases(
+    repo: &Repository,
+    state: &State,
+    base_branch: &str,
+    github_info: Option<&(String, String)>,
+    client: Option<&GitHubClient>,
+    rt: &tokio::runtime::Runtime,
+    json: bool,
+    dry_run: bool,
+    no_push: bool,
+) -> Result<()> {
+    // Phase 1: Detect merged PRs (if GitHub available)
+    let reconcile_result = match (client, github_info) {
+        (Some(client), Some((owner, repo_name))) => {
+            if !json {
+                output::info("Checking PRs and validating bases...");
             }
-            for reparent in &result.reparented {
-                output::info(&format!(
-                    "Re-parented {} → {} (was {})",
-                    reparent.name, reparent.new_parent, reparent.old_parent
-                ));
-            }
-            for repair in &result.repaired {
-                output::warn(&format!(
-                    "Ghost parent: PR #{} ({}) base was '{}', correcting to '{}'",
-                    repair.pr_number.unwrap_or(0),
-                    repair.name,
-                    repair.old_parent,
-                    repair.new_parent
-                ));
-            }
+            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+            let result = rt.block_on(service.detect_and_reconcile_merged(state, base_branch))?;
+            print_reconcile_results(&result, json);
+            result
         }
-
-        result
-    } else {
-        ReconcileResult::default()
+        _ => ReconcileResult::default(),
     };
 
-    // === Phase 2: Remove stale branches ===
-    let stale_result = sync::remove_stale_branches(&repo, &state)?;
+    // Phase 2: Remove stale branches (via service if available, else direct)
+    let stale_result = if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
+        let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+        service.remove_stale_branches(state)?
+    } else {
+        sync::remove_stale_branches(repo, state)?
+    };
+
     if !json && !stale_result.removed.is_empty() {
         output::warn(&format!(
             "Removed {} stale branch(es) from stack:",
@@ -218,7 +235,7 @@ pub fn run(
         }
     }
 
-    // Load stack (after reconcile and stale branch cleanup)
+    // Load stack after cleanup
     let stack = state.load_stack()?;
 
     if stack.is_empty() {
@@ -235,26 +252,16 @@ pub fn run(
         return Ok(());
     }
 
-    // === Phase 3: Create and execute sync plan ===
-    let plan = sync::create_sync_plan(&repo, &stack, &base_branch)?;
+    // Phase 3: Create and execute sync plan (via service if available)
+    let plan = if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
+        let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+        service.create_sync_plan(&stack, base_branch)?
+    } else {
+        sync::create_sync_plan(repo, &stack, base_branch)?
+    };
 
     if dry_run {
-        if !json {
-            output::info("Dry run - would perform the following:");
-            if !reconcile_result.merged.is_empty() {
-                println!("  Merged PRs detected: {}", reconcile_result.merged.len());
-            }
-            if !plan.is_empty() {
-                println!("  Branches to rebase:");
-                for action in &plan.branches {
-                    println!(
-                        "    → {} (onto {})",
-                        action.branch,
-                        &action.new_base[..8.min(action.new_base.len())]
-                    );
-                }
-            }
-        }
+        print_dry_run(&plan, &reconcile_result, json);
         return Ok(());
     }
 
@@ -264,47 +271,119 @@ pub fn run(
         if !json {
             output::info(&format!("Syncing {} branches...", plan.branches.len()));
         }
-        sync::execute_sync(&repo, &state, plan)?
+        if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
+            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+            service.execute_sync(state, plan)?
+        } else {
+            sync::execute_sync(repo, state, plan)?
+        }
     };
 
-    // If sync paused on conflict, don't proceed with push/update
+    // If paused on conflict, don't proceed
     if let SyncResult::Paused { .. } = &sync_result {
         return handle_sync_result(sync_result, json);
     }
 
-    // === Phase 4: Update GitHub PR base branches (reparented + repaired) ===
-    if let Some((ref client, ref owner, ref repo_name)) = client_and_info {
+    // Phase 4: Update GitHub PR bases
+    if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
         if !reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty() {
             if !json {
                 output::info("Updating PR base branches on GitHub...");
             }
-
-            let service = SyncService::new(&repo, client, owner.clone(), repo_name.clone());
+            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
             rt.block_on(service.update_pr_bases(&reconcile_result))?;
-
-            if !json {
-                for reparent in reconcile_result
-                    .reparented
-                    .iter()
-                    .chain(reconcile_result.repaired.iter())
-                {
-                    if let Some(pr_num) = reparent.pr_number {
-                        output::success(&format!(
-                            "Updated PR #{pr_num} base: {} → {}",
-                            reparent.old_parent, reparent.new_parent
-                        ));
-                    }
-                }
-            }
+            print_pr_updates(&reconcile_result, json);
         }
     }
 
-    // === Phase 5: Push all branches ===
+    // Phase 5: Push all branches
     if !no_push {
-        push_stack_branches(&repo, &state, json)?;
+        if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
+            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+            let push_results = service.push_stack_branches(state)?;
+            if !json {
+                let pushed = push_results.iter().filter(|p| p.success).count();
+                for result in push_results.iter().filter(|p| !p.success) {
+                    output::warn(&format!("Could not push {}", result.branch));
+                }
+                if pushed > 0 {
+                    output::success(&format!("Pushed {pushed} branch(es)"));
+                }
+            }
+        } else {
+            push_stack_branches(repo, state, json)?;
+        }
     }
 
     handle_sync_result(sync_result, json)
+}
+
+/// Print reconcile results.
+fn print_reconcile_results(result: &ReconcileResult, json: bool) {
+    if json {
+        return;
+    }
+    for merged in &result.merged {
+        output::success(&format!(
+            "PR #{} ({}) merged into {}",
+            merged.pr_number, merged.name, merged.merged_into
+        ));
+    }
+    for reparent in &result.reparented {
+        output::info(&format!(
+            "Re-parented {} → {} (was {})",
+            reparent.name, reparent.new_parent, reparent.old_parent
+        ));
+    }
+    for repair in &result.repaired {
+        output::warn(&format!(
+            "Ghost parent: PR #{} ({}) base was '{}', correcting to '{}'",
+            repair.pr_number.unwrap_or(0),
+            repair.name,
+            repair.old_parent,
+            repair.new_parent
+        ));
+    }
+}
+
+/// Print dry run info.
+fn print_dry_run(plan: &rung_core::sync::SyncPlan, reconcile_result: &ReconcileResult, json: bool) {
+    if json {
+        return;
+    }
+    output::info("Dry run - would perform the following:");
+    if !reconcile_result.merged.is_empty() {
+        println!("  Merged PRs detected: {}", reconcile_result.merged.len());
+    }
+    if !plan.is_empty() {
+        println!("  Branches to rebase:");
+        for action in &plan.branches {
+            println!(
+                "    → {} (onto {})",
+                action.branch,
+                &action.new_base[..8.min(action.new_base.len())]
+            );
+        }
+    }
+}
+
+/// Print PR update results.
+fn print_pr_updates(reconcile_result: &ReconcileResult, json: bool) {
+    if json {
+        return;
+    }
+    for reparent in reconcile_result
+        .reparented
+        .iter()
+        .chain(reconcile_result.repaired.iter())
+    {
+        if let Some(pr_num) = reparent.pr_number {
+            output::success(&format!(
+                "Updated PR #{pr_num} base: {} → {}",
+                reparent.old_parent, reparent.new_parent
+            ));
+        }
+    }
 }
 
 /// Push all branches in the stack to remote.
@@ -323,9 +402,7 @@ fn push_stack_branches(repo: &Repository, state: &State, json: bool) -> Result<(
     for branch in &stack.branches {
         if repo.branch_exists(&branch.name) {
             match repo.push(&branch.name, true) {
-                Ok(()) => {
-                    pushed += 1;
-                }
+                Ok(()) => pushed += 1,
                 Err(e) => {
                     if !json {
                         output::warn(&format!("Could not push {}: {e}", branch.name));

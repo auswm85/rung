@@ -3,8 +3,6 @@
 //! This service encapsulates the business logic for the merge command,
 //! accepting trait-based dependencies for testability.
 
-#![allow(dead_code)] // Some fields not yet fully utilized
-
 use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail};
@@ -12,33 +10,13 @@ use rung_core::stack::Stack;
 use rung_core::{BranchName, StateStore};
 use rung_git::{GitOps, Oid};
 use rung_github::{GitHubApi, MergeMethod, MergePullRequest, UpdatePullRequest};
-use serde::Serialize;
-
-/// Configuration for a merge operation.
-#[derive(Debug, Clone)]
-pub struct MergeConfig {
-    pub merge_method: MergeMethod,
-    pub no_delete: bool,
-}
-
-/// Result of a successful merge operation.
-#[derive(Debug, Clone, Serialize)]
-pub struct MergeResult {
-    pub merged_branch: String,
-    pub pr_number: u64,
-    pub merge_method: String,
-    pub parent_branch: String,
-    pub descendants_rebased: usize,
-}
 
 /// Information about a descendant branch that was processed.
 #[derive(Debug, Clone)]
 pub struct DescendantResult {
     pub branch: String,
     pub rebased: bool,
-    pub pushed: bool,
     pub pr_updated: bool,
-    pub error: Option<String>,
 }
 
 /// Service for merge operations with trait-based dependencies.
@@ -243,14 +221,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
             // Attempt rebase
             if let Err(e) = self.repo.rebase_onto_from(new_base_commit, old_base_commit) {
-                results.push(DescendantResult {
-                    branch: branch_name.clone(),
-                    rebased: false,
-                    pushed: false,
-                    pr_updated: false,
-                    error: Some(e.to_string()),
-                });
-                bail!("Rebase conflict in '{branch_name}' - manual intervention required");
+                bail!("Rebase conflict in '{branch_name}': {e}");
             }
 
             // Force push rebased branch
@@ -281,9 +252,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
             results.push(DescendantResult {
                 branch: branch_name.clone(),
                 rebased: true,
-                pushed: true,
                 pr_updated,
-                error: None,
             });
         }
 
@@ -321,11 +290,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_merge_config() {
-        let config = MergeConfig {
-            merge_method: MergeMethod::Squash,
-            no_delete: false,
-        };
-        assert!(!config.no_delete);
+    fn test_collect_descendants_empty() {
+        let stack = Stack::default();
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack, "main",
+            );
+        assert!(descendants.is_empty());
     }
 }
