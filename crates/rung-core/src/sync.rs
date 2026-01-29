@@ -5,7 +5,8 @@
 
 use crate::error::Result;
 use crate::stack::Stack;
-use crate::state::State;
+use crate::state::SyncState;
+use crate::traits::StateStore;
 
 /// Result of a sync operation.
 #[derive(Debug)]
@@ -123,7 +124,7 @@ pub struct ExternalMergeInfo {
 /// # Errors
 /// Returns error if stack operations fail.
 pub fn reconcile_merged(
-    state: &State,
+    state: &impl StateStore,
     merged_prs: &[ExternalMergeInfo],
 ) -> Result<ReconcileResult> {
     if merged_prs.is_empty() {
@@ -196,7 +197,7 @@ pub fn reconcile_merged(
 /// # Errors
 /// Returns error if git operations fail.
 pub fn create_sync_plan(
-    repo: &rung_git::Repository,
+    repo: &impl rung_git::GitOps,
     stack: &Stack,
     base_branch: &str,
 ) -> Result<SyncPlan> {
@@ -268,7 +269,10 @@ pub fn create_sync_plan(
 ///
 /// # Errors
 /// Returns error if stack operations fail.
-pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Result<StaleBranches> {
+pub fn remove_stale_branches(
+    repo: &impl rung_git::GitOps,
+    state: &impl StateStore,
+) -> Result<StaleBranches> {
     let mut stack = state.load_stack()?;
     let mut removed = Vec::new();
 
@@ -317,12 +321,10 @@ pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Resu
 /// # Errors
 /// Returns error if sync fails.
 pub fn execute_sync(
-    repo: &rung_git::Repository,
-    state: &State,
+    repo: &impl rung_git::GitOps,
+    state: &impl StateStore,
     plan: SyncPlan,
 ) -> Result<SyncResult> {
-    use crate::state::SyncState;
-
     // If plan is empty, nothing to do
     if plan.is_empty() {
         return Ok(SyncResult::AlreadySynced);
@@ -407,7 +409,7 @@ pub fn execute_sync(
 ///
 /// # Errors
 /// Returns error if no sync in progress or continuation fails.
-pub fn continue_sync(repo: &rung_git::Repository, state: &State) -> Result<SyncResult> {
+pub fn continue_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> Result<SyncResult> {
     // Load sync state
     let mut sync_state = state.load_sync_state()?;
     let backup_id = sync_state.backup_id.clone();
@@ -483,7 +485,7 @@ pub fn continue_sync(repo: &rung_git::Repository, state: &State) -> Result<SyncR
 ///
 /// # Errors
 /// Returns error if no sync in progress or abort fails.
-pub fn abort_sync(repo: &rung_git::Repository, state: &State) -> Result<()> {
+pub fn abort_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> Result<()> {
     // Load sync state
     let sync_state = state.load_sync_state()?;
 
@@ -521,7 +523,7 @@ pub struct UndoResult {
 ///
 /// # Errors
 /// Returns error if no backup found or undo fails.
-pub fn undo_sync(repo: &rung_git::Repository, state: &State) -> Result<UndoResult> {
+pub fn undo_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> Result<UndoResult> {
     // Find latest backup
     let backup_id = state.latest_backup()?;
     let refs = state.load_backup(&backup_id)?;
@@ -549,6 +551,7 @@ pub fn undo_sync(repo: &rung_git::Repository, state: &State) -> Result<UndoResul
 mod tests {
     use super::*;
     use crate::stack::StackBranch;
+    use crate::state::State;
     use std::fs;
     use tempfile::TempDir;
 
