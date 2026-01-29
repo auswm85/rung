@@ -356,6 +356,96 @@ impl State {
     }
 }
 
+// === Trait Implementation ===
+
+use crate::traits::StateStore;
+
+impl StateStore for State {
+    fn is_initialized(&self) -> bool {
+        Self::is_initialized(self)
+    }
+
+    fn init(&self) -> Result<()> {
+        Self::init(self)
+    }
+
+    fn rung_dir(&self) -> &Path {
+        Self::rung_dir(self)
+    }
+
+    fn load_stack(&self) -> Result<Stack> {
+        Self::load_stack(self)
+    }
+
+    fn save_stack(&self, stack: &Stack) -> Result<()> {
+        Self::save_stack(self, stack)
+    }
+
+    fn load_config(&self) -> Result<crate::config::Config> {
+        Self::load_config(self)
+    }
+
+    fn save_config(&self, config: &crate::config::Config) -> Result<()> {
+        Self::save_config(self, config)
+    }
+
+    fn default_branch(&self) -> Result<String> {
+        Self::default_branch(self)
+    }
+
+    fn is_sync_in_progress(&self) -> bool {
+        Self::is_sync_in_progress(self)
+    }
+
+    fn load_sync_state(&self) -> Result<SyncState> {
+        Self::load_sync_state(self)
+    }
+
+    fn save_sync_state(&self, state: &SyncState) -> Result<()> {
+        Self::save_sync_state(self, state)
+    }
+
+    fn clear_sync_state(&self) -> Result<()> {
+        Self::clear_sync_state(self)
+    }
+
+    fn is_restack_in_progress(&self) -> bool {
+        Self::is_restack_in_progress(self)
+    }
+
+    fn load_restack_state(&self) -> Result<RestackState> {
+        Self::load_restack_state(self)
+    }
+
+    fn save_restack_state(&self, state: &RestackState) -> Result<()> {
+        Self::save_restack_state(self, state)
+    }
+
+    fn clear_restack_state(&self) -> Result<()> {
+        Self::clear_restack_state(self)
+    }
+
+    fn create_backup(&self, branches: &[(&str, &str)]) -> Result<String> {
+        Self::create_backup(self, branches)
+    }
+
+    fn latest_backup(&self) -> Result<String> {
+        Self::latest_backup(self)
+    }
+
+    fn load_backup(&self, backup_id: &str) -> Result<Vec<(String, String)>> {
+        Self::load_backup(self, backup_id)
+    }
+
+    fn delete_backup(&self, backup_id: &str) -> Result<()> {
+        Self::delete_backup(self, backup_id)
+    }
+
+    fn cleanup_backups(&self, keep: usize) -> Result<()> {
+        Self::cleanup_backups(self, keep)
+    }
+}
+
 /// State tracked during an in-progress sync operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncState {

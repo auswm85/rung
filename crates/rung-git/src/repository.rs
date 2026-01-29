@@ -5,6 +5,7 @@ use std::path::Path;
 use git2::{BranchType, Oid, RepositoryState, Signature};
 
 use crate::error::{Error, Result};
+use crate::traits::GitOps;
 
 /// Divergence state between a local branch and its tracking remote (upstream, falls back to origin).
 ///
@@ -815,6 +816,142 @@ impl std::fmt::Debug for Repository {
         f.debug_struct("Repository")
             .field("path", &self.git_dir())
             .finish()
+    }
+}
+
+// === Trait Implementation ===
+
+impl GitOps for Repository {
+    fn workdir(&self) -> Option<&Path> {
+        Self::workdir(self)
+    }
+
+    fn current_branch(&self) -> Result<String> {
+        Self::current_branch(self)
+    }
+
+    fn head_detached(&self) -> Result<bool> {
+        Self::head_detached(self)
+    }
+
+    fn is_rebasing(&self) -> bool {
+        Self::is_rebasing(self)
+    }
+
+    fn branch_exists(&self, name: &str) -> bool {
+        Self::branch_exists(self, name)
+    }
+
+    fn create_branch(&self, name: &str) -> Result<Oid> {
+        Self::create_branch(self, name)
+    }
+
+    fn checkout(&self, branch: &str) -> Result<()> {
+        Self::checkout(self, branch)
+    }
+
+    fn delete_branch(&self, name: &str) -> Result<()> {
+        Self::delete_branch(self, name)
+    }
+
+    fn list_branches(&self) -> Result<Vec<String>> {
+        Self::list_branches(self)
+    }
+
+    fn branch_commit(&self, branch: &str) -> Result<Oid> {
+        Self::branch_commit(self, branch)
+    }
+
+    fn remote_branch_commit(&self, branch: &str) -> Result<Oid> {
+        Self::remote_branch_commit(self, branch)
+    }
+
+    fn branch_commit_message(&self, branch: &str) -> Result<String> {
+        Self::branch_commit_message(self, branch)
+    }
+
+    fn merge_base(&self, one: Oid, two: Oid) -> Result<Oid> {
+        Self::merge_base(self, one, two)
+    }
+
+    fn commits_between(&self, from: Oid, to: Oid) -> Result<Vec<Oid>> {
+        Self::commits_between(self, from, to)
+    }
+
+    fn count_commits_between(&self, from: Oid, to: Oid) -> Result<usize> {
+        Self::count_commits_between(self, from, to)
+    }
+
+    fn is_clean(&self) -> Result<bool> {
+        Self::is_clean(self)
+    }
+
+    fn require_clean(&self) -> Result<()> {
+        Self::require_clean(self)
+    }
+
+    fn stage_all(&self) -> Result<()> {
+        Self::stage_all(self)
+    }
+
+    fn has_staged_changes(&self) -> Result<bool> {
+        Self::has_staged_changes(self)
+    }
+
+    fn create_commit(&self, message: &str) -> Result<Oid> {
+        Self::create_commit(self, message)
+    }
+
+    fn rebase_onto(&self, target: Oid) -> Result<()> {
+        Self::rebase_onto(self, target)
+    }
+
+    fn rebase_onto_from(&self, onto: Oid, from: Oid) -> Result<()> {
+        Self::rebase_onto_from(self, onto, from)
+    }
+
+    fn conflicting_files(&self) -> Result<Vec<String>> {
+        Self::conflicting_files(self)
+    }
+
+    fn rebase_abort(&self) -> Result<()> {
+        Self::rebase_abort(self)
+    }
+
+    fn rebase_continue(&self) -> Result<()> {
+        Self::rebase_continue(self)
+    }
+
+    fn origin_url(&self) -> Result<String> {
+        Self::origin_url(self)
+    }
+
+    fn remote_divergence(&self, branch: &str) -> Result<RemoteDivergence> {
+        Self::remote_divergence(self, branch)
+    }
+
+    fn detect_default_branch(&self) -> Option<String> {
+        Self::detect_default_branch(self)
+    }
+
+    fn push(&self, branch: &str, force: bool) -> Result<()> {
+        Self::push(self, branch, force)
+    }
+
+    fn fetch_all(&self) -> Result<()> {
+        Self::fetch_all(self)
+    }
+
+    fn fetch(&self, branch: &str) -> Result<()> {
+        Self::fetch(self, branch)
+    }
+
+    fn pull_ff(&self) -> Result<()> {
+        Self::pull_ff(self)
+    }
+
+    fn reset_branch(&self, branch: &str, commit: Oid) -> Result<()> {
+        Self::reset_branch(self, branch, commit)
     }
 }
 
