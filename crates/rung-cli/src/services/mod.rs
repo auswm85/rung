@@ -12,10 +12,6 @@ pub use submit::{
     BranchSubmitResult, PlannedBranchAction, SubmitAction, SubmitConfig, SubmitPlan, SubmitService,
 };
 
-// Re-exports for services not yet wired up to commands
-#[allow(unused_imports)]
-pub use merge::{DescendantResult, MergeConfig, MergeResult, MergeService};
-#[allow(unused_imports)]
-pub use restack::{DivergenceInfo, RestackConfig, RestackPlan, RestackResult, RestackService};
-#[allow(unused_imports)]
-pub use sync::{PushResult, SyncConfig, SyncPlanResult, SyncService};
+pub use merge::MergeService;
+pub use restack::{DivergenceInfo, RestackConfig, RestackService};
+pub use sync::SyncService;

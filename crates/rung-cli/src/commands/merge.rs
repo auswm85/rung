@@ -1,14 +1,16 @@
 //! `rung merge` command - Merge PR and clean up stack.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result, bail};
-use rung_core::stack::Stack;
-use rung_core::{BranchName, State};
+use rung_core::State;
 use rung_git::{Oid, Repository};
-use rung_github::{Auth, GitHubClient, MergeMethod, MergePullRequest, UpdatePullRequest};
+use rung_github::{Auth, GitHubClient, MergeMethod};
 use serde::Serialize;
 
 use crate::commands::utils;
 use crate::output;
+use crate::services::MergeService;
 
 /// JSON output for merge command.
 #[derive(Debug, Serialize)]
@@ -71,10 +73,11 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
     }
 
     // Collect all descendants that need to be rebased
-    let descendants = collect_descendants(&stack, &current_branch);
+    let descendants =
+        MergeService::<Repository, GitHubClient>::collect_descendants(&stack, &current_branch);
 
     // Capture old commits before any rebasing (needed for --onto)
-    let mut old_commits: std::collections::HashMap<String, Oid> = std::collections::HashMap::new();
+    let mut old_commits: HashMap<String, Oid> = HashMap::new();
     old_commits.insert(current_branch.clone(), repo.branch_commit(&current_branch)?);
     for branch_name in &descendants {
         old_commits.insert(branch_name.clone(), repo.branch_commit(branch_name)?);
@@ -85,77 +88,41 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
     let parent_branch = rt.block_on(async {
         let auth = Auth::auto();
         let client = GitHubClient::new(&auth)?;
+        let service = MergeService::new(&repo, &client, owner.clone(), repo_name.clone());
 
         // Step 1: Validate PR is mergeable before making any changes
-        let pr = client
-            .get_pr(&owner, &repo_name, pr_number)
-            .await
-            .context("Failed to fetch PR status")?;
-
-        // Check mergeable state - GitHub returns None while computing
-        if pr.mergeable == Some(false) {
-            bail!(
-                "PR #{pr_number} is not mergeable. State: {}",
-                pr.mergeable_state.as_deref().unwrap_or("unknown")
-            );
-        }
+        let pr = service.validate_mergeable(pr_number).await?;
 
         // Determine parent branch: use stack parent if available, otherwise use PR's base
-        // This handles both "main" and "master" repos dynamically
         let parent_branch = stack_parent_branch
             .clone()
             .unwrap_or_else(|| pr.base_branch.clone());
 
-        // Collect child PRs and their original bases for potential rollback
-        let mut shifted_prs: Vec<(u64, String)> = Vec::new();
-
         // Step 2: Shift child PR bases to parent BEFORE merge (proactive approach)
-        // This prevents the GitHub race condition where it tries to auto-rebase
-        for branch_name in &descendants {
-            let branch_info = stack
-                .find_branch(branch_name)
-                .ok_or_else(|| anyhow::anyhow!("Branch '{branch_name}' not found in stack"))?;
-
-            let stack_parent = branch_info
-                .parent
-                .as_ref()
-                .map_or(parent_branch.as_str(), |p| p.as_str());
-
-            // Only shift direct children of the merging branch
-            if stack_parent == current_branch {
-                if let Some(child_pr_num) = branch_info.pr {
-                    if !json {
-                        output::info(&format!(
-                            "Relinking PR #{child_pr_num} to '{parent_branch}' before merge..."
-                        ));
+        if !json && !descendants.is_empty() {
+            for branch_name in &descendants {
+                if let Some(branch_info) = stack.find_branch(branch_name) {
+                    let stack_parent = branch_info
+                        .parent
+                        .as_ref()
+                        .map_or(parent_branch.as_str(), |p| p.as_str());
+                    if stack_parent == current_branch {
+                        if let Some(child_pr_num) = branch_info.pr {
+                            output::info(&format!(
+                                "Relinking PR #{child_pr_num} to '{parent_branch}' before merge..."
+                            ));
+                        }
                     }
-
-                    let update = UpdatePullRequest {
-                        title: None,
-                        body: None,
-                        base: Some(parent_branch.clone()),
-                    };
-                    client
-                        .update_pr(&owner, &repo_name, child_pr_num, update)
-                        .await
-                        .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
-
-                    // Store original base for rollback only after successful update
-                    shifted_prs.push((child_pr_num, current_branch.clone()));
                 }
             }
         }
 
-        // Step 3: Merge the PR
-        let merge_request = MergePullRequest {
-            commit_title: None, // Use GitHub's default
-            commit_message: None,
-            merge_method,
-        };
+        let shifted_prs = service
+            .shift_child_pr_bases(&stack, &current_branch, &parent_branch, &descendants)
+            .await?;
 
-        let merge_result = client
-            .merge_pr(&owner, &repo_name, pr_number, merge_request)
-            .await;
+        // Step 3: Merge the PR
+        let merge_result = service.merge_pr(pr_number, merge_method).await;
 
         // Step 4: If merge fails, rollback the PR base changes
         if let Err(merge_err) = merge_result {
@@ -163,26 +130,16 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
                 if !json {
                     output::warn("Merge failed, rolling back PR base changes...");
                 }
-
-                for (child_pr_num, original_base) in &shifted_prs {
-                    let rollback = UpdatePullRequest {
-                        title: None,
-                        body: None,
-                        base: Some(original_base.clone()),
-                    };
-                    if let Err(e) = client
-                        .update_pr(&owner, &repo_name, *child_pr_num, rollback)
-                        .await
-                    {
-                        output::error(&format!("Failed to rollback PR #{child_pr_num} base: {e}"));
-                    } else if !json {
+                service.rollback_pr_bases(&shifted_prs).await;
+                if !json {
+                    for (child_pr_num, original_base) in &shifted_prs {
                         output::info(&format!(
                             "  Restored PR #{child_pr_num} base to '{original_base}'"
                         ));
                     }
                 }
             }
-            return Err(anyhow::anyhow!(merge_err).context("Failed to merge PR"));
+            return Err(merge_err);
         }
 
         if !json {
@@ -190,134 +147,61 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
         }
 
         // Update stack immediately after merge succeeds
-        // This ensures stack.json reflects reality even if rebases fail later
-        {
-            let mut stack = state.load_stack()?;
+        let children_count =
+            service.update_stack_after_merge(&state, &current_branch, &parent_branch)?;
 
-            // Count children before re-parenting
-            let children_count = stack
-                .branches
-                .iter()
-                .filter(|b| b.parent.as_ref().is_some_and(|p| p == &current_branch))
-                .count();
-
-            // Re-parent any children to point to the merged branch's parent
-            let new_parent =
-                BranchName::new(&parent_branch).context("Invalid parent branch name")?;
-            for branch in &mut stack.branches {
-                if branch.parent.as_ref().is_some_and(|p| p == &current_branch) {
-                    branch.parent = Some(new_parent.clone());
-                }
-            }
-
-            // Mark the branch as merged (moves to merged list for history retention)
-            stack
-                .mark_merged(&current_branch)
-                .ok_or_else(|| anyhow::anyhow!("Branch '{current_branch}' missing from stack"))?;
-
-            // Clear merged history when entire stack is done
-            stack.clear_merged_if_empty();
-
-            state.save_stack(&stack)?;
-
-            if !json && children_count > 0 {
-                output::info(&format!(
-                    "Re-parented {children_count} child branch(es) to '{parent_branch}'"
-                ));
-            }
+        if !json && children_count > 0 {
+            output::info(&format!(
+                "Re-parented {children_count} child branch(es) to '{parent_branch}'"
+            ));
         }
 
-        // Fetch to get the merge commit on the parent branch
-        repo.fetch(&parent_branch)
-            .with_context(|| format!("Failed to fetch {parent_branch}"))?;
+        // Process each descendant: rebase and push
+        if !descendants.is_empty() {
+            let results = service
+                .rebase_descendants(
+                    &state,
+                    &stack,
+                    &current_branch,
+                    &parent_branch,
+                    &descendants,
+                    &old_commits,
+                )
+                .await;
 
-        // Process each descendant: rebase and push (PR bases already updated)
-        for branch_name in &descendants {
-            let branch_info = stack
-                .find_branch(branch_name)
-                .ok_or_else(|| anyhow::anyhow!("Branch '{branch_name}' not found in stack"))?;
-
-            let stack_parent = branch_info
-                .parent
-                .as_ref()
-                .map_or(parent_branch.as_str(), |p| p.as_str());
-
-            // Determine the new base for this branch
-            // Direct children of merged branch → parent_branch
-            // Grandchildren → their parent branch (which we just rebased)
-            let new_base = if stack_parent == current_branch {
-                parent_branch.clone()
-            } else {
-                stack_parent.to_string()
-            };
-
-            // Rebase onto new parent's tip, using --onto to only bring unique commits
-            if !json {
-                output::info(&format!("  Rebasing {branch_name} onto '{new_base}'..."));
-            }
-            repo.checkout(branch_name)?;
-
-            // For direct children of merged branch, use remote ref (we just fetched)
-            // For grandchildren, use local ref (we just rebased the parent locally)
-            let new_base_commit = if new_base == parent_branch {
-                repo.remote_branch_commit(&new_base)?
-            } else {
-                repo.branch_commit(&new_base)?
-            };
-            let old_base_commit = old_commits
-                .get(stack_parent)
-                .copied()
-                .ok_or_else(|| anyhow::anyhow!("Could not find old commit for {stack_parent}"))?;
-
-            if let Err(e) = repo.rebase_onto_from(new_base_commit, old_base_commit) {
-                if !json {
-                    output::error(&format!(
-                        "Merged parent, but branch '{branch_name}' has conflicts: {e}"
-                    ));
-                    output::warn("Manual intervention required. After resolving conflicts:");
-                    output::info("  1. git rebase --continue");
-                    output::info("  2. git push --force-with-lease");
-                    output::info("  3. rung sync");
-                    output::info("");
-                    output::info(
-                        "Note: 'rung sync' will rebase any remaining descendant branches.",
-                    );
-                }
-                bail!("Rebase conflict in '{branch_name}' - manual intervention required");
-            }
-
-            // Force push rebased branch
-            repo.push(branch_name, true)
-                .with_context(|| format!("Failed to push rebased {branch_name}"))?;
-            if !json {
-                output::info(&format!("  Rebased and pushed {branch_name}"));
-            }
-
-            // Update PR base for grandchildren AFTER successful rebase
-            // (direct children were already shifted before merge)
-            if stack_parent != current_branch {
-                if let Some(child_pr_num) = branch_info.pr {
+            match results {
+                Ok(results) => {
                     if !json {
-                        output::info(&format!(
-                            "  Updating PR #{child_pr_num} base to '{new_base}'..."
-                        ));
+                        for result in &results {
+                            if result.rebased {
+                                output::info(&format!("  Rebased and pushed {}", result.branch));
+                            }
+                            if result.pr_updated {
+                                output::info(&format!("  Updated PR base for {}", result.branch));
+                            }
+                        }
                     }
-                    let update = UpdatePullRequest {
-                        title: None,
-                        body: None,
-                        base: Some(new_base.clone()),
-                    };
-                    client
-                        .update_pr(&owner, &repo_name, child_pr_num, update)
-                        .await
-                        .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
+                }
+                Err(e) => {
+                    if !json {
+                        output::error(&format!("Merged parent, but descendant has conflicts: {e}"));
+                        output::warn("Manual intervention required. After resolving conflicts:");
+                        output::info("  1. git rebase --continue");
+                        output::info("  2. git push --force-with-lease");
+                        output::info("  3. rung sync");
+                        output::info("");
+                        output::info(
+                            "Note: 'rung sync' will rebase any remaining descendant branches.",
+                        );
+                    }
+                    return Err(e);
                 }
             }
         }
 
         // Delete remote branch AFTER descendants are safe
         if !no_delete {
-            match client.delete_ref(&owner, &repo_name, &current_branch).await {
+            match service.delete_remote_branch(&current_branch).await {
                 Ok(()) => {
                     if !json {
                         output::info(&format!("Deleted remote branch '{current_branch}'"));
@@ -373,20 +257,4 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
 fn output_json(output: &MergeOutput) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(output)?);
     Ok(())
-}
-
-/// Collect all descendants of a branch in topological order (parents before children).
-fn collect_descendants(stack: &Stack, root: &str) -> Vec<String> {
-    let mut descendants = Vec::new();
-    let mut queue = vec![root.to_string()];
-
-    while let Some(parent) = queue.pop() {
-        for branch in &stack.branches {
-            if branch.parent.as_ref().is_some_and(|p| p == &parent) {
-                descendants.push(branch.name.to_string());
-                queue.push(branch.name.to_string());
-            }
-        }
-    }
-    descendants
 }

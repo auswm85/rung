@@ -3,7 +3,7 @@
 //! This service encapsulates the business logic for the sync command,
 //! accepting trait-based dependencies for testability.
 
-#![allow(dead_code)] // Services not yet wired up to commands
+#![allow(dead_code)] // Some methods not yet fully wired up
 
 use std::collections::HashMap;
 
