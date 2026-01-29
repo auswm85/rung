@@ -681,7 +681,7 @@ fn validate_sync_state(
             bail!(message);
         }
         // For CLI users, use the colored error output then exit
-        bail!("Stack out of sync");
+        bail!(message);
     }
     Ok(())
 }
