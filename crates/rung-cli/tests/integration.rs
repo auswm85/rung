@@ -1071,3 +1071,61 @@ fn test_adopt_help_shows_in_main_help() {
         .stdout(predicate::str::contains("adopt"))
         .stdout(predicate::str::contains("Adopt an existing branch"));
 }
+
+// ============================================================================
+// Submit command tests
+// ============================================================================
+
+#[test]
+fn test_submit_requires_origin_remote() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Add feature", &temp);
+
+    rung()
+        .args(["submit", "--dry-run"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No origin remote configured"));
+}
+
+#[test]
+fn test_submit_accepts_force_flag() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Add feature", &temp);
+
+    rung()
+        .args(["submit", "--force", "--dry-run"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No origin remote configured"));
+}
+
+#[test]
+fn test_submit_help_shows_force_flag() {
+    rung()
+        .args(["submit", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--force"))
+        .stdout(predicate::str::contains("sync"));
+}

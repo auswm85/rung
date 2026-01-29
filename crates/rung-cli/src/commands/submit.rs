@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use anyhow::{Context, Result, bail};
-use rung_core::{State, stack::Stack};
+use rung_core::{State, stack::Stack, sync};
 use rung_git::{RemoteDivergence, Repository};
 use rung_github::{
     Auth, CreateComment, CreatePullRequest, GitHubClient, UpdateComment, UpdatePullRequest,
@@ -164,6 +164,15 @@ pub fn run(
         owner: &owner,
         repo_name: &repo_name,
     };
+    // Determine the base branch (needed for sync validation and planning)
+    let base_branch = gh
+        .rt
+        .block_on(gh.client.get_default_branch(gh.owner, gh.repo_name))
+        .context("Failed to get default branch from GitHub")?;
+    // Phase 0: Sync Protection
+    if !force {
+        validate_sync_state(&repo, &stack, &base_branch, json)?;
+    }
 
     // Phase 1: Create the plan (read-only, checks existing PRs)
     let plan = create_submit_plan(&repo, &gh, &stack, &config)?;
@@ -637,6 +646,51 @@ fn get_pr_title_and_body(repo: &Repository, branch_name: &str) -> (String, Strin
     (generate_title(branch_name), String::new())
 }
 
+/// Validate that the stack is in sync with the base branch.
+fn validate_sync_state(
+    repo: &Repository,
+    stack: &Stack,
+    base_branch: &str,
+    json: bool,
+) -> Result<()> {
+    if !json {
+        output::info(&format!("Checking sync status against {base_branch}..."));
+    }
+
+    // 1. Fetch latest from remote (updates local tracking branch)
+    if let Err(e) = repo.fetch(base_branch) {
+        if !json {
+            output::warn(&format!("Could not fetch {base_branch}: {e}"));
+        }
+    }
+
+    // 2. Check if stack needs syncing
+    let sync_plan = sync::create_sync_plan(repo, stack, base_branch)?;
+
+    if !sync_plan.is_empty() {
+        let affected: Vec<&str> = sync_plan
+            .branches
+            .iter()
+            .map(|a| a.branch.as_str())
+            .collect();
+        let message = format!(
+            "Stack is out of sync with {base_branch}. {} branch(es) need rebasing: {}\n\n\
+             → Run `rung sync` to update the stack\n\
+             → Use `--force` to push without syncing (may create conflicts)",
+            affected.len(),
+            affected.join(", ")
+        );
+
+        if json {
+            bail!(message);
+        }
+        // For CLI users, use the colored error output then exit
+        output::error(&message);
+        bail!("Stack out of sync");
+    }
+    Ok(())
+}
+
 /// Update an existing PR (only updates base branch, preserves description).
 fn update_existing_pr(
     gh: &GitHubContext<'_>,
@@ -863,4 +917,180 @@ fn build_branch_chain(stack: &Stack, current_name: &str) -> Vec<String> {
     }
 
     chain
+}
+
+#[cfg(test)]
+mod test {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
+    use super::*;
+    use rung_core::stack::{Stack, StackBranch};
+    use rung_git::Repository;
+    use std::fs;
+    use std::process::Command as StdCommand;
+    use tempfile::TempDir;
+
+    /// Helper to create a test git repository.
+    fn setup_test_repo() -> (TempDir, Repository) {
+        let temp = TempDir::new().expect("Failed to create temp dir");
+
+        // Intilaize git repo
+        StdCommand::new("git")
+            .args(["init"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to init git repo");
+        StdCommand::new("git")
+            .args(["config", "user.email", "test@example.com"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to set git user email");
+        StdCommand::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to set git user name");
+
+        // Create initial commit
+        let readme = temp.path().join("README.md");
+        fs::write(&readme, "# Test Repo\n").expect("Failed to write README");
+
+        StdCommand::new("git")
+            .args(["add", "."])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to git add");
+
+        StdCommand::new("git")
+            .args(["commit", "-m", "Initial commit"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to git commit");
+
+        StdCommand::new("git")
+            .args(["branch", "-M", "main"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to set main branch");
+
+        let repo = Repository::open(temp.path()).expect("Failed to open repo");
+        (temp, repo)
+    }
+
+    // Helper to create a branch with commits.
+    fn create_branch_with_commits(temp: &TempDir, branch_name: &str, commit_msg: &str) {
+        StdCommand::new("git")
+            .args(["checkout", "-b", branch_name])
+            .current_dir(temp)
+            .output()
+            .expect("Failed to create branch");
+
+        let file = temp.path().join("feature.txt");
+        fs::write(&file, "Feature content").expect("Failed to write file");
+
+        StdCommand::new("git")
+            .args(["add", "."])
+            .current_dir(temp)
+            .output()
+            .expect("Failed to git add");
+
+        StdCommand::new("git")
+            .args(["commit", "-m", commit_msg])
+            .current_dir(temp)
+            .output()
+            .expect("Failed to git commit");
+    }
+
+    #[test]
+    fn test_validate_sync_state_up_to_date() {
+        let (temp, repo) = setup_test_repo();
+
+        // Create a simple branch off main
+        create_branch_with_commits(&temp, "feature-1", "Add feature");
+
+        let mut stack = Stack::new();
+        let branch = rung_core::stack::StackBranch::try_new("feature-1", Some("main"))
+            .expect("Failed to create stack branch");
+        stack.add_branch(branch);
+
+        // Should pass validate (branch is base on latest main)
+        let result = validate_sync_state(&repo, &stack, "main", false);
+        assert!(result.is_ok(), "Stack should be up to date");
+    }
+
+    #[test]
+    fn test_valide_sync_state_needs_sync() {
+        let (temp, repo) = setup_test_repo();
+
+        // Create feature branch
+        create_branch_with_commits(&temp, "feature-1", "Add feature");
+
+        // Go back to main and add another commit (simulate remote change)
+        StdCommand::new("git")
+            .args(["checkout", "main"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to checkout main");
+
+        let file = temp.path().join("main-change.txt");
+        fs::write(&file, "Main branch change").expect("Failed to write file");
+
+        StdCommand::new("git")
+            .args(["add", "."])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to git add");
+
+        StdCommand::new("git")
+            .args(["commit", "-m", "Main branch update"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to git commit");
+
+        // Go back to feature branch
+        StdCommand::new("git")
+            .args(["checkout", "feature-1"])
+            .current_dir(&temp)
+            .output()
+            .expect("Failed to checkout feature-1");
+
+        let mut stack = Stack::new();
+        let branch =
+            StackBranch::try_new("feature-1", Some("main")).expect("Failed to create stack branch");
+        stack.add_branch(branch);
+
+        // Should fail validate (feature branch is behind main which has new commit)
+        let result = validate_sync_state(&repo, &stack, "main", true);
+        assert!(result.is_err(), "Stack should need syncing");
+
+        let error_msg = result.unwrap_err().to_string();
+        assert!(
+            error_msg.contains("out of sync"),
+            "Error should mention sync status"
+        );
+        assert!(
+            error_msg.contains("feature-1"),
+            "Error should mention the branch"
+        );
+    }
+
+    #[test]
+    fn test_validate_sync_state_empty_stack() {
+        let (_temp, repo) = setup_test_repo();
+        let stack = Stack::new(); // Empty stack
+
+        // Should pass validate (no branches to check)
+        let result = validate_sync_state(&repo, &stack, "main", false);
+        assert!(result.is_ok(), "Empty stack should be valid");
+    }
+
+    #[test]
+    fn test_valide_sync_state_fetch_error_continue() {
+        let (_temp, repo) = setup_test_repo();
+        let stack = Stack::new();
+
+        // Should handle fetch errors gracefully and continue with local check
+        let result = validate_sync_state(&repo, &stack, "nonexistent-branch", false);
+        assert!(result.is_ok(), "Should handle fetch errors gracefully");
+    }
 }
