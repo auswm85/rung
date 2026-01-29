@@ -3,8 +3,6 @@
 //! This service encapsulates the business logic for the sync command,
 //! accepting trait-based dependencies for testability.
 
-#![allow(dead_code)] // Some methods not yet fully wired up
-
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -15,35 +13,9 @@ use rung_core::sync::{
 };
 use rung_git::GitOps;
 use rung_github::{GitHubApi, PullRequestState, UpdatePullRequest};
-use serde::Serialize;
 
 /// Threshold for switching from individual REST calls to batched GraphQL query.
 const BATCH_THRESHOLD: usize = 5;
-
-/// Configuration for a sync operation.
-#[derive(Debug, Clone)]
-pub struct SyncConfig {
-    pub base_branch: String,
-    pub no_push: bool,
-}
-
-/// Result of a sync plan creation.
-#[derive(Debug)]
-pub struct SyncPlanResult {
-    pub reconcile_result: ReconcileResult,
-    pub stale_result: StaleBranches,
-    pub sync_plan: SyncPlan,
-    pub stack: Stack,
-}
-
-/// Information about a branch that was pushed.
-#[derive(Debug, Clone, Serialize)]
-pub struct PushResult {
-    pub branch: String,
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
 
 /// Service for sync operations with trait-based dependencies.
 pub struct SyncService<'a, G: GitOps, H: GitHubApi> {
@@ -68,9 +40,13 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
 
     /// Fetch the base branch from remote.
     ///
-    /// Returns Ok(()) on success, or an error message on failure.
-    pub fn fetch_base(&self, base_branch: &str) -> Result<(), String> {
-        self.repo.fetch(base_branch).map_err(|e| e.to_string())
+    /// Note: Currently unused in CLI (fetch happens before GitHub client is available).
+    /// Kept for API completeness and testability.
+    #[allow(dead_code)]
+    pub fn fetch_base(&self, base_branch: &str) -> Result<()> {
+        self.repo
+            .fetch(base_branch)
+            .map_err(|e| anyhow::anyhow!("Failed to fetch {base_branch}: {e}"))
     }
 
     /// Detect merged PRs and validate PR bases.
@@ -220,27 +196,35 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
 
     /// Remove stale branches from the stack.
     pub fn remove_stale_branches<S: StateStore>(&self, state: &S) -> Result<StaleBranches> {
-        Ok(sync::remove_stale_branches(self.repo, state)?)
+        sync::remove_stale_branches(self.repo, state).map_err(Into::into)
     }
 
     /// Create a sync plan.
     pub fn create_sync_plan(&self, stack: &Stack, base_branch: &str) -> Result<SyncPlan> {
-        Ok(sync::create_sync_plan(self.repo, stack, base_branch)?)
+        sync::create_sync_plan(self.repo, stack, base_branch).map_err(Into::into)
     }
 
     /// Execute a sync plan.
     pub fn execute_sync<S: StateStore>(&self, state: &S, plan: SyncPlan) -> Result<SyncResult> {
-        Ok(sync::execute_sync(self.repo, state, plan)?)
+        sync::execute_sync(self.repo, state, plan).map_err(Into::into)
     }
 
     /// Continue an in-progress sync.
+    ///
+    /// Note: Currently unused in CLI (continue is handled before GitHub client setup).
+    /// Kept for API completeness and testability.
+    #[allow(dead_code)]
     pub fn continue_sync<S: StateStore>(&self, state: &S) -> Result<SyncResult> {
-        Ok(sync::continue_sync(self.repo, state)?)
+        sync::continue_sync(self.repo, state).map_err(Into::into)
     }
 
     /// Abort an in-progress sync.
+    ///
+    /// Note: Currently unused in CLI (abort is handled before GitHub client setup).
+    /// Kept for API completeness and testability.
+    #[allow(dead_code)]
     pub fn abort_sync<S: StateStore>(&self, state: &S) -> Result<()> {
-        Ok(sync::abort_sync(self.repo, state)?)
+        sync::abort_sync(self.repo, state).map_err(Into::into)
     }
 
     /// Update GitHub PR base branches for reparented and repaired branches.
@@ -319,7 +303,7 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
     }
 
     /// Push all branches in the stack to remote.
-    pub fn push_stack_branches<S: StateStore>(&self, state: &S) -> Result<Vec<PushResult>> {
+    pub fn push_stack_branches<S: StateStore>(&self, state: &S) -> Result<Vec<PushInfo>> {
         let stack = state.load_stack()?;
         let mut results = Vec::new();
 
@@ -327,17 +311,15 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
             if self.repo.branch_exists(&branch.name) {
                 match self.repo.push(&branch.name, true) {
                     Ok(()) => {
-                        results.push(PushResult {
+                        results.push(PushInfo {
                             branch: branch.name.to_string(),
                             success: true,
-                            error: None,
                         });
                     }
-                    Err(e) => {
-                        results.push(PushResult {
+                    Err(_) => {
+                        results.push(PushInfo {
                             branch: branch.name.to_string(),
                             success: false,
-                            error: Some(e.to_string()),
                         });
                     }
                 }
@@ -346,6 +328,13 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
 
         Ok(results)
     }
+}
+
+/// Information about a push operation.
+#[derive(Debug, Clone)]
+pub struct PushInfo {
+    pub branch: String,
+    pub success: bool,
 }
 
 #[cfg(test)]

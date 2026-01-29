@@ -3,8 +3,6 @@
 //! This service encapsulates the business logic for the restack command,
 //! accepting trait-based dependencies for testability.
 
-#![allow(dead_code)] // Services not yet wired up to commands
-
 use std::collections::VecDeque;
 
 use anyhow::{Result, bail};
@@ -19,7 +17,6 @@ pub struct RestackConfig {
     pub target_branch: String,
     pub new_parent: String,
     pub include_children: bool,
-    pub force: bool,
 }
 
 /// Information about a diverged branch.
