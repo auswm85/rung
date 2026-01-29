@@ -2,6 +2,11 @@
 //!
 //! Core library for Rung providing stack management, state persistence,
 //! and the sync engine for dependent PR stacks.
+//!
+//! # Architecture
+//!
+//! The crate provides both a concrete [`State`] implementation and
+//! a [`StateStore`] trait for dependency injection and testing.
 
 pub mod absorb;
 pub mod branch_name;
@@ -10,10 +15,12 @@ pub mod error;
 pub mod stack;
 pub mod state;
 pub mod sync;
+mod traits;
 
 pub use absorb::{AbsorbPlan, AbsorbResult, UnmapReason};
 pub use branch_name::{BranchName, slugify};
 pub use config::Config;
 pub use error::{Error, Result};
 pub use stack::{BranchState, Stack, StackBranch};
-pub use state::{DivergenceRecord, RestackState, State};
+pub use state::{DivergenceRecord, RestackState, State, SyncState};
+pub use traits::StateStore;

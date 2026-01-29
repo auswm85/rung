@@ -7,9 +7,10 @@ use serde::de::DeserializeOwned;
 
 use crate::auth::Auth;
 use crate::error::{Error, Result};
+use crate::traits::GitHubApi;
 use crate::types::{
-    CheckRun, CreatePullRequest, MergePullRequest, MergeResult, PullRequest, PullRequestState,
-    UpdatePullRequest,
+    CheckRun, CreateComment, CreatePullRequest, IssueComment, MergePullRequest, MergeResult,
+    PullRequest, PullRequestState, UpdateComment, UpdatePullRequest,
 };
 
 // === Internal API response types (shared across methods) ===
@@ -698,4 +699,105 @@ fn build_graphql_pr_query(numbers: &[u64]) -> String {
         r"query($owner: String!, $repo: String!) {{ repository(owner: $owner, name: $repo) {{ {pr_queries} }} }}",
         pr_queries = pr_queries.join(" ")
     )
+}
+
+// === Trait Implementation ===
+
+impl GitHubApi for GitHubClient {
+    async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest> {
+        Self::get_pr(self, owner, repo, number).await
+    }
+
+    async fn get_prs_batch(
+        &self,
+        owner: &str,
+        repo: &str,
+        numbers: &[u64],
+    ) -> Result<std::collections::HashMap<u64, PullRequest>> {
+        Self::get_prs_batch(self, owner, repo, numbers).await
+    }
+
+    async fn find_pr_for_branch(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+    ) -> Result<Option<PullRequest>> {
+        Self::find_pr_for_branch(self, owner, repo, branch).await
+    }
+
+    async fn create_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr: CreatePullRequest,
+    ) -> Result<PullRequest> {
+        Self::create_pr(self, owner, repo, pr).await
+    }
+
+    async fn update_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        update: UpdatePullRequest,
+    ) -> Result<PullRequest> {
+        Self::update_pr(self, owner, repo, number, update).await
+    }
+
+    async fn get_check_runs(
+        &self,
+        owner: &str,
+        repo: &str,
+        commit_sha: &str,
+    ) -> Result<Vec<CheckRun>> {
+        Self::get_check_runs(self, owner, repo, commit_sha).await
+    }
+
+    async fn merge_pr(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        merge: MergePullRequest,
+    ) -> Result<MergeResult> {
+        Self::merge_pr(self, owner, repo, number, merge).await
+    }
+
+    async fn delete_ref(&self, owner: &str, repo: &str, ref_name: &str) -> Result<()> {
+        Self::delete_ref(self, owner, repo, ref_name).await
+    }
+
+    async fn get_default_branch(&self, owner: &str, repo: &str) -> Result<String> {
+        Self::get_default_branch(self, owner, repo).await
+    }
+
+    async fn list_pr_comments(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<Vec<IssueComment>> {
+        Self::list_pr_comments(self, owner, repo, pr_number).await
+    }
+
+    async fn create_pr_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+        comment: CreateComment,
+    ) -> Result<IssueComment> {
+        Self::create_pr_comment(self, owner, repo, pr_number, comment).await
+    }
+
+    async fn update_pr_comment(
+        &self,
+        owner: &str,
+        repo: &str,
+        comment_id: u64,
+        comment: UpdateComment,
+    ) -> Result<IssueComment> {
+        Self::update_pr_comment(self, owner, repo, comment_id, comment).await
+    }
 }
