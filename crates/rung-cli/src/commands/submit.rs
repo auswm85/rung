@@ -164,7 +164,7 @@ pub fn run(
         owner: &owner,
         repo_name: &repo_name,
     };
-    
+
     // Phase 0: Sync Protection
     if !force {
         validate_sync_state(&repo, &stack, &config.default_branch, json)?;
