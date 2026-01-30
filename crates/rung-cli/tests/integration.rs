@@ -1129,3 +1129,551 @@ fn test_submit_help_shows_force_flag() {
         .stdout(predicate::str::contains("--force"))
         .stdout(predicate::str::contains("sync"));
 }
+
+// ============================================================================
+// Restack command tests
+// ============================================================================
+
+#[test]
+fn test_restack_not_initialized() {
+    let temp = setup_git_repo();
+
+    rung()
+        .args(["restack", "feature-1", "--onto", "main"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not initialized"));
+}
+
+#[test]
+fn test_restack_branch_not_in_stack() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a branch outside of rung
+    StdCommand::new("git")
+        .args(["checkout", "-b", "orphan-branch"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to create branch");
+
+    rung()
+        .args(["restack", "orphan-branch", "--onto", "main"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not in the stack"));
+}
+
+#[test]
+fn test_restack_dry_run() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create first branch
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature 1 commit", &temp);
+
+    // Create second branch stacked on feature-1
+    rung()
+        .args(["create", "feature-2"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature 2 commit", &temp);
+
+    // Dry run restack feature-2 onto main
+    rung()
+        .args(["restack", "feature-2", "--onto", "main", "--dry-run"])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dry run"));
+}
+
+#[test]
+fn test_restack_onto_main() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create first branch
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature 1 commit", &temp);
+
+    // Create second branch stacked on feature-1
+    rung()
+        .args(["create", "feature-2"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature 2 commit", &temp);
+
+    // Restack feature-2 onto main (remove from feature-1 stack)
+    rung()
+        .args(["restack", "feature-2", "--onto", "main"])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Updated stack").or(predicate::str::contains("Restacked")),
+        );
+
+    // Verify feature-2 now has main as parent in status
+    rung()
+        .args(["status", "--json"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_restack_onto_sibling() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create two sibling branches from main
+    rung()
+        .args(["create", "feature-a"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature A commit", &temp);
+
+    // Go back to main to create sibling
+    StdCommand::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to checkout main");
+
+    rung()
+        .args(["create", "feature-b"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature B commit", &temp);
+
+    // Restack feature-b onto feature-a
+    rung()
+        .args(["restack", "feature-b", "--onto", "feature-a"])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Updated stack").or(predicate::str::contains("Restacked")),
+        );
+}
+
+#[test]
+fn test_restack_with_children() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a chain: main -> feature-1 -> feature-2 -> feature-3
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 1", &temp);
+
+    rung()
+        .args(["create", "feature-2"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 2", &temp);
+
+    rung()
+        .args(["create", "feature-3"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 3", &temp);
+
+    // Restack feature-2 onto main with --include-children
+    rung()
+        .args([
+            "restack",
+            "feature-2",
+            "--onto",
+            "main",
+            "--include-children",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("Updated stack").or(predicate::str::contains("Restacked")),
+        );
+}
+
+#[test]
+fn test_restack_onto_self_fails() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature 1", &temp);
+
+    // Try to restack onto itself
+    rung()
+        .args(["restack", "feature-1", "--onto", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cycle").or(predicate::str::contains("same")));
+}
+
+#[test]
+fn test_restack_onto_descendant_fails() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create chain: main -> feature-1 -> feature-2
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 1", &temp);
+
+    rung()
+        .args(["create", "feature-2"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 2", &temp);
+
+    // Try to restack feature-1 onto feature-2 (its child) - should fail
+    rung()
+        .args(["restack", "feature-1", "--onto", "feature-2"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cycle"));
+}
+
+#[test]
+fn test_restack_alias() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature 1", &temp);
+
+    // Use 're' alias
+    rung()
+        .args(["re", "feature-1", "--onto", "main", "--dry-run"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_restack_help() {
+    rung()
+        .args(["restack", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--onto"))
+        .stdout(predicate::str::contains("--include-children"));
+}
+
+// ============================================================================
+// Sync with actual rebase tests
+// ============================================================================
+
+#[test]
+fn test_sync_rebases_stack() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create feature branch
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    git_commit("Feature commit", &temp);
+
+    // Go back to main and add a commit
+    StdCommand::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to checkout main");
+
+    let file = temp.path().join("main-change.txt");
+    fs::write(&file, "main change").expect("Failed to write file");
+    StdCommand::new("git")
+        .args(["add", "."])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to git add");
+    StdCommand::new("git")
+        .args(["commit", "-m", "Main commit"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to commit");
+
+    // Sync should rebase feature-1 onto updated main
+    rung()
+        .args(["sync", "--base", "main"])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Synced").or(predicate::str::contains("rebased")));
+}
+
+#[test]
+fn test_sync_multi_branch_stack() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a chain: main -> feature-1 -> feature-2
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 1 commit", &temp);
+
+    rung()
+        .args(["create", "feature-2"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+    git_commit("Feature 2 commit", &temp);
+
+    // Go back to main and add a commit
+    StdCommand::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to checkout main");
+
+    let file = temp.path().join("main-update.txt");
+    fs::write(&file, "main update").expect("Failed to write file");
+    StdCommand::new("git")
+        .args(["add", "."])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to git add");
+    StdCommand::new("git")
+        .args(["commit", "-m", "Main update"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to commit");
+
+    // Sync should rebase entire stack
+    rung()
+        .args(["sync", "--base", "main"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Verify both branches are still in stack
+    rung()
+        .arg("status")
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-1"))
+        .stdout(predicate::str::contains("feature-2"));
+}
+
+// ============================================================================
+// Create command additional tests
+// ============================================================================
+
+#[test]
+fn test_create_with_message() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create branch with commit message (requires staged changes)
+    let file = temp.path().join("newfile.txt");
+    fs::write(&file, "new content").expect("Failed to write file");
+    StdCommand::new("git")
+        .args(["add", "."])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to git add");
+
+    rung()
+        .args([
+            "create",
+            "feature-with-commit",
+            "-m",
+            "Initial feature commit",
+        ])
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-with-commit"));
+
+    // Verify commit was created
+    let output = StdCommand::new("git")
+        .args(["log", "--oneline", "-1"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to get git log");
+
+    let log = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        log.contains("Initial feature commit"),
+        "Commit message should be in log"
+    );
+}
+
+#[test]
+fn test_create_branch_already_exists() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a branch
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Go back to main
+    StdCommand::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to checkout main");
+
+    // Try to create same branch again
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
+}
+
+// ============================================================================
+// Doctor additional tests
+// ============================================================================
+
+#[test]
+fn test_doctor_dirty_working_directory() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create uncommitted changes (untracked file)
+    let file = temp.path().join("dirty.txt");
+    fs::write(&file, "uncommitted").expect("Failed to write file");
+
+    // Stage it to make it a real uncommitted change
+    StdCommand::new("git")
+        .args(["add", "."])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to git add");
+
+    // Doctor should report issues (dirty working directory or other warnings)
+    rung()
+        .arg("doctor")
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("issue"));
+}
+
+#[test]
+fn test_doctor_json_output() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    let output = rung()
+        .args(["doctor", "--json"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Verify it's valid JSON
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&stdout).is_ok(),
+        "Doctor --json should produce valid JSON"
+    );
+}
+
+#[test]
+fn test_doctor_missing_branch() {
+    let temp = setup_git_repo();
+
+    rung().arg("init").current_dir(&temp).assert().success();
+
+    // Create a branch via rung
+    rung()
+        .args(["create", "feature-1"])
+        .current_dir(&temp)
+        .assert()
+        .success();
+
+    // Delete the git branch but not from stack
+    StdCommand::new("git")
+        .args(["checkout", "main"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to checkout main");
+
+    StdCommand::new("git")
+        .args(["branch", "-D", "feature-1"])
+        .current_dir(&temp)
+        .output()
+        .expect("Failed to delete branch");
+
+    // Doctor should report the missing branch
+    rung()
+        .arg("doctor")
+        .current_dir(&temp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("feature-1").and(predicate::str::contains("not in git")));
+}

@@ -103,4 +103,55 @@ mod tests {
         assert!(json.contains("abc1234"));
         assert!(json.contains("Test commit"));
     }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_log_result_serializes() {
+        let result = LogResult {
+            commits: vec![
+                CommitInfo {
+                    hash: "abc1234".to_string(),
+                    message: "First commit".to_string(),
+                    author: "Alice".to_string(),
+                },
+                CommitInfo {
+                    hash: "def5678".to_string(),
+                    message: "Second commit".to_string(),
+                    author: "Bob".to_string(),
+                },
+            ],
+            branch: "feature/test".to_string(),
+            parent: "main".to_string(),
+        };
+
+        let json = serde_json::to_string(&result).expect("serialization should succeed");
+        assert!(json.contains("feature/test"));
+        assert!(json.contains("main"));
+        assert!(json.contains("First commit"));
+        assert!(json.contains("Second commit"));
+    }
+
+    #[test]
+    fn test_log_result_empty_commits() {
+        let result = LogResult {
+            commits: vec![],
+            branch: "empty-branch".to_string(),
+            parent: "main".to_string(),
+        };
+
+        assert!(result.commits.is_empty());
+        assert_eq!(result.branch, "empty-branch");
+    }
+
+    #[test]
+    fn test_commit_info_clone() {
+        let info = CommitInfo {
+            hash: "abc1234".to_string(),
+            message: "Test".to_string(),
+            author: "Author".to_string(),
+        };
+        let cloned = info.clone();
+        assert_eq!(info.hash, cloned.hash);
+        assert_eq!(info.message, cloned.message);
+    }
 }

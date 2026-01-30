@@ -168,12 +168,83 @@ impl<'a> StatusService<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rung_core::BranchState;
 
     #[test]
     fn test_stack_status_empty() {
         let status = StackStatus::empty();
         assert!(status.is_empty());
         assert!(status.current_branch.is_none());
+    }
+
+    #[test]
+    fn test_stack_status_with_branches() {
+        let status = StackStatus {
+            branches: vec![BranchStatusInfo {
+                name: "feature/test".to_string(),
+                parent: Some("main".to_string()),
+                state: BranchState::Synced,
+                pr: Some(123),
+                is_current: true,
+                remote_divergence: Some(RemoteDivergenceInfo::InSync),
+            }],
+            current_branch: Some("feature/test".to_string()),
+        };
+        assert!(!status.is_empty());
+        assert_eq!(status.branches.len(), 1);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_branch_status_info_serializes() {
+        let info = BranchStatusInfo {
+            name: "feature/auth".to_string(),
+            parent: Some("main".to_string()),
+            state: BranchState::Synced,
+            pr: Some(42),
+            is_current: true,
+            remote_divergence: Some(RemoteDivergenceInfo::Ahead { commits: 2 }),
+        };
+        let json = serde_json::to_string(&info).expect("serialization should succeed");
+        assert!(json.contains("feature/auth"));
+        assert!(json.contains("42"));
+        assert!(json.contains("is_current"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_branch_status_info_skips_false_current() {
+        let info = BranchStatusInfo {
+            name: "other".to_string(),
+            parent: None,
+            state: BranchState::Synced,
+            pr: None,
+            is_current: false,
+            remote_divergence: None,
+        };
+        let json = serde_json::to_string(&info).expect("serialization should succeed");
+        // is_current: false should be skipped
+        assert!(!json.contains("is_current"));
+        // remote_divergence: None should be skipped
+        assert!(!json.contains("remote_divergence"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_remote_divergence_serializes() {
+        let ahead = RemoteDivergenceInfo::Ahead { commits: 5 };
+        let json = serde_json::to_string(&ahead).expect("serialization should succeed");
+        assert!(json.contains("ahead"));
+        assert!(json.contains('5'));
+
+        let diverged = RemoteDivergenceInfo::Diverged {
+            ahead: 3,
+            behind: 2,
+        };
+        let json = serde_json::to_string(&diverged).expect("serialization should succeed");
+        assert!(json.contains("diverged"));
+        assert!(json.contains('3'));
+        assert!(json.contains('2'));
     }
 
     #[test]

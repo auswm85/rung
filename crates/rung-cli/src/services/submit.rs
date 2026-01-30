@@ -530,6 +530,18 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_title_edge_cases() {
+        // Nested paths
+        assert_eq!(generate_title("user/feature/add-auth"), "Add Auth");
+        // All underscores
+        assert_eq!(generate_title("add_user_auth"), "Add User Auth");
+        // Mixed separators
+        assert_eq!(generate_title("fix-bug_report"), "Fix Bug Report");
+        // Empty last segment
+        assert_eq!(generate_title(""), "");
+    }
+
+    #[test]
     fn test_submit_plan_counts() {
         let plan = SubmitPlan {
             actions: vec![
@@ -567,5 +579,68 @@ mod tests {
         assert!(plan.is_empty());
         assert_eq!(plan.count_creates(), 0);
         assert_eq!(plan.count_updates(), 0);
+    }
+
+    #[test]
+    fn test_submit_plan_empty_const() {
+        let plan = SubmitPlan::empty();
+        assert!(plan.is_empty());
+        assert_eq!(plan.actions.len(), 0);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_branch_submit_result_serializes() {
+        let result = BranchSubmitResult {
+            branch: "feature/auth".to_string(),
+            pr_number: 42,
+            pr_url: "https://github.com/owner/repo/pull/42".to_string(),
+            action: SubmitAction::Created,
+        };
+        let json = serde_json::to_string(&result).expect("serialization should succeed");
+        assert!(json.contains("feature/auth"));
+        assert!(json.contains("42"));
+        assert!(json.contains("created"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_submit_action_serializes() {
+        let created = SubmitAction::Created;
+        let json = serde_json::to_string(&created).expect("serialization should succeed");
+        assert!(json.contains("created"));
+
+        let updated = SubmitAction::Updated;
+        let json = serde_json::to_string(&updated).expect("serialization should succeed");
+        assert!(json.contains("updated"));
+    }
+
+    #[test]
+    fn test_planned_branch_action_create() {
+        let action = PlannedBranchAction::Create {
+            branch: "feature/test".into(),
+            title: "Test Feature".into(),
+            body: "Description".into(),
+            base: "main".into(),
+            draft: true,
+        };
+        assert!(matches!(
+            action,
+            PlannedBranchAction::Create { draft: true, .. }
+        ));
+    }
+
+    #[test]
+    fn test_planned_branch_action_update() {
+        let action = PlannedBranchAction::Update {
+            branch: "feature/test".into(),
+            pr_number: 123,
+            pr_url: "https://github.com/owner/repo/pull/123".into(),
+            base: "main".into(),
+        };
+        assert!(matches!(
+            action,
+            PlannedBranchAction::Update { pr_number: 123, .. }
+        ));
     }
 }
