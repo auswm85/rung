@@ -2,11 +2,12 @@
 
 use anyhow::{Context, Result, bail};
 use inquire::Select;
-use rung_core::{BranchName, State, stack::StackBranch};
+use rung_core::{BranchName, State};
 use rung_git::Repository;
 
 use crate::commands::utils;
 use crate::output;
+use crate::services::AdoptService;
 
 /// Run the adopt command.
 pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<()> {
@@ -25,42 +26,39 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
     // Ensure on branch (not detached HEAD)
     utils::ensure_on_branch(&repo)?;
 
+    // Create service
+    let service = AdoptService::new(&repo, &state);
+
     // Determine which branch to adopt
-    let current = repo.current_branch()?;
+    let current = service.current_branch()?;
     let branch_name = branch.unwrap_or(&current);
 
     // Validate branch name
     let branch_name_validated = BranchName::new(branch_name).context("Invalid branch name")?;
 
     // Verify the branch exists
-    if !repo.branch_exists(branch_name) {
+    if !service.branch_exists(branch_name) {
         bail!("Branch '{branch_name}' does not exist");
     }
 
-    // Load stack
-    let mut stack = state.load_stack()?;
-
     // Check if branch is already in the stack
-    if stack.find_branch(branch_name).is_some() {
+    if service.is_in_stack(branch_name)? {
         bail!("Branch '{branch_name}' is already in the stack");
     }
 
-    // Get the base branch for validation
-    let base_branch = state.default_branch()?;
+    // Get the base branch for display
+    let base_branch = service.default_branch()?;
 
     // Determine parent branch
     let parent_name = if let Some(p) = parent {
         p.to_string()
     } else {
         // Interactive selection
-        let mut choices: Vec<String> = vec![base_branch.clone()];
-        for b in &stack.branches {
-            choices.push(b.name.to_string());
-        }
+        let choices = service.get_parent_choices()?;
 
         if choices.len() == 1 {
             // Only base branch available
-            base_branch.clone()
+            base_branch
         } else {
             Select::new("Select parent branch:", choices)
                 .with_help_message("The branch that this branch should be based on")
@@ -69,31 +67,8 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
         }
     };
 
-    // Validate parent exists (either base branch or in stack)
-    let parent_is_base = parent_name == base_branch;
-    let parent_in_stack = stack.find_branch(&parent_name).is_some();
-
-    if !parent_is_base && !parent_in_stack {
-        // Check if parent exists as a git branch at all
-        if !repo.branch_exists(&parent_name) {
-            bail!("Parent branch '{parent_name}' does not exist");
-        }
-        bail!(
-            "Parent branch '{parent_name}' is not in the stack. \
-             Add it first with `rung adopt {parent_name}` or use the base branch '{base_branch}'"
-        );
-    }
-
-    // Check for cycles (branch can't be its own ancestor)
-    // This is only relevant if the branch already exists in git history
-    // For adopt, we're adding a new entry, so cycles aren't possible
-    // unless we're trying to adopt a branch as a child of itself
-
-    let parent_branch = if parent_is_base {
-        None
-    } else {
-        Some(BranchName::new(&parent_name).context("Invalid parent branch name")?)
-    };
+    // Validate parent
+    service.validate_parent(&parent_name)?;
 
     if dry_run {
         output::info(&format!(
@@ -102,19 +77,17 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
         return Ok(());
     }
 
-    // Add to stack
-    let branch = StackBranch::new(branch_name_validated, parent_branch);
-    stack.add_branch(branch);
-    state.save_stack(&stack)?;
+    // Adopt the branch
+    let result = service.adopt_branch(&branch_name_validated, &parent_name)?;
 
     output::success(&format!(
-        "Adopted branch '{branch_name}' with parent '{parent_name}'"
+        "Adopted branch '{}' with parent '{}'",
+        result.branch_name, result.parent_name
     ));
 
     // Show position in stack
-    let ancestry = stack.ancestry(branch_name);
-    if ancestry.len() > 1 {
-        output::info(&format!("Stack depth: {}", ancestry.len()));
+    if result.stack_depth > 1 {
+        output::info(&format!("Stack depth: {}", result.stack_depth));
     }
 
     Ok(())
