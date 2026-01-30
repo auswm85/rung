@@ -126,18 +126,25 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
     }
 
     /// Rollback PR base changes after a failed merge.
-    pub async fn rollback_pr_bases(&self, shifted_prs: &[(u64, String)]) {
+    ///
+    /// Returns a list of PRs that failed to rollback, if any.
+    pub async fn rollback_pr_bases(&self, shifted_prs: &[(u64, String)]) -> Vec<(u64, String)> {
+        let mut failures = Vec::new();
         for (child_pr_num, original_base) in shifted_prs {
             let rollback = UpdatePullRequest {
                 title: None,
                 body: None,
                 base: Some(original_base.clone()),
             };
-            let _ = self
+            if let Err(e) = self
                 .client
                 .update_pr(&self.owner, &self.repo_name, *child_pr_num, rollback)
-                .await;
+                .await
+            {
+                failures.push((*child_pr_num, e.to_string()));
+            }
         }
+        failures
     }
 
     /// Merge a PR on GitHub.
@@ -1035,8 +1042,9 @@ mod tests {
 
             let shifted_prs = vec![(20, "feature/parent".to_string())];
 
-            // This should not panic
-            service.rollback_pr_bases(&shifted_prs).await;
+            // Rollback should succeed with no failures
+            let failures = service.rollback_pr_bases(&shifted_prs).await;
+            assert!(failures.is_empty());
 
             // Verify update_pr was called
             assert!(github.update_pr_called.load(Ordering::SeqCst));

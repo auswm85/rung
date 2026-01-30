@@ -14,7 +14,6 @@ use rung_core::{Result as CoreResult, StateStore};
 use rung_git::{GitOps, Oid, RemoteDivergence, Result as GitResult};
 
 /// Mock implementation of `GitOps` for testing.
-#[derive(Default)]
 pub struct MockGitOps {
     pub current_branch: RefCell<String>,
     pub branches: RefCell<HashMap<String, Oid>>,
@@ -23,6 +22,12 @@ pub struct MockGitOps {
     pub is_clean: RefCell<bool>,
     pub is_rebasing: RefCell<bool>,
     pub push_results: RefCell<HashMap<String, bool>>,
+}
+
+impl Default for MockGitOps {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockGitOps {

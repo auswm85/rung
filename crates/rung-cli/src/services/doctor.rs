@@ -140,12 +140,17 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
     /// Run all diagnostic checks and return a complete report.
     #[allow(dead_code)]
     pub fn run_diagnostics(&self) -> Result<DiagnosticReport> {
-        let rt = tokio::runtime::Runtime::new()?;
+        let github_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.block_on(self.check_github())
+        } else {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(self.check_github())
+        };
         Ok(DiagnosticReport {
             git_state: self.check_git_state(),
             stack_integrity: self.check_stack_integrity(),
             sync_state: self.check_sync_state()?,
-            github: rt.block_on(self.check_github()),
+            github: github_result,
         })
     }
 
@@ -362,20 +367,18 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             // Check if PR is still open
             match client.get_pr(&owner, &repo_name, pr_number).await {
                 Ok(pr) => {
-                    if pr.state != PullRequestState::Open {
-                        let state_str = match pr.state {
-                            PullRequestState::Closed => "closed",
-                            PullRequestState::Merged => "merged",
-                            PullRequestState::Open => "open",
-                        };
-                        result.issues.push(
-                            Issue::warning(format!(
-                                "PR #{} for '{}' is {} (not open)",
-                                pr_number, branch.name, state_str
-                            ))
-                            .with_suggestion("Run `rung sync` to clean up or merge the branch"),
-                        );
-                    }
+                    let state_str = match pr.state {
+                        PullRequestState::Open => continue,
+                        PullRequestState::Closed => "closed",
+                        PullRequestState::Merged => "merged",
+                    };
+                    result.issues.push(
+                        Issue::warning(format!(
+                            "PR #{} for '{}' is {state_str} (not open)",
+                            pr_number, branch.name
+                        ))
+                        .with_suggestion("Run `rung sync` to clean up or merge the branch"),
+                    );
                 }
                 Err(e) => {
                     result.issues.push(Issue::warning(format!(
