@@ -114,5 +114,30 @@ impl<'a> AdoptService<'a> {
 
 #[cfg(test)]
 mod tests {
-    // Integration tests require a real git repository
+    use super::*;
+
+    #[test]
+    fn test_adopt_result_fields() {
+        let result = AdoptResult {
+            branch_name: "feature/existing".to_string(),
+            parent_name: "main".to_string(),
+            stack_depth: 1,
+        };
+
+        assert_eq!(result.branch_name, "feature/existing");
+        assert_eq!(result.parent_name, "main");
+        assert_eq!(result.stack_depth, 1);
+    }
+
+    #[test]
+    fn test_adopt_result_nested() {
+        let result = AdoptResult {
+            branch_name: "feature/child".to_string(),
+            parent_name: "feature/parent".to_string(),
+            stack_depth: 3,
+        };
+
+        assert_eq!(result.stack_depth, 3);
+        assert_eq!(result.parent_name, "feature/parent");
+    }
 }

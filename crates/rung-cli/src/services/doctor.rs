@@ -402,6 +402,39 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
+    fn test_issue_serializes() {
+        let issue = Issue::error("Missing file").with_suggestion("Create the file");
+        let json = serde_json::to_string(&issue).expect("serialization should succeed");
+        assert!(json.contains("error"));
+        assert!(json.contains("Missing file"));
+        assert!(json.contains("Create the file"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_issue_without_suggestion_serializes() {
+        let issue = Issue::warning("Minor issue");
+        let json = serde_json::to_string(&issue).expect("serialization should succeed");
+        assert!(json.contains("warning"));
+        assert!(json.contains("Minor issue"));
+        // suggestion should be omitted when None
+        assert!(!json.contains("suggestion"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_severity_serializes() {
+        let error = Severity::Error;
+        let json = serde_json::to_string(&error).expect("serialization should succeed");
+        assert!(json.contains("error"));
+
+        let warning = Severity::Warning;
+        let json = serde_json::to_string(&warning).expect("serialization should succeed");
+        assert!(json.contains("warning"));
+    }
+
+    #[test]
     fn test_check_result() {
         let mut result = CheckResult::default();
         assert!(result.is_clean());
@@ -418,6 +451,15 @@ mod tests {
     }
 
     #[test]
+    fn test_check_result_only_errors() {
+        let mut result = CheckResult::default();
+        result.issues.push(Issue::error("critical"));
+        assert!(result.has_errors());
+        assert!(!result.has_warnings());
+        assert!(!result.is_clean());
+    }
+
+    #[test]
     fn test_diagnostic_report() {
         let mut report = DiagnosticReport::default();
         assert!(report.is_healthy());
@@ -431,5 +473,21 @@ mod tests {
         report.stack_integrity.issues.push(Issue::error("missing"));
         assert_eq!(report.error_count(), 1);
         assert_eq!(report.all_issues().len(), 2);
+    }
+
+    #[test]
+    fn test_diagnostic_report_all_categories() {
+        let mut report = DiagnosticReport::default();
+        report.git_state.issues.push(Issue::warning("git issue"));
+        report
+            .stack_integrity
+            .issues
+            .push(Issue::error("stack issue"));
+        report.sync_state.issues.push(Issue::warning("sync issue"));
+        report.github.issues.push(Issue::error("github issue"));
+
+        assert_eq!(report.all_issues().len(), 4);
+        assert_eq!(report.error_count(), 2);
+        assert_eq!(report.warning_count(), 2);
     }
 }

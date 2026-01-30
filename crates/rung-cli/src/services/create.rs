@@ -124,6 +124,36 @@ impl<'a> CreateService<'a> {
 
 #[cfg(test)]
 mod tests {
-    // Integration tests require a real git repository
-    // Unit tests are limited since the service wraps external operations
+    use super::*;
+
+    #[test]
+    fn test_create_result_fields() {
+        let result = CreateResult {
+            branch_name: "feature/test".to_string(),
+            parent_name: "main".to_string(),
+            commit_created: true,
+            commit_message: Some("Initial commit".to_string()),
+            stack_depth: 2,
+        };
+
+        assert_eq!(result.branch_name, "feature/test");
+        assert_eq!(result.parent_name, "main");
+        assert!(result.commit_created);
+        assert_eq!(result.commit_message, Some("Initial commit".to_string()));
+        assert_eq!(result.stack_depth, 2);
+    }
+
+    #[test]
+    fn test_create_result_without_commit() {
+        let result = CreateResult {
+            branch_name: "feature/no-commit".to_string(),
+            parent_name: "develop".to_string(),
+            commit_created: false,
+            commit_message: None,
+            stack_depth: 1,
+        };
+
+        assert!(!result.commit_created);
+        assert!(result.commit_message.is_none());
+    }
 }
