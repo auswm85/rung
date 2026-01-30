@@ -14,6 +14,9 @@ pub mod status;
 pub mod submit;
 pub mod sync;
 
+#[cfg(test)]
+pub mod test_mocks;
+
 pub use absorb::AbsorbService;
 pub use adopt::AdoptService;
 pub use create::CreateService;
