@@ -109,10 +109,10 @@ fn cleanup_after_merge(
         output::info(&format!("Deleted local branch '{current_branch}'"));
     }
 
-    if let Err(e) = repo.pull_ff() {
-        if !json {
-            output::warn(&format!("Could not pull latest {parent_branch}: {e}"));
-        }
+    if let Err(e) = repo.pull_ff()
+        && !json
+    {
+        output::warn(&format!("Could not pull latest {parent_branch}: {e}"));
     }
 
     Ok(())
@@ -251,12 +251,12 @@ fn print_child_relinks(stack: &Stack, ctx: &MergeContext, parent_branch: &str, j
                 .parent
                 .as_ref()
                 .map_or(parent_branch, |p| p.as_str());
-            if stack_parent == ctx.current_branch {
-                if let Some(child_pr_num) = branch_info.pr {
-                    output::info(&format!(
-                        "Relinking PR #{child_pr_num} to '{parent_branch}' before merge..."
-                    ));
-                }
+            if stack_parent == ctx.current_branch
+                && let Some(child_pr_num) = branch_info.pr
+            {
+                output::info(&format!(
+                    "Relinking PR #{child_pr_num} to '{parent_branch}' before merge..."
+                ));
             }
         }
     }

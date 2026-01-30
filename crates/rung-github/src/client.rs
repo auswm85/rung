@@ -431,33 +431,29 @@ impl GitHubClient {
         let graphql_response: GraphQLResponse = response.json().await?;
 
         // Check for GraphQL-level errors
-        if let Some(errors) = graphql_response.errors {
-            if !errors.is_empty() {
-                let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-                return Err(Error::ApiError {
-                    status: 200,
-                    message: messages.join("; "),
-                });
-            }
+        if let Some(errors) = graphql_response.errors
+            && !errors.is_empty()
+        {
+            let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+            return Err(Error::ApiError {
+                status: 200,
+                message: messages.join("; "),
+            });
         }
 
         let mut result = std::collections::HashMap::new();
 
-        if let Some(data) = graphql_response.data {
-            if let Some(repo_data) = data.repository {
-                // Parse each pr0, pr1, pr2... field
-                for (i, &num) in numbers.iter().enumerate() {
-                    let key = format!("pr{i}");
-                    if let Some(pr_value) = repo_data.get(&key) {
-                        // Skip null values (PR doesn't exist)
-                        if !pr_value.is_null() {
-                            if let Ok(pr) =
-                                serde_json::from_value::<GraphQLPullRequest>(pr_value.clone())
-                            {
-                                result.insert(num, pr.into_pull_request());
-                            }
-                        }
-                    }
+        if let Some(data) = graphql_response.data
+            && let Some(repo_data) = data.repository
+        {
+            // Parse each pr0, pr1, pr2... field
+            for (i, &num) in numbers.iter().enumerate() {
+                let key = format!("pr{i}");
+                if let Some(pr_value) = repo_data.get(&key)
+                    && !pr_value.is_null()
+                    && let Ok(pr) = serde_json::from_value::<GraphQLPullRequest>(pr_value.clone())
+                {
+                    result.insert(num, pr.into_pull_request());
                 }
             }
         }

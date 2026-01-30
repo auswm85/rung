@@ -54,7 +54,7 @@ pub struct SyncAction {
 impl SyncPlan {
     /// Check if the plan is empty (nothing to sync).
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.branches.is_empty()
     }
 }

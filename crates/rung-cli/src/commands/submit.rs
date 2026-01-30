@@ -359,10 +359,10 @@ fn validate_sync_state(
     }
 
     // 1. Fetch latest from remote (updates local tracking branch)
-    if let Err(e) = repo.fetch(base_branch) {
-        if !json {
-            output::warn(&format!("Could not fetch {base_branch}: {e}"));
-        }
+    if let Err(e) = repo.fetch(base_branch)
+        && !json
+    {
+        output::warn(&format!("Could not fetch {base_branch}: {e}"));
     }
 
     // 2. Check if stack needs syncing

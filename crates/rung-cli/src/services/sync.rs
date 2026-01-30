@@ -272,10 +272,10 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
         // Apply updates with no-op check
         for (pr_number, new_base, _old_base) in updates_needed {
             // No-op check: skip if PR base is already what we want
-            if let Some(current_base) = current_states.get(&pr_number) {
-                if current_base == &new_base {
-                    continue;
-                }
+            if let Some(current_base) = current_states.get(&pr_number)
+                && current_base == &new_base
+            {
+                continue;
             }
 
             let update = UpdatePullRequest {
