@@ -867,4 +867,157 @@ mod tests {
 
         assert!(state.is_sync_in_progress());
     }
+
+    #[test]
+    fn test_reconcile_merged_empty() {
+        let (temp, _rung_repo, _git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        // Empty merged list should return empty result
+        let result = reconcile_merged(&state, &[]).unwrap();
+        assert!(result.merged.is_empty());
+        assert!(result.reparented.is_empty());
+        assert!(result.repaired.is_empty());
+    }
+
+    #[test]
+    fn test_reconcile_merged_with_children() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create feature-a at current HEAD
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Create stack: main -> feature-a -> feature-b
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.as_str())).unwrap());
+        let mut branch_b = StackBranch::try_new("feature-b", Some("feature-a")).unwrap();
+        branch_b.pr = Some(456);
+        stack.add_branch(branch_b);
+        state.save_stack(&stack).unwrap();
+
+        // Simulate feature-a being merged into main
+        let merged_prs = vec![ExternalMergeInfo {
+            branch_name: "feature-a".to_string(),
+            pr_number: 123,
+            merged_into: main_branch.clone(),
+        }];
+
+        let result = reconcile_merged(&state, &merged_prs).unwrap();
+
+        // feature-a should be in merged list
+        assert_eq!(result.merged.len(), 1);
+        assert_eq!(result.merged[0].name, "feature-a");
+        assert_eq!(result.merged[0].pr_number, 123);
+
+        // feature-b should be reparented to main
+        assert_eq!(result.reparented.len(), 1);
+        assert_eq!(result.reparented[0].name, "feature-b");
+        assert_eq!(result.reparented[0].old_parent, "feature-a");
+        assert_eq!(result.reparented[0].new_parent, main_branch.as_str());
+        assert_eq!(result.reparented[0].pr_number, Some(456));
+
+        // Verify stack was updated
+        let updated_stack = state.load_stack().unwrap();
+        assert!(updated_stack.find_branch("feature-a").is_none());
+        let b = updated_stack.find_branch("feature-b").unwrap();
+        assert_eq!(b.parent.as_ref().unwrap().as_str(), main_branch.as_str());
+    }
+
+    #[test]
+    fn test_undo_sync() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create feature-a at current HEAD
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Get the original SHA of feature-a
+        let _original_sha = head.id().to_string();
+
+        // Checkout feature-a and add a commit
+        git_repo.set_head("refs/heads/feature-a").unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        add_commit(&temp, &git_repo, "feature-a.txt", "Feature A commit");
+
+        // Get the new SHA
+        let new_sha = git_repo
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        // Create a backup (simulating what sync does)
+        let backup_refs = vec![("feature-a", new_sha.as_str())];
+        let backup_id = state.create_backup(&backup_refs).unwrap();
+
+        // Modify the backup to point to original SHA (simulating pre-sync state)
+        // Actually, let's just test that undo_sync works with a valid backup
+        // by creating a backup with current state and verifying it can be restored
+
+        // Create stack
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch)).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        // Now undo should restore from the backup
+        let result = undo_sync(&rung_repo, &state).unwrap();
+
+        assert_eq!(result.branches_restored, 1);
+        assert_eq!(result.backup_id, backup_id);
+    }
+
+    #[test]
+    fn test_sync_plan_base_branch_not_found() {
+        let (_temp, rung_repo, git_repo) = init_test_repo();
+
+        let _main_branch = rung_repo.current_branch().unwrap();
+
+        // Create feature-a
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Create stack with feature-a pointing to non-existent base
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", None::<&str>).unwrap());
+
+        // Plan with non-existent base branch should error
+        let result = create_sync_plan(&rung_repo, &stack, "nonexistent-branch");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sync_plan_skips_stale_branches() {
+        let (_temp, rung_repo, git_repo) = init_test_repo();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create only feature-a in git
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // But stack has both feature-a and feature-b (stale)
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+
+        // Plan should only include feature-a (feature-b is stale)
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        // feature-a is at same commit as main, so plan is empty
+        // but importantly, it didn't error on the stale feature-b
+        assert!(plan.is_empty());
+    }
 }
