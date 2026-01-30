@@ -73,6 +73,7 @@ impl StackStatus {
 /// Service for computing stack and branch status.
 pub struct StatusService<'a> {
     repo: &'a Repository,
+    /// Reserved for future sync state queries and PR status updates.
     #[allow(dead_code)]
     state: &'a State,
     stack: &'a Stack,
