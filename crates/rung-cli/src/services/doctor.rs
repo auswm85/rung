@@ -161,11 +161,20 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         }
 
         // Check for detached HEAD
-        if self.repo.current_branch().is_err() {
-            result.issues.push(
-                Issue::error("HEAD is detached (not on a branch)")
-                    .with_suggestion("Checkout a branch with `git checkout <branch>`"),
-            );
+        match self.repo.head_detached() {
+            Ok(true) => {
+                result.issues.push(
+                    Issue::error("HEAD is detached (not on a branch)")
+                        .with_suggestion("Checkout a branch with `git checkout <branch>`"),
+                );
+            }
+            Err(e) => {
+                result.issues.push(
+                    Issue::error(format!("Failed to check HEAD state: {e}"))
+                        .with_suggestion("Ensure you are in a valid git repository"),
+                );
+            }
+            Ok(false) => {}
         }
 
         // Check for rebase in progress
@@ -345,14 +354,21 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         };
 
         // Check PRs for branches that have them
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                result.issues.push(Issue::warning(format!(
-                    "GitHub PR checks skipped: failed to create async runtime: {e}"
-                )));
-                return result;
-            }
+        // Try to reuse existing runtime, or create one if needed
+        let owned_rt;
+        let handle = if let Ok(h) = tokio::runtime::Handle::try_current() {
+            h
+        } else {
+            owned_rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    result.issues.push(Issue::warning(format!(
+                        "GitHub PR checks skipped: failed to create async runtime: {e}"
+                    )));
+                    return result;
+                }
+            };
+            owned_rt.handle().clone()
         };
 
         for branch in &self.stack.branches {
@@ -361,7 +377,7 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             };
 
             // Check if PR is still open
-            match rt.block_on(client.get_pr(&owner, &repo_name, pr_number)) {
+            match handle.block_on(client.get_pr(&owner, &repo_name, pr_number)) {
                 Ok(pr) => {
                     if pr.state != PullRequestState::Open {
                         let state_str = match pr.state {

@@ -144,6 +144,11 @@ impl<'a> StatusService<'a> {
             return Ok(BranchState::Detached);
         }
 
+        // Check if the branch itself still exists
+        if !self.repo.branch_exists(&branch.name) {
+            return Ok(BranchState::Detached);
+        }
+
         // Get commits
         let branch_commit = self.repo.branch_commit(&branch.name)?;
         let parent_commit = self.repo.branch_commit(parent_name)?;
