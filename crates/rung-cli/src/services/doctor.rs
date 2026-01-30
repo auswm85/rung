@@ -140,11 +140,12 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
     /// Run all diagnostic checks and return a complete report.
     #[allow(dead_code)]
     pub fn run_diagnostics(&self) -> Result<DiagnosticReport> {
+        let rt = tokio::runtime::Runtime::new()?;
         Ok(DiagnosticReport {
             git_state: self.check_git_state(),
             stack_integrity: self.check_stack_integrity(),
             sync_state: self.check_sync_state()?,
-            github: self.check_github(),
+            github: rt.block_on(self.check_github()),
         })
     }
 
@@ -325,7 +326,8 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
     }
 
     /// Check GitHub connectivity and PR state.
-    pub fn check_github(&self) -> CheckResult {
+    #[allow(clippy::future_not_send)] // Git operations are sync; future doesn't need Send
+    pub async fn check_github(&self) -> CheckResult {
         let mut result = CheckResult::default();
 
         // Check auth
@@ -354,30 +356,13 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         };
 
         // Check PRs for branches that have them
-        // Try to reuse existing runtime, or create one if needed
-        let owned_rt;
-        let handle = if let Ok(h) = tokio::runtime::Handle::try_current() {
-            h
-        } else {
-            owned_rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(e) => {
-                    result.issues.push(Issue::warning(format!(
-                        "GitHub PR checks skipped: failed to create async runtime: {e}"
-                    )));
-                    return result;
-                }
-            };
-            owned_rt.handle().clone()
-        };
-
         for branch in &self.stack.branches {
             let Some(pr_number) = branch.pr else {
                 continue;
             };
 
             // Check if PR is still open
-            match handle.block_on(client.get_pr(&owner, &repo_name, pr_number)) {
+            match client.get_pr(&owner, &repo_name, pr_number).await {
                 Ok(pr) => {
                     if pr.state != PullRequestState::Open {
                         let state_str = match pr.state {
@@ -394,9 +379,9 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
                         );
                     }
                 }
-                Err(_) => {
+                Err(e) => {
                     result.issues.push(Issue::warning(format!(
-                        "Could not fetch PR #{} for '{}'",
+                        "Could not fetch PR #{} for '{}': {e}",
                         pr_number, branch.name
                     )));
                 }

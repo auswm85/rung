@@ -89,7 +89,8 @@ pub fn run(json: bool) -> Result<()> {
     if !json {
         print_check("Checking GitHub...");
     }
-    let github_result = service.check_github();
+    let rt = tokio::runtime::Runtime::new()?;
+    let github_result = rt.block_on(service.check_github());
     if !json {
         print_status(&github_result);
     }

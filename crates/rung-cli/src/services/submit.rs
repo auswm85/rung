@@ -3,6 +3,7 @@
 //! This service encapsulates the business logic for the submit command,
 //! accepting trait-based dependencies for testability.
 
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use anyhow::{Context, Result};
@@ -449,7 +450,12 @@ fn generate_stack_comment(stack: &Stack, current_pr: u64, default_branch: &str) 
     let base = current_branch
         .and_then(|b| {
             let mut current = b;
+            let mut visited = HashSet::new();
             loop {
+                // Cycle detection: if we've seen this branch, stop
+                if !visited.insert(current.name.as_str()) {
+                    return Some(default_branch);
+                }
                 if let Some(ref parent) = current.parent {
                     if let Some(p) = branches.iter().find(|br| &br.name == parent) {
                         current = p;
@@ -475,8 +481,14 @@ fn build_branch_chain(stack: &Stack, current_name: &str) -> Vec<String> {
     let branches = &stack.branches;
     let mut ancestors: Vec<String> = vec![];
     let mut current = current_name.to_string();
+    let mut visited = HashSet::new();
 
     loop {
+        // Cycle detection: if we've seen this branch, stop
+        if !visited.insert(current.clone()) {
+            break;
+        }
+
         let parent = branches
             .iter()
             .find(|b| b.name == current)
