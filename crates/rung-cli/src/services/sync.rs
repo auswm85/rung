@@ -589,4 +589,623 @@ mod tests {
         };
         assert!(reparent.pr_number.is_none());
     }
+
+    // Tests using mock implementations
+    #[allow(clippy::manual_async_fn, clippy::unwrap_used)]
+    mod mock_tests {
+        use super::super::*;
+        use crate::services::test_mocks::{MockGitOps, MockStateStore};
+        use rung_core::stack::{Stack, StackBranch};
+        use rung_git::Oid;
+
+        // Mock GitHubApi for testing
+        struct MockGitHubClient;
+
+        impl rung_github::GitHubApi for MockGitHubClient {
+            fn get_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                number: u64,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                async move { Err(rung_github::Error::PrNotFound(number)) }
+            }
+
+            fn get_prs_batch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _numbers: &[u64],
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<
+                    std::collections::HashMap<u64, rung_github::PullRequest>,
+                >,
+            > + Send {
+                async { Ok(std::collections::HashMap::new()) }
+            }
+
+            fn find_pr_for_branch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _branch: &str,
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<Option<rung_github::PullRequest>>,
+            > + Send {
+                async { Ok(None) }
+            }
+
+            fn create_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _params: rung_github::CreatePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                async { Err(rung_github::Error::PrNotFound(0)) }
+            }
+
+            fn update_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                number: u64,
+                _params: rung_github::UpdatePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                async move { Err(rung_github::Error::PrNotFound(number)) }
+            }
+
+            fn get_check_runs(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _commit_sha: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
+            {
+                async { Ok(vec![]) }
+            }
+
+            fn merge_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _number: u64,
+                _params: rung_github::MergePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
+            {
+                async {
+                    Ok(rung_github::MergeResult {
+                        sha: "abc123".to_string(),
+                        merged: true,
+                        message: "Merged".to_string(),
+                    })
+                }
+            }
+
+            fn delete_ref(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _ref_name: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
+                async { Ok(()) }
+            }
+
+            fn get_default_branch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
+                async { Ok("main".to_string()) }
+            }
+
+            fn list_pr_comments(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _pr_number: u64,
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<Vec<rung_github::IssueComment>>,
+            > + Send {
+                async { Ok(vec![]) }
+            }
+
+            fn create_pr_comment(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _pr_number: u64,
+                _comment: rung_github::CreateComment,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
+            {
+                async {
+                    Ok(rung_github::IssueComment {
+                        id: 1,
+                        body: Some(String::new()),
+                    })
+                }
+            }
+
+            fn update_pr_comment(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _comment_id: u64,
+                _comment: rung_github::UpdateComment,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
+            {
+                async {
+                    Ok(rung_github::IssueComment {
+                        id: 1,
+                        body: Some(String::new()),
+                    })
+                }
+            }
+        }
+
+        #[test]
+        fn test_push_stack_branches_empty_stack() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+            let client = MockGitHubClient;
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let result = service.push_stack_branches(&state).unwrap();
+
+            assert!(result.is_empty());
+        }
+
+        #[test]
+        fn test_push_stack_branches_with_branches() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("feature/a", oid)
+                .with_branch("feature/b", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+            stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+            let client = MockGitHubClient;
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let result = service.push_stack_branches(&state).unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert!(result.iter().all(|r| r.success));
+        }
+
+        #[test]
+        fn test_push_stack_branches_with_push_failure() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("feature/a", oid)
+                .with_branch("feature/b", oid)
+                .with_push_result("feature/b", false);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+            stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+            let client = MockGitHubClient;
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let result = service.push_stack_branches(&state).unwrap();
+
+            assert_eq!(result.len(), 2);
+            assert!(result[0].success); // feature/a succeeds
+            assert!(!result[1].success); // feature/b fails
+        }
+
+        #[test]
+        fn test_push_stack_branches_skips_nonexistent() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/a", oid);
+            // Note: feature/b is NOT in git but IS in stack
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+            stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+            let client = MockGitHubClient;
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let result = service.push_stack_branches(&state).unwrap();
+
+            // Only feature/a should be pushed (feature/b doesn't exist in git)
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].branch, "feature/a");
+        }
+
+        #[test]
+        fn test_fetch_base_success() {
+            let git = MockGitOps::new();
+            let client = MockGitHubClient;
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let result = service.fetch_base("main");
+
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_sync_service_creation() {
+            let git = MockGitOps::new();
+            let client = MockGitHubClient;
+
+            let service = SyncService::new(
+                &git,
+                &client,
+                "test-owner".to_string(),
+                "test-repo".to_string(),
+            );
+
+            // Service is created successfully - we can't access private fields
+            // but we can verify it doesn't panic
+            assert!(service.fetch_base("main").is_ok());
+        }
+
+        // Configurable mock for more complex scenarios
+        struct ConfigurableMockGitHubClient {
+            return_merged_prs: Vec<u64>,
+            pr_base_branches: std::collections::HashMap<u64, String>,
+        }
+
+        impl ConfigurableMockGitHubClient {
+            fn new() -> Self {
+                Self {
+                    return_merged_prs: Vec::new(),
+                    pr_base_branches: std::collections::HashMap::new(),
+                }
+            }
+
+            fn with_merged_pr(mut self, pr_number: u64) -> Self {
+                self.return_merged_prs.push(pr_number);
+                self
+            }
+
+            fn with_pr_base(mut self, pr_number: u64, base: &str) -> Self {
+                self.pr_base_branches.insert(pr_number, base.to_string());
+                self
+            }
+        }
+
+        impl rung_github::GitHubApi for ConfigurableMockGitHubClient {
+            fn get_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                number: u64,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                let is_merged = self.return_merged_prs.contains(&number);
+                let base = self
+                    .pr_base_branches
+                    .get(&number)
+                    .cloned()
+                    .unwrap_or_else(|| "main".to_string());
+                async move {
+                    Ok(rung_github::PullRequest {
+                        number,
+                        title: format!("PR #{number}"),
+                        body: None,
+                        state: if is_merged {
+                            rung_github::PullRequestState::Merged
+                        } else {
+                            rung_github::PullRequestState::Open
+                        },
+                        base_branch: base,
+                        head_branch: format!("feature-{number}"),
+                        html_url: format!("https://github.com/test/repo/pull/{number}"),
+                        mergeable: Some(true),
+                        mergeable_state: None,
+                        draft: false,
+                    })
+                }
+            }
+
+            fn get_prs_batch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                numbers: &[u64],
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<
+                    std::collections::HashMap<u64, rung_github::PullRequest>,
+                >,
+            > + Send {
+                let mut result = std::collections::HashMap::new();
+                for &number in numbers {
+                    let is_merged = self.return_merged_prs.contains(&number);
+                    let base = self
+                        .pr_base_branches
+                        .get(&number)
+                        .cloned()
+                        .unwrap_or_else(|| "main".to_string());
+                    result.insert(
+                        number,
+                        rung_github::PullRequest {
+                            number,
+                            title: format!("PR #{number}"),
+                            body: None,
+                            state: if is_merged {
+                                rung_github::PullRequestState::Merged
+                            } else {
+                                rung_github::PullRequestState::Open
+                            },
+                            base_branch: base,
+                            head_branch: format!("feature-{number}"),
+                            html_url: format!("https://github.com/test/repo/pull/{number}"),
+                            mergeable: Some(true),
+                            mergeable_state: None,
+                            draft: false,
+                        },
+                    );
+                }
+                async move { Ok(result) }
+            }
+
+            fn find_pr_for_branch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _branch: &str,
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<Option<rung_github::PullRequest>>,
+            > + Send {
+                async { Ok(None) }
+            }
+
+            fn create_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _params: rung_github::CreatePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                async { Err(rung_github::Error::PrNotFound(0)) }
+            }
+
+            fn update_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                number: u64,
+                _params: rung_github::UpdatePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                async move {
+                    Ok(rung_github::PullRequest {
+                        number,
+                        title: "Updated".to_string(),
+                        body: None,
+                        state: rung_github::PullRequestState::Open,
+                        base_branch: "main".to_string(),
+                        head_branch: "feature".to_string(),
+                        html_url: format!("https://github.com/test/repo/pull/{number}"),
+                        mergeable: Some(true),
+                        mergeable_state: None,
+                        draft: false,
+                    })
+                }
+            }
+
+            fn get_check_runs(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _commit_sha: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
+            {
+                async { Ok(vec![]) }
+            }
+
+            fn merge_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _number: u64,
+                _params: rung_github::MergePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
+            {
+                async {
+                    Ok(rung_github::MergeResult {
+                        sha: "abc123".to_string(),
+                        merged: true,
+                        message: "Merged".to_string(),
+                    })
+                }
+            }
+
+            fn delete_ref(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _ref_name: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
+                async { Ok(()) }
+            }
+
+            fn get_default_branch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
+                async { Ok("main".to_string()) }
+            }
+
+            fn list_pr_comments(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _pr_number: u64,
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<Vec<rung_github::IssueComment>>,
+            > + Send {
+                async { Ok(vec![]) }
+            }
+
+            fn create_pr_comment(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _pr_number: u64,
+                _comment: rung_github::CreateComment,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
+            {
+                async {
+                    Ok(rung_github::IssueComment {
+                        id: 1,
+                        body: Some(String::new()),
+                    })
+                }
+            }
+
+            fn update_pr_comment(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _comment_id: u64,
+                _comment: rung_github::UpdateComment,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
+            {
+                async {
+                    Ok(rung_github::IssueComment {
+                        id: 1,
+                        body: Some(String::new()),
+                    })
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn test_detect_and_reconcile_no_prs() {
+            let git = MockGitOps::new();
+            let client = ConfigurableMockGitHubClient::new();
+            let state = MockStateStore::new();
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+
+            let result = service.detect_and_reconcile_merged(&state, "main").await;
+            assert!(result.is_ok());
+            let reconciled = result.unwrap();
+            assert!(reconciled.merged.is_empty());
+            assert!(reconciled.reparented.is_empty());
+            assert!(reconciled.repaired.is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_detect_and_reconcile_with_open_prs() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/a", oid);
+            let client = ConfigurableMockGitHubClient::new().with_pr_base(10, "main");
+
+            let mut stack = Stack::default();
+            let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
+            branch.pr = Some(10);
+            stack.add_branch(branch);
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+
+            let result = service.detect_and_reconcile_merged(&state, "main").await;
+            assert!(result.is_ok());
+            let reconciled = result.unwrap();
+            // PR is open and base matches, so no changes
+            assert!(reconciled.merged.is_empty());
+            assert!(reconciled.reparented.is_empty());
+        }
+
+        #[tokio::test]
+        async fn test_detect_and_reconcile_detects_merged_pr() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/a", oid);
+            let client = ConfigurableMockGitHubClient::new()
+                .with_merged_pr(10)
+                .with_pr_base(10, "main");
+
+            let mut stack = Stack::default();
+            let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
+            branch.pr = Some(10);
+            stack.add_branch(branch);
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+
+            let result = service.detect_and_reconcile_merged(&state, "main").await;
+            assert!(result.is_ok());
+            let reconciled = result.unwrap();
+            // PR was merged, should be detected
+            assert_eq!(reconciled.merged.len(), 1);
+            assert_eq!(reconciled.merged[0].name, "feature/a");
+        }
+
+        #[tokio::test]
+        async fn test_detect_ghost_parent() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/a", oid);
+            // PR base is "old-parent" but stack says it should be "main"
+            let client = ConfigurableMockGitHubClient::new().with_pr_base(10, "old-parent");
+
+            let mut stack = Stack::default();
+            let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
+            branch.pr = Some(10);
+            stack.add_branch(branch);
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+
+            let result = service.detect_and_reconcile_merged(&state, "main").await;
+            assert!(result.is_ok());
+            let reconciled = result.unwrap();
+            // Should detect ghost parent
+            assert!(reconciled.merged.is_empty());
+            assert_eq!(reconciled.repaired.len(), 1);
+            assert_eq!(reconciled.repaired[0].name, "feature/a");
+            assert_eq!(reconciled.repaired[0].old_parent, "old-parent");
+            assert_eq!(reconciled.repaired[0].new_parent, "main");
+        }
+
+        #[tokio::test]
+        async fn test_update_pr_bases_empty() {
+            let git = MockGitOps::new();
+            let client = ConfigurableMockGitHubClient::new();
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+
+            let empty_result = rung_core::sync::ReconcileResult::default();
+            let result = service.update_pr_bases(&empty_result).await;
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn test_update_pr_bases_with_reparented() {
+            let git = MockGitOps::new();
+            let client = ConfigurableMockGitHubClient::new().with_pr_base(10, "old-parent");
+
+            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+
+            let reconcile_result = rung_core::sync::ReconcileResult {
+                merged: vec![],
+                reparented: vec![rung_core::sync::ReparentedBranch {
+                    name: "feature/a".to_string(),
+                    old_parent: "old-parent".to_string(),
+                    new_parent: "main".to_string(),
+                    pr_number: Some(10),
+                }],
+                repaired: vec![],
+            };
+
+            let result = service.update_pr_bases(&reconcile_result).await;
+            assert!(result.is_ok());
+        }
+    }
 }

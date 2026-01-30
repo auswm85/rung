@@ -498,4 +498,442 @@ mod tests {
         assert!(!result.rebased);
         assert!(!result.pr_updated);
     }
+
+    // Mock-based tests for MergeService methods
+    #[allow(clippy::manual_async_fn, clippy::unwrap_used, clippy::expect_used)]
+    mod mock_tests {
+        use super::*;
+        use crate::services::test_mocks::{MockGitOps, MockStateStore};
+        use rung_core::stack::StackBranch;
+        use rung_git::Oid;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        // Mock GitHubApi for merge testing
+        struct MockGitHubClient {
+            pr_mergeable: bool,
+            merge_should_fail: bool,
+            delete_should_fail: bool,
+            update_pr_called: AtomicBool,
+        }
+
+        impl MockGitHubClient {
+            fn new() -> Self {
+                Self {
+                    pr_mergeable: true,
+                    merge_should_fail: false,
+                    delete_should_fail: false,
+                    update_pr_called: AtomicBool::new(false),
+                }
+            }
+
+            fn with_unmergeable_pr(mut self) -> Self {
+                self.pr_mergeable = false;
+                self
+            }
+
+            fn with_merge_failure(mut self) -> Self {
+                self.merge_should_fail = true;
+                self
+            }
+
+            fn with_delete_failure(mut self) -> Self {
+                self.delete_should_fail = true;
+                self
+            }
+        }
+
+        impl rung_github::GitHubApi for MockGitHubClient {
+            fn get_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                number: u64,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                let mergeable = self.pr_mergeable;
+                async move {
+                    Ok(rung_github::PullRequest {
+                        number,
+                        title: "Test PR".to_string(),
+                        body: None,
+                        state: rung_github::PullRequestState::Open,
+                        base_branch: "main".to_string(),
+                        head_branch: "feature".to_string(),
+                        html_url: format!("https://github.com/test/repo/pull/{number}"),
+                        mergeable: Some(mergeable),
+                        mergeable_state: Some(if mergeable {
+                            "clean".to_string()
+                        } else {
+                            "blocked".to_string()
+                        }),
+                        draft: false,
+                    })
+                }
+            }
+
+            fn get_prs_batch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _numbers: &[u64],
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<
+                    std::collections::HashMap<u64, rung_github::PullRequest>,
+                >,
+            > + Send {
+                async { Ok(std::collections::HashMap::new()) }
+            }
+
+            fn find_pr_for_branch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _branch: &str,
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<Option<rung_github::PullRequest>>,
+            > + Send {
+                async { Ok(None) }
+            }
+
+            fn create_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _params: rung_github::CreatePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                async { Err(rung_github::Error::PrNotFound(0)) }
+            }
+
+            fn update_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                number: u64,
+                _params: rung_github::UpdatePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
+            {
+                self.update_pr_called.store(true, Ordering::SeqCst);
+                async move {
+                    Ok(rung_github::PullRequest {
+                        number,
+                        title: "Updated".to_string(),
+                        body: None,
+                        state: rung_github::PullRequestState::Open,
+                        base_branch: "main".to_string(),
+                        head_branch: "feature".to_string(),
+                        html_url: format!("https://github.com/test/repo/pull/{number}"),
+                        mergeable: None,
+                        mergeable_state: None,
+                        draft: false,
+                    })
+                }
+            }
+
+            fn get_check_runs(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _commit_sha: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
+            {
+                async { Ok(vec![]) }
+            }
+
+            fn merge_pr(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _number: u64,
+                _params: rung_github::MergePullRequest,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
+            {
+                let should_fail = self.merge_should_fail;
+                async move {
+                    if should_fail {
+                        Err(rung_github::Error::ApiError {
+                            status: 405,
+                            message: "mock merge failed".to_string(),
+                        })
+                    } else {
+                        Ok(rung_github::MergeResult {
+                            sha: "abc123".to_string(),
+                            merged: true,
+                            message: "Pull Request successfully merged".to_string(),
+                        })
+                    }
+                }
+            }
+
+            fn delete_ref(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _branch: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
+                let should_fail = self.delete_should_fail;
+                async move {
+                    if should_fail {
+                        Err(rung_github::Error::ApiError {
+                            status: 404,
+                            message: "ref not found".to_string(),
+                        })
+                    } else {
+                        Ok(())
+                    }
+                }
+            }
+
+            fn get_default_branch(
+                &self,
+                _owner: &str,
+                _repo: &str,
+            ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
+                async { Ok("main".to_string()) }
+            }
+
+            fn list_pr_comments(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _pr_number: u64,
+            ) -> impl std::future::Future<
+                Output = rung_github::Result<Vec<rung_github::IssueComment>>,
+            > + Send {
+                async { Ok(vec![]) }
+            }
+
+            fn create_pr_comment(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _pr_number: u64,
+                _comment: rung_github::CreateComment,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
+            {
+                async {
+                    Ok(rung_github::IssueComment {
+                        id: 1,
+                        body: Some(String::new()),
+                    })
+                }
+            }
+
+            fn update_pr_comment(
+                &self,
+                _owner: &str,
+                _repo: &str,
+                _comment_id: u64,
+                _comment: rung_github::UpdateComment,
+            ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
+            {
+                async {
+                    Ok(rung_github::IssueComment {
+                        id: 1,
+                        body: Some(String::new()),
+                    })
+                }
+            }
+        }
+
+        #[test]
+        fn test_merge_service_creation() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            // Service should be created successfully
+            assert_eq!(service.owner, "owner");
+            assert_eq!(service.repo_name, "repo");
+        }
+
+        #[tokio::test]
+        async fn test_validate_mergeable_success() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.validate_mergeable(123).await;
+            assert!(result.is_ok());
+            let pr = result.unwrap();
+            assert_eq!(pr.number, 123);
+            assert_eq!(pr.mergeable, Some(true));
+        }
+
+        #[tokio::test]
+        async fn test_validate_mergeable_not_mergeable() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new().with_unmergeable_pr();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.validate_mergeable(123).await;
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("not mergeable"));
+        }
+
+        #[tokio::test]
+        async fn test_merge_pr_success() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.merge_pr(123, MergeMethod::Squash).await;
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn test_merge_pr_failure() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new().with_merge_failure();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.merge_pr(123, MergeMethod::Squash).await;
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn test_delete_remote_branch_success() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.delete_remote_branch("feature").await;
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn test_delete_remote_branch_failure() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new().with_delete_failure();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.delete_remote_branch("feature").await;
+            assert!(result.is_err());
+        }
+
+        #[test]
+        #[allow(clippy::expect_used)]
+        fn test_update_stack_after_merge() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            // Parent branch must have a PR number to be added to merged list
+            let mut parent_branch = StackBranch::try_new("feature/parent", None::<&str>).unwrap();
+            parent_branch.pr = Some(10);
+            stack.add_branch(parent_branch);
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let children_count = service
+                .update_stack_after_merge(&state, "feature/parent", "main")
+                .expect("update should succeed");
+
+            assert_eq!(children_count, 1);
+
+            // Verify stack was updated
+            let updated_stack = state.load_stack().unwrap();
+            // The parent branch should be in merged list (only if it had a PR)
+            assert!(
+                updated_stack
+                    .merged
+                    .iter()
+                    .any(|m| m.name.as_str() == "feature/parent")
+            );
+            // The child should now point to main
+            let child = updated_stack.find_branch("feature/child").unwrap();
+            assert_eq!(child.parent.as_ref().unwrap().as_str(), "main");
+        }
+
+        #[test]
+        fn test_update_stack_after_merge_no_children() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/only", None::<&str>).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let children_count = service
+                .update_stack_after_merge(&state, "feature/only", "main")
+                .expect("update should succeed");
+
+            assert_eq!(children_count, 0);
+        }
+
+        #[tokio::test]
+        #[allow(clippy::expect_used)]
+        async fn test_shift_child_pr_bases() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid);
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            let mut parent_branch = StackBranch::try_new("feature/parent", None::<&str>).unwrap();
+            parent_branch.pr = Some(10);
+            stack.add_branch(parent_branch);
+
+            let mut child_branch =
+                StackBranch::try_new("feature/child", Some("feature/parent")).unwrap();
+            child_branch.pr = Some(20);
+            stack.add_branch(child_branch);
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let descendants = vec!["feature/child".to_string()];
+            let result = service
+                .shift_child_pr_bases(&stack, "feature/parent", "main", &descendants)
+                .await;
+
+            assert!(result.is_ok());
+            let shifted = result.unwrap();
+            assert_eq!(shifted.len(), 1);
+            assert_eq!(shifted[0].0, 20); // PR number
+            assert_eq!(shifted[0].1, "feature/parent"); // Original base
+        }
+
+        #[tokio::test]
+        async fn test_rollback_pr_bases() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let shifted_prs = vec![(20, "feature/parent".to_string())];
+
+            // This should not panic
+            service.rollback_pr_bases(&shifted_prs).await;
+
+            // Verify update_pr was called
+            assert!(github.update_pr_called.load(Ordering::SeqCst));
+        }
+    }
 }
