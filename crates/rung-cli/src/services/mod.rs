@@ -23,7 +23,7 @@ pub use create::CreateService;
 pub use doctor::{CheckResult, DoctorService, Issue, Severity};
 pub use log::{CommitInfo, LogResult, LogService};
 pub use merge::MergeService;
-pub use restack::{DivergenceInfo, RestackConfig, RestackService};
+pub use restack::{DivergenceInfo, RestackConfig, RestackError, RestackService};
 pub use status::{BranchStatusInfo, RemoteDivergenceInfo, StackStatus, StatusService};
 pub use submit::{
     BranchSubmitResult, PlannedBranchAction, SubmitAction, SubmitConfig, SubmitPlan, SubmitService,

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::commands::utils;
 use crate::output;
-use crate::services::{DivergenceInfo, RestackConfig, RestackService};
+use crate::services::{DivergenceInfo, RestackConfig, RestackError, RestackService};
 
 /// JSON output for restack command.
 #[derive(Debug, Serialize)]
@@ -341,7 +341,7 @@ fn print_restack_start(
 
 /// Handle the result of a restack operation.
 fn handle_restack_result(
-    result: Result<crate::services::restack::RestackResult>,
+    result: Result<crate::services::restack::RestackResult, RestackError>,
     json: bool,
 ) -> Result<()> {
     match result {
@@ -376,14 +376,11 @@ fn handle_restack_result(
             }
             Ok(())
         }
-        Err(e) => {
-            let err_str = e.to_string();
-            if err_str.contains("Rebase conflict") {
-                output_conflict(&[], json)?;
-                bail!("Rebase conflict - resolve and run `rung restack --continue`");
-            }
-            Err(e)
+        Err(RestackError::Conflict { branch, files }) => {
+            output_conflict(&files, json)?;
+            bail!("Rebase conflict in '{branch}' - resolve and run `rung restack --continue`");
         }
+        Err(RestackError::Other(e)) => Err(e),
     }
 }
 
@@ -424,47 +421,8 @@ fn handle_continue<G: rung_git::GitOps>(
 
     let result = service.continue_restack(state);
 
-    match result {
-        Ok(result) => {
-            if json {
-                let diverged_output: Vec<DivergenceInfoOutput> = result
-                    .diverged_branches
-                    .iter()
-                    .map(DivergenceInfoOutput::from)
-                    .collect();
-                let output = RestackOutput {
-                    status: RestackStatus::Complete,
-                    branch: result.target_branch,
-                    old_parent: result.old_parent,
-                    new_parent: result.new_parent,
-                    branches_rebased: result.branches_rebased,
-                    diverged_branches: diverged_output,
-                };
-                println!("{}", serde_json::to_string_pretty(&output)?);
-            } else if result.branches_rebased.len() > 1 {
-                output::success(&format!(
-                    "Restacked '{}' and {} descendant(s) onto '{}'",
-                    result.target_branch,
-                    result.branches_rebased.len() - 1,
-                    result.new_parent
-                ));
-            } else {
-                output::success(&format!(
-                    "Restacked '{}' onto '{}'",
-                    result.target_branch, result.new_parent
-                ));
-            }
-            Ok(())
-        }
-        Err(e) => {
-            let err_str = e.to_string();
-            if err_str.contains("Rebase conflict") {
-                output_conflict(&[], json)?;
-                bail!("Rebase conflict - resolve and run `rung restack --continue`");
-            }
-            Err(e)
-        }
-    }
+    // Reuse handle_restack_result for consistent error handling
+    handle_restack_result(result, json)
 }
 
 /// Output conflict information
