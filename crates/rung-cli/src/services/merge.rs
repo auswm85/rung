@@ -269,6 +269,8 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
             // Attempt rebase
             if let Err(e) = self.repo.rebase_onto_from(new_base_commit, old_base_commit) {
+                // Abort the failed rebase to leave repo in a clean state for subsequent operations
+                let _ = self.repo.rebase_abort();
                 failed_branches.insert(branch_name.clone());
                 results.push(DescendantResult {
                     branch: branch_name.clone(),

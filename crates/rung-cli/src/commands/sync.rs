@@ -180,7 +180,9 @@ fn determine_base_branch(
     }
 
     let (owner, repo_name) = github_info.ok_or_else(|| {
-        anyhow::anyhow!("No origin remote configured. Use --base <branch> to specify manually.")
+        anyhow::anyhow!(
+            "No GitHub origin remote detected. Use --base <branch> to specify manually."
+        )
     })?;
     let client = GitHubClient::new(&Auth::auto()).context(
         "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",

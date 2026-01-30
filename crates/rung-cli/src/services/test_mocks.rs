@@ -111,7 +111,9 @@ impl GitOps for MockGitOps {
     }
 
     fn list_branches(&self) -> GitResult<Vec<String>> {
-        Ok(self.branches.borrow().keys().cloned().collect())
+        let mut branches: Vec<String> = self.branches.borrow().keys().cloned().collect();
+        branches.sort();
+        Ok(branches)
     }
 
     fn branch_commit(&self, branch: &str) -> GitResult<Oid> {
