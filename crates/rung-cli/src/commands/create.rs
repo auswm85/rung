@@ -21,10 +21,10 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
     let branch_name = BranchName::new(&name).context("Invalid branch name")?;
 
     // Validate message content (even when name is provided explicitly)
-    if let Some(msg) = message {
-        if slugify(msg).is_empty() {
-            bail!("Commit message must contain at least one alphanumeric character");
-        }
+    if let Some(msg) = message
+        && slugify(msg).is_empty()
+    {
+        bail!("Commit message must contain at least one alphanumeric character");
     }
 
     // Open repository

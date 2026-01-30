@@ -74,7 +74,7 @@ impl CheckResult {
 
     /// Check if this result is clean (no issues).
     #[allow(dead_code)]
-    pub fn is_clean(&self) -> bool {
+    pub const fn is_clean(&self) -> bool {
         self.issues.is_empty()
     }
 }
@@ -204,16 +204,17 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             }
 
             // Check if parent exists (for non-root branches)
-            if let Some(parent) = &branch.parent {
-                if !self.repo.branch_exists(parent) && self.stack.find_branch(parent).is_none() {
-                    result.issues.push(
-                        Issue::error(format!(
-                            "Branch '{}' has missing parent '{}'",
-                            branch.name, parent
-                        ))
-                        .with_suggestion("Run `rung sync` to re-parent orphaned branches"),
-                    );
-                }
+            if let Some(parent) = &branch.parent
+                && !self.repo.branch_exists(parent)
+                && self.stack.find_branch(parent).is_none()
+            {
+                result.issues.push(
+                    Issue::error(format!(
+                        "Branch '{}' has missing parent '{}'",
+                        branch.name, parent
+                    ))
+                    .with_suggestion("Run `rung sync` to re-parent orphaned branches"),
+                );
             }
         }
 
@@ -261,12 +262,11 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
 
         path.push(branch_name.to_owned());
 
-        if let Some(branch) = self.stack.find_branch(branch_name) {
-            if let Some(parent) = &branch.parent {
-                if self.stack.find_branch(parent).is_some() {
-                    return self.find_circular_dependency_impl(parent, path);
-                }
-            }
+        if let Some(branch) = self.stack.find_branch(branch_name)
+            && let Some(parent) = &branch.parent
+            && self.stack.find_branch(parent).is_some()
+        {
+            return self.find_circular_dependency_impl(parent, path);
         }
 
         path.pop();
@@ -306,12 +306,10 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             if let (Ok(branch_commit), Ok(parent_commit)) = (
                 self.repo.branch_commit(&branch.name),
                 self.repo.branch_commit(parent_name),
-            ) {
-                if let Ok(merge_base) = self.repo.merge_base(branch_commit, parent_commit) {
-                    if merge_base != parent_commit {
-                        needs_sync += 1;
-                    }
-                }
+            ) && let Ok(merge_base) = self.repo.merge_base(branch_commit, parent_commit)
+                && merge_base != parent_commit
+            {
+                needs_sync += 1;
             }
         }
 

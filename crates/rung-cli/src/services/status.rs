@@ -65,7 +65,7 @@ impl StackStatus {
     }
 
     /// Check if the stack is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.branches.is_empty()
     }
 }

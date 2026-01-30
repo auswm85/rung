@@ -105,20 +105,20 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
                 .map_or(parent_branch, |p| p.as_str());
 
             // Only shift direct children of the merging branch
-            if stack_parent == current_branch {
-                if let Some(child_pr_num) = branch_info.pr {
-                    let update = UpdatePullRequest {
-                        title: None,
-                        body: None,
-                        base: Some(parent_branch.to_string()),
-                    };
-                    self.client
-                        .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
-                        .await
-                        .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
+            if stack_parent == current_branch
+                && let Some(child_pr_num) = branch_info.pr
+            {
+                let update = UpdatePullRequest {
+                    title: None,
+                    body: None,
+                    base: Some(parent_branch.to_string()),
+                };
+                self.client
+                    .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
+                    .await
+                    .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
 
-                    shifted_prs.push((child_pr_num, current_branch.to_string()));
-                }
+                shifted_prs.push((child_pr_num, current_branch.to_string()));
             }
         }
 
@@ -287,21 +287,22 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
             // Update PR base for grandchildren (direct children were already shifted)
             // Only update if this branch and all its ancestors succeeded
             let mut pr_updated = false;
-            if stack_parent != current_branch && !failed_branches.contains(branch_name) {
-                if let Some(child_pr_num) = branch_info.pr {
-                    let update = UpdatePullRequest {
-                        title: None,
-                        body: None,
-                        base: Some(new_base.clone()),
-                    };
-                    if self
-                        .client
-                        .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
-                        .await
-                        .is_ok()
-                    {
-                        pr_updated = true;
-                    }
+            if stack_parent != current_branch
+                && !failed_branches.contains(branch_name)
+                && let Some(child_pr_num) = branch_info.pr
+            {
+                let update = UpdatePullRequest {
+                    title: None,
+                    body: None,
+                    base: Some(new_base.clone()),
+                };
+                if self
+                    .client
+                    .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
+                    .await
+                    .is_ok()
+                {
+                    pr_updated = true;
                 }
             }
 

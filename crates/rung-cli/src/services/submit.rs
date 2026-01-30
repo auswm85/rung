@@ -67,7 +67,7 @@ impl SubmitPlan {
 
     /// Check if this plan is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.actions.is_empty()
     }
 }
@@ -157,10 +157,10 @@ where
 
             // Get title and body from commit message
             let (mut title, body) = self.get_pr_title_and_body(branch_name);
-            if config.current_branch.as_deref() == Some(branch_name.as_str()) {
-                if let Some(custom) = config.custom_title {
-                    title = custom.to_string();
-                }
+            if config.current_branch.as_deref() == Some(branch_name.as_str())
+                && let Some(custom) = config.custom_title
+            {
+                title = custom.to_string();
             }
 
             // Check if PR already exists
@@ -245,10 +245,9 @@ where
                     // Persist PR number if discovered during planning
                     if let Some(stack_branch) =
                         stack.branches.iter_mut().find(|b| &b.name == branch)
+                        && stack_branch.pr.is_none()
                     {
-                        if stack_branch.pr.is_none() {
-                            stack_branch.pr = Some(*pr_number);
-                        }
+                        stack_branch.pr = Some(*pr_number);
                     }
 
                     results.push(BranchSubmitResult {

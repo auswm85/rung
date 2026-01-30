@@ -98,10 +98,10 @@ pub fn run(
     if !json {
         output::info(&format!("Fetching {base_branch}..."));
     }
-    if let Err(e) = repo.fetch(&base_branch) {
-        if !json {
-            output::warn(&format!("Could not fetch {base_branch}: {e}"));
-        }
+    if let Err(e) = repo.fetch(&base_branch)
+        && !json
+    {
+        output::warn(&format!("Could not fetch {base_branch}: {e}"));
     }
 
     // Create GitHub client (if available)
@@ -161,10 +161,10 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
     let result = sync::continue_sync(repo, state)?;
 
     // If sync completed successfully, push the branches
-    if let SyncResult::Complete { .. } = &result {
-        if !no_push {
-            push_stack_branches(repo, state, json)?;
-        }
+    if let SyncResult::Complete { .. } = &result
+        && !no_push
+    {
+        push_stack_branches(repo, state, json)?;
     }
 
     handle_sync_result(result, json)
@@ -285,15 +285,15 @@ fn run_sync_phases(
     }
 
     // Phase 4: Update GitHub PR bases
-    if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
-        if !reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty() {
-            if !json {
-                output::info("Updating PR base branches on GitHub...");
-            }
-            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
-            rt.block_on(service.update_pr_bases(&reconcile_result))?;
-            print_pr_updates(&reconcile_result, json);
+    if let (Some(client), Some((owner, repo_name))) = (client, github_info)
+        && (!reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty())
+    {
+        if !json {
+            output::info("Updating PR base branches on GitHub...");
         }
+        let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+        rt.block_on(service.update_pr_bases(&reconcile_result))?;
+        print_pr_updates(&reconcile_result, json);
     }
 
     // Phase 5: Push all branches
