@@ -18,4 +18,4 @@ pub use absorb::{BlameResult, Hunk};
 pub use error::{Error, Result};
 pub use git2::Oid;
 pub use repository::{RemoteDivergence, Repository};
-pub use traits::GitOps;
+pub use traits::{AbsorbOps, GitOps};

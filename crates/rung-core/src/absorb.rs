@@ -3,9 +3,9 @@
 //! Analyzes staged changes and automatically creates fixup commits
 //! targeting the appropriate commits in the local history.
 
-use rung_git::{Hunk, Oid, Repository};
+use rung_git::{AbsorbOps, BlameResult, Hunk, Oid};
 
-use crate::State;
+use crate::StateStore;
 use crate::error::Result;
 
 /// A planned fixup operation mapping a hunk to its target commit.
@@ -84,17 +84,17 @@ pub struct AbsorbResult {
 /// 3. Creates an action mapping the hunk to its target
 ///
 /// # Arguments
-/// * `repo` - The git repository
-/// * `state` - Rung state for stack information
+/// * `repo` - The git repository (implementing `AbsorbOps`)
+/// * `state` - Rung state for stack information (implementing `StateStore`)
 /// * `base_branch` - The base branch name (e.g., "main")
 ///
 /// # Errors
 /// Returns error if git operations fail.
-pub fn create_absorb_plan(
-    repo: &Repository,
-    state: &State,
-    base_branch: &str,
-) -> Result<AbsorbPlan> {
+pub fn create_absorb_plan<G, S>(repo: &G, state: &S, base_branch: &str) -> Result<AbsorbPlan>
+where
+    G: AbsorbOps,
+    S: StateStore,
+{
     let mut actions = Vec::new();
     let mut unmapped = Vec::new();
 
@@ -151,16 +151,17 @@ pub fn create_absorb_plan(
         };
 
         // Query blame for the original lines (or adjacent line for insert-only hunks)
-        let blame_result = match repo.blame_lines(&hunk.file_path, blame_start, blame_end) {
-            Ok(results) => results,
-            Err(e) => {
-                unmapped.push(UnmappedHunk {
-                    hunk,
-                    reason: UnmapReason::BlameError(e.to_string()),
-                });
-                continue;
-            }
-        };
+        let blame_result: Vec<BlameResult> =
+            match repo.blame_lines(&hunk.file_path, blame_start, blame_end) {
+                Ok(results) => results,
+                Err(e) => {
+                    unmapped.push(UnmappedHunk {
+                        hunk,
+                        reason: UnmapReason::BlameError(e.to_string()),
+                    });
+                    continue;
+                }
+            };
 
         // Check if all blamed lines point to the same commit
         if blame_result.is_empty() {
@@ -222,7 +223,7 @@ pub fn create_absorb_plan(
 /// Multiple targets are not supported because git commit consumes the entire
 /// staging area, making it impossible to create separate fixup commits for
 /// different targets without per-hunk staging (a future enhancement).
-pub fn execute_absorb(repo: &Repository, plan: &AbsorbPlan) -> Result<AbsorbResult> {
+pub fn execute_absorb<G: AbsorbOps>(repo: &G, plan: &AbsorbPlan) -> Result<AbsorbResult> {
     if plan.actions.is_empty() {
         return Ok(AbsorbResult {
             fixups_created: 0,
@@ -274,9 +275,264 @@ pub fn execute_absorb(repo: &Repository, plan: &AbsorbPlan) -> Result<AbsorbResu
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use crate::stack::Stack;
+    use crate::state::{RestackState, SyncState};
+    use rung_git::{GitOps, RemoteDivergence};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    // Mock implementation for AbsorbOps
+    struct MockRepo {
+        hunks: Vec<Hunk>,
+        blame_results: HashMap<String, Vec<BlameResult>>,
+        blame_errors: HashMap<String, String>,
+        branch_commits: HashMap<String, Oid>,
+        commits_between: Vec<Oid>,
+        current_branch: String,
+        is_ancestor_results: HashMap<(Oid, Oid), bool>,
+        fixup_commits_created: RefCell<Vec<Oid>>,
+    }
+
+    impl Default for MockRepo {
+        fn default() -> Self {
+            Self {
+                hunks: vec![],
+                blame_results: HashMap::new(),
+                blame_errors: HashMap::new(),
+                branch_commits: HashMap::new(),
+                commits_between: vec![],
+                current_branch: "feature".to_string(),
+                is_ancestor_results: HashMap::new(),
+                fixup_commits_created: RefCell::new(vec![]),
+            }
+        }
+    }
+
+    impl GitOps for MockRepo {
+        fn workdir(&self) -> Option<&Path> {
+            None
+        }
+        fn current_branch(&self) -> rung_git::Result<String> {
+            Ok(self.current_branch.clone())
+        }
+        fn head_detached(&self) -> rung_git::Result<bool> {
+            Ok(false)
+        }
+        fn is_rebasing(&self) -> bool {
+            false
+        }
+        fn branch_exists(&self, _name: &str) -> bool {
+            true
+        }
+        fn create_branch(&self, _name: &str) -> rung_git::Result<Oid> {
+            unimplemented!()
+        }
+        fn checkout(&self, _branch: &str) -> rung_git::Result<()> {
+            Ok(())
+        }
+        fn delete_branch(&self, _name: &str) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn list_branches(&self) -> rung_git::Result<Vec<String>> {
+            unimplemented!()
+        }
+        fn branch_commit(&self, branch: &str) -> rung_git::Result<Oid> {
+            self.branch_commits
+                .get(branch)
+                .copied()
+                .ok_or_else(|| rung_git::Error::BranchNotFound(branch.to_string()))
+        }
+        fn remote_branch_commit(&self, branch: &str) -> rung_git::Result<Oid> {
+            self.branch_commits
+                .get(&format!("origin/{branch}"))
+                .copied()
+                .ok_or_else(|| rung_git::Error::BranchNotFound(branch.to_string()))
+        }
+        fn branch_commit_message(&self, _branch: &str) -> rung_git::Result<String> {
+            unimplemented!()
+        }
+        fn merge_base(&self, _one: Oid, _two: Oid) -> rung_git::Result<Oid> {
+            unimplemented!()
+        }
+        fn commits_between(&self, _from: Oid, _to: Oid) -> rung_git::Result<Vec<Oid>> {
+            Ok(self.commits_between.clone())
+        }
+        fn count_commits_between(&self, _from: Oid, _to: Oid) -> rung_git::Result<usize> {
+            unimplemented!()
+        }
+        fn is_clean(&self) -> rung_git::Result<bool> {
+            Ok(true)
+        }
+        fn require_clean(&self) -> rung_git::Result<()> {
+            Ok(())
+        }
+        fn stage_all(&self) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn has_staged_changes(&self) -> rung_git::Result<bool> {
+            Ok(!self.hunks.is_empty())
+        }
+        fn create_commit(&self, _message: &str) -> rung_git::Result<Oid> {
+            unimplemented!()
+        }
+        fn rebase_onto(&self, _target: Oid) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn rebase_onto_from(&self, _onto: Oid, _from: Oid) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn conflicting_files(&self) -> rung_git::Result<Vec<String>> {
+            unimplemented!()
+        }
+        fn rebase_abort(&self) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn rebase_continue(&self) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn origin_url(&self) -> rung_git::Result<String> {
+            unimplemented!()
+        }
+        fn remote_divergence(&self, _branch: &str) -> rung_git::Result<RemoteDivergence> {
+            unimplemented!()
+        }
+        fn detect_default_branch(&self) -> Option<String> {
+            Some("main".to_string())
+        }
+        fn push(&self, _branch: &str, _force: bool) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn fetch_all(&self) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn fetch(&self, _branch: &str) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn pull_ff(&self) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+        fn reset_branch(&self, _branch: &str, _commit: Oid) -> rung_git::Result<()> {
+            unimplemented!()
+        }
+    }
+
+    impl AbsorbOps for MockRepo {
+        fn staged_diff_hunks(&self) -> rung_git::Result<Vec<Hunk>> {
+            Ok(self.hunks.clone())
+        }
+
+        fn blame_lines(
+            &self,
+            file_path: &str,
+            _start: u32,
+            _end: u32,
+        ) -> rung_git::Result<Vec<BlameResult>> {
+            if let Some(err) = self.blame_errors.get(file_path) {
+                return Err(rung_git::Error::BlameError(err.clone()));
+            }
+            Ok(self
+                .blame_results
+                .get(file_path)
+                .cloned()
+                .unwrap_or_default())
+        }
+
+        fn is_ancestor(&self, ancestor: Oid, descendant: Oid) -> rung_git::Result<bool> {
+            Ok(self
+                .is_ancestor_results
+                .get(&(ancestor, descendant))
+                .copied()
+                .unwrap_or(false))
+        }
+
+        fn create_fixup_commit(&self, target: Oid) -> rung_git::Result<Oid> {
+            self.fixup_commits_created.borrow_mut().push(target);
+            // Return a new "fixup" commit OID
+            Ok(Oid::from_str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap())
+        }
+    }
+
+    // Mock implementation for StateStore
+    #[derive(Default)]
+    struct MockState {
+        stack: Stack,
+    }
+
+    impl StateStore for MockState {
+        fn is_initialized(&self) -> bool {
+            true
+        }
+        fn init(&self) -> crate::Result<()> {
+            Ok(())
+        }
+        fn rung_dir(&self) -> &Path {
+            Path::new(".git/rung")
+        }
+        fn load_stack(&self) -> crate::Result<Stack> {
+            Ok(self.stack.clone())
+        }
+        fn save_stack(&self, _stack: &Stack) -> crate::Result<()> {
+            Ok(())
+        }
+        fn load_config(&self) -> crate::Result<Config> {
+            Ok(Config::default())
+        }
+        fn save_config(&self, _config: &Config) -> crate::Result<()> {
+            Ok(())
+        }
+        fn default_branch(&self) -> crate::Result<String> {
+            Ok("main".to_string())
+        }
+        fn is_sync_in_progress(&self) -> bool {
+            false
+        }
+        fn load_sync_state(&self) -> crate::Result<SyncState> {
+            unimplemented!()
+        }
+        fn save_sync_state(&self, _state: &SyncState) -> crate::Result<()> {
+            unimplemented!()
+        }
+        fn clear_sync_state(&self) -> crate::Result<()> {
+            unimplemented!()
+        }
+        fn is_restack_in_progress(&self) -> bool {
+            false
+        }
+        fn load_restack_state(&self) -> crate::Result<RestackState> {
+            unimplemented!()
+        }
+        fn save_restack_state(&self, _state: &RestackState) -> crate::Result<()> {
+            unimplemented!()
+        }
+        fn clear_restack_state(&self) -> crate::Result<()> {
+            unimplemented!()
+        }
+        fn create_backup(&self, _branches: &[(&str, &str)]) -> crate::Result<String> {
+            unimplemented!()
+        }
+        fn latest_backup(&self) -> crate::Result<String> {
+            unimplemented!()
+        }
+        fn load_backup(&self, _backup_id: &str) -> crate::Result<Vec<(String, String)>> {
+            unimplemented!()
+        }
+        fn delete_backup(&self, _backup_id: &str) -> crate::Result<()> {
+            unimplemented!()
+        }
+        fn cleanup_backups(&self, _keep: usize) -> crate::Result<()> {
+            unimplemented!()
+        }
+    }
+
+    fn test_oid(n: u8) -> Oid {
+        let hex = format!("{n:0>40}");
+        Oid::from_str(&hex).unwrap()
+    }
 
     #[test]
     fn test_unmap_reason_display() {
@@ -314,5 +570,446 @@ mod tests {
         };
         assert!(plan.actions.is_empty());
         assert!(plan.unmapped.is_empty());
+    }
+
+    #[test]
+    fn test_create_plan_no_staged_changes() {
+        let repo = MockRepo::default();
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert!(plan.unmapped.is_empty());
+    }
+
+    #[test]
+    fn test_create_plan_new_file_unmapped() {
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "new_file.rs".to_string(),
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: 10,
+            content: String::new(),
+            is_new_file: true,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert_eq!(plan.unmapped.len(), 1);
+        assert_eq!(plan.unmapped[0].reason, UnmapReason::NewFile);
+    }
+
+    #[test]
+    fn test_create_plan_successful_mapping() {
+        let target_commit = test_oid(3);
+
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 7,
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.commits_between = vec![target_commit];
+        repo.blame_results.insert(
+            "src/lib.rs".to_string(),
+            vec![BlameResult {
+                commit: target_commit,
+                message: "Add feature".to_string(),
+            }],
+        );
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert_eq!(plan.actions.len(), 1);
+        assert!(plan.unmapped.is_empty());
+        assert_eq!(plan.actions[0].target_commit, target_commit);
+        assert_eq!(plan.actions[0].target_message, "Add feature");
+    }
+
+    #[test]
+    fn test_create_plan_multiple_commits_unmapped() {
+        let commit1 = test_oid(3);
+        let commit2 = test_oid(4);
+
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 7,
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.commits_between = vec![commit1, commit2];
+        repo.blame_results.insert(
+            "src/lib.rs".to_string(),
+            vec![
+                BlameResult {
+                    commit: commit1,
+                    message: "First commit".to_string(),
+                },
+                BlameResult {
+                    commit: commit2,
+                    message: "Second commit".to_string(),
+                },
+            ],
+        );
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert_eq!(plan.unmapped.len(), 1);
+        assert_eq!(plan.unmapped[0].reason, UnmapReason::MultipleCommits);
+    }
+
+    #[test]
+    fn test_create_plan_commit_not_in_stack() {
+        let target_commit = test_oid(99); // Not in commits_between
+
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 7,
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.commits_between = vec![test_oid(3)]; // Different commit
+        repo.blame_results.insert(
+            "src/lib.rs".to_string(),
+            vec![BlameResult {
+                commit: target_commit,
+                message: "Old commit".to_string(),
+            }],
+        );
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert_eq!(plan.unmapped.len(), 1);
+        assert_eq!(plan.unmapped[0].reason, UnmapReason::CommitNotInStack);
+    }
+
+    #[test]
+    fn test_create_plan_commit_on_base_branch() {
+        let base_commit = test_oid(1);
+        let target_commit = test_oid(99);
+
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 7,
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), base_commit);
+        repo.branch_commits
+            .insert("origin/main".to_string(), base_commit);
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.commits_between = vec![test_oid(3)];
+        repo.blame_results.insert(
+            "src/lib.rs".to_string(),
+            vec![BlameResult {
+                commit: target_commit,
+                message: "Base commit".to_string(),
+            }],
+        );
+        // Mark target as ancestor of base (on base branch)
+        repo.is_ancestor_results
+            .insert((target_commit, base_commit), true);
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert_eq!(plan.unmapped.len(), 1);
+        assert_eq!(plan.unmapped[0].reason, UnmapReason::CommitOnBaseBranch);
+    }
+
+    #[test]
+    fn test_create_plan_blame_error() {
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 7,
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.blame_errors
+            .insert("src/lib.rs".to_string(), "file not found".to_string());
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert_eq!(plan.unmapped.len(), 1);
+        match &plan.unmapped[0].reason {
+            UnmapReason::BlameError(msg) => assert!(msg.contains("file not found")),
+            _ => panic!("Expected BlameError"),
+        }
+    }
+
+    #[test]
+    fn test_create_plan_empty_blame_result() {
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10,
+            old_lines: 5,
+            new_start: 10,
+            new_lines: 7,
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.blame_results.insert("src/lib.rs".to_string(), vec![]); // Empty blame results
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        assert!(plan.actions.is_empty());
+        assert_eq!(plan.unmapped.len(), 1);
+        match &plan.unmapped[0].reason {
+            UnmapReason::BlameError(msg) => assert!(msg.contains("no blame results")),
+            _ => panic!("Expected BlameError with 'no blame results'"),
+        }
+    }
+
+    #[test]
+    fn test_create_plan_insert_only_hunk() {
+        // Insert-only hunks have old_lines = 0
+        // They should still work by blaming the adjacent line
+        let target_commit = test_oid(3);
+
+        let mut repo = MockRepo::default();
+        repo.hunks = vec![Hunk {
+            file_path: "src/lib.rs".to_string(),
+            old_start: 10, // Line where insertion happens
+            old_lines: 0,  // Insert-only: no lines deleted
+            new_start: 10,
+            new_lines: 5, // 5 new lines inserted
+            content: String::new(),
+            is_new_file: false,
+        }];
+        repo.branch_commits.insert("main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("origin/main".to_string(), test_oid(1));
+        repo.branch_commits
+            .insert("feature".to_string(), test_oid(2));
+        repo.commits_between = vec![target_commit];
+        repo.blame_results.insert(
+            "src/lib.rs".to_string(),
+            vec![BlameResult {
+                commit: target_commit,
+                message: "Target commit".to_string(),
+            }],
+        );
+
+        let state = MockState::default();
+
+        let plan = create_absorb_plan(&repo, &state, "main").unwrap();
+
+        // Insert-only hunks should be mappable if adjacent line points to valid target
+        assert_eq!(plan.actions.len(), 1);
+        assert!(plan.unmapped.is_empty());
+        assert_eq!(plan.actions[0].target_commit, target_commit);
+    }
+
+    #[test]
+    fn test_execute_absorb_empty_plan() {
+        let repo = MockRepo::default();
+        let plan = AbsorbPlan {
+            actions: vec![],
+            unmapped: vec![],
+        };
+
+        let result = execute_absorb(&repo, &plan).unwrap();
+
+        assert_eq!(result.fixups_created, 0);
+        assert!(result.targeted_commits.is_empty());
+    }
+
+    #[test]
+    fn test_execute_absorb_single_target() {
+        let target_commit = test_oid(3);
+        let repo = MockRepo::default();
+
+        let plan = AbsorbPlan {
+            actions: vec![AbsorbAction {
+                hunk: Hunk {
+                    file_path: "src/lib.rs".to_string(),
+                    old_start: 10,
+                    old_lines: 5,
+                    new_start: 10,
+                    new_lines: 7,
+                    content: String::new(),
+                    is_new_file: false,
+                },
+                target_commit,
+                target_message: "Feature commit".to_string(),
+            }],
+            unmapped: vec![],
+        };
+
+        let result = execute_absorb(&repo, &plan).unwrap();
+
+        assert_eq!(result.fixups_created, 1);
+        assert_eq!(result.targeted_commits.len(), 1);
+        assert_eq!(result.targeted_commits[0], target_commit);
+
+        // Verify fixup commit was created
+        let created = repo.fixup_commits_created.borrow();
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0], target_commit);
+    }
+
+    #[test]
+    fn test_execute_absorb_multiple_hunks_same_target() {
+        let target_commit = test_oid(3);
+        let repo = MockRepo::default();
+
+        let plan = AbsorbPlan {
+            actions: vec![
+                AbsorbAction {
+                    hunk: Hunk {
+                        file_path: "src/lib.rs".to_string(),
+                        old_start: 10,
+                        old_lines: 5,
+                        new_start: 10,
+                        new_lines: 7,
+                        content: String::new(),
+                        is_new_file: false,
+                    },
+                    target_commit,
+                    target_message: "Feature commit".to_string(),
+                },
+                AbsorbAction {
+                    hunk: Hunk {
+                        file_path: "src/main.rs".to_string(),
+                        old_start: 20,
+                        old_lines: 3,
+                        new_start: 20,
+                        new_lines: 5,
+                        content: String::new(),
+                        is_new_file: false,
+                    },
+                    target_commit,
+                    target_message: "Feature commit".to_string(),
+                },
+            ],
+            unmapped: vec![],
+        };
+
+        let result = execute_absorb(&repo, &plan).unwrap();
+
+        // Multiple hunks targeting the same commit should create only one fixup
+        assert_eq!(result.fixups_created, 1);
+        assert_eq!(result.targeted_commits.len(), 1);
+    }
+
+    #[test]
+    fn test_execute_absorb_multiple_targets_error() {
+        let target1 = test_oid(3);
+        let target2 = test_oid(4);
+        let repo = MockRepo::default();
+
+        let plan = AbsorbPlan {
+            actions: vec![
+                AbsorbAction {
+                    hunk: Hunk {
+                        file_path: "src/lib.rs".to_string(),
+                        old_start: 10,
+                        old_lines: 5,
+                        new_start: 10,
+                        new_lines: 7,
+                        content: String::new(),
+                        is_new_file: false,
+                    },
+                    target_commit: target1,
+                    target_message: "First commit".to_string(),
+                },
+                AbsorbAction {
+                    hunk: Hunk {
+                        file_path: "src/main.rs".to_string(),
+                        old_start: 20,
+                        old_lines: 3,
+                        new_start: 20,
+                        new_lines: 5,
+                        content: String::new(),
+                        is_new_file: false,
+                    },
+                    target_commit: target2,
+                    target_message: "Second commit".to_string(),
+                },
+            ],
+            unmapped: vec![],
+        };
+
+        let result = execute_absorb(&repo, &plan);
+
+        // Should error when hunks target different commits
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("2 different commits"));
+        assert!(err_msg.contains("selective hunk staging not supported"));
     }
 }

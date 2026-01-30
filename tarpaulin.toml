@@ -2,10 +2,11 @@
 # https://github.com/xd009642/tarpaulin
 
 [default]
-# Exclude files that cannot be meaningfully tested
+# Exclude files that cannot be meaningfully unit tested
 exclude-files = [
-    # Self-update command - downloads and replaces binary
-    "crates/rung-cli/src/commands/update.rs",
+    # Command handlers are CLI integration code - they wire services together
+    # and require E2E tests with real git repos, not unit tests
+    "crates/rung-cli/src/commands/*",
 ]
 
 # Skip clean to speed up repeated runs

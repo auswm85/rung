@@ -50,6 +50,10 @@ pub enum Error {
     #[error("fetch failed: {0}")]
     FetchFailed(String),
 
+    /// Blame operation failed.
+    #[error("blame error: {0}")]
+    BlameError(String),
+
     /// Underlying git2 error.
     #[error("git error: {0}")]
     Git2(#[from] git2::Error),
