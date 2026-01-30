@@ -10,6 +10,30 @@ use chrono::Utc;
 use rung_core::{DivergenceRecord, RestackState, StateStore};
 use rung_git::{GitOps, Oid, RemoteDivergence};
 use serde::Serialize;
+use thiserror::Error;
+
+/// Errors specific to restack operations.
+#[derive(Debug, Error)]
+pub enum RestackError {
+    /// A rebase conflict occurred with the specified files.
+    #[error("Rebase conflict in '{branch}'")]
+    Conflict { branch: String, files: Vec<String> },
+    /// A general error occurred.
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+impl From<rung_core::Error> for RestackError {
+    fn from(err: rung_core::Error) -> Self {
+        Self::Other(err.into())
+    }
+}
+
+impl From<rung_git::Error> for RestackError {
+    fn from(err: rung_git::Error) -> Self {
+        Self::Other(err.into())
+    }
+}
 
 /// Configuration for a restack operation.
 #[derive(Debug, Clone)]
@@ -215,11 +239,16 @@ impl<'a, G: GitOps> RestackService<'a, G> {
     }
 
     /// Execute the restack loop (initial or continued).
+    ///
+    /// # Errors
+    ///
+    /// Returns `RestackError::Conflict` if a rebase conflict occurs, allowing
+    /// callers to handle conflicts with typed pattern matching.
     pub fn execute_restack_loop<S: StateStore>(
         &self,
         state: &S,
         original_branch: &str,
-    ) -> Result<RestackResult> {
+    ) -> Result<RestackResult, RestackError> {
         let stack = state.load_stack()?;
 
         loop {
@@ -260,11 +289,14 @@ impl<'a, G: GitOps> RestackService<'a, G> {
                 }
                 Err(rung_git::Error::RebaseConflict(files)) => {
                     state.save_restack_state(&restack_state)?;
-                    bail!("Rebase conflict in '{current_branch}': {files:?}");
+                    return Err(RestackError::Conflict {
+                        branch: current_branch,
+                        files,
+                    });
                 }
                 Err(e) => {
                     self.restore_from_backup(state, &restack_state, original_branch);
-                    return Err(e.into());
+                    return Err(RestackError::from(e));
                 }
             }
         }
@@ -276,7 +308,7 @@ impl<'a, G: GitOps> RestackService<'a, G> {
         state: &S,
         original_branch: &str,
         mut restack_state: RestackState,
-    ) -> Result<RestackResult> {
+    ) -> Result<RestackResult, RestackError> {
         // Update stack topology
         if !restack_state.stack_updated {
             let mut stack = state.load_stack()?;
@@ -368,20 +400,32 @@ impl<'a, G: GitOps> RestackService<'a, G> {
     }
 
     /// Handle --continue flag.
-    pub fn continue_restack<S: StateStore>(&self, state: &S) -> Result<RestackResult> {
+    ///
+    /// # Errors
+    ///
+    /// Returns `RestackError::Conflict` if a rebase conflict occurs, allowing
+    /// callers to handle conflicts with typed pattern matching.
+    pub fn continue_restack<S: StateStore>(
+        &self,
+        state: &S,
+    ) -> Result<RestackResult, RestackError> {
         if !state.is_restack_in_progress() {
-            bail!("No restack in progress to continue");
+            return Err(RestackError::Other(anyhow::anyhow!(
+                "No restack in progress to continue"
+            )));
         }
 
         let mut restack_state = state.load_restack_state()?;
 
         // Detect stale state from crashed process
         if !self.repo.is_rebasing() && !restack_state.current_branch.is_empty() {
-            bail!(
+            return Err(RestackError::Other(anyhow::anyhow!(
                 "Restack state exists but no rebase in progress (process may have crashed).\n\
                  Run `rung restack --abort` to clean up and restore branches."
-            );
+            )));
         }
+
+        let current_branch = restack_state.current_branch.clone();
 
         // Continue the in-progress rebase
         match self.repo.rebase_continue() {
@@ -390,10 +434,11 @@ impl<'a, G: GitOps> RestackService<'a, G> {
                 state.save_restack_state(&restack_state)?;
                 self.execute_restack_loop(state, &restack_state.original_branch.clone())
             }
-            Err(rung_git::Error::RebaseConflict(files)) => {
-                bail!("Rebase conflict: {files:?}");
-            }
-            Err(e) => Err(e.into()),
+            Err(rung_git::Error::RebaseConflict(files)) => Err(RestackError::Conflict {
+                branch: current_branch,
+                files,
+            }),
+            Err(e) => Err(RestackError::from(e)),
         }
     }
 
