@@ -433,4 +433,223 @@ mod tests {
         assert_eq!(record.ahead, 2);
         assert_eq!(record.behind, 3);
     }
+
+    #[test]
+    fn test_divergence_info_from_record() {
+        let record = DivergenceRecord {
+            branch: "feature/x".to_string(),
+            ahead: 5,
+            behind: 10,
+        };
+        let info = DivergenceInfo::from(&record);
+        assert_eq!(info.branch, "feature/x");
+        assert_eq!(info.ahead, 5);
+        assert_eq!(info.behind, 10);
+    }
+
+    #[test]
+    fn test_divergence_info_clone() {
+        let info = DivergenceInfo {
+            branch: "test".to_string(),
+            ahead: 1,
+            behind: 2,
+        };
+        let cloned = info.clone();
+        assert_eq!(info.branch, cloned.branch);
+        assert_eq!(info.ahead, cloned.ahead);
+        assert_eq!(info.behind, cloned.behind);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_divergence_info_serializes() {
+        let info = DivergenceInfo {
+            branch: "feature/test".to_string(),
+            ahead: 3,
+            behind: 5,
+        };
+        let json = serde_json::to_string(&info).expect("serialization should succeed");
+        assert!(json.contains("feature/test"));
+        assert!(json.contains('3'));
+        assert!(json.contains('5'));
+    }
+
+    #[test]
+    fn test_restack_config_creation() {
+        let config = RestackConfig {
+            target_branch: "feature/child".to_string(),
+            new_parent: "main".to_string(),
+            include_children: true,
+        };
+        assert_eq!(config.target_branch, "feature/child");
+        assert_eq!(config.new_parent, "main");
+        assert!(config.include_children);
+    }
+
+    #[test]
+    fn test_restack_config_without_children() {
+        let config = RestackConfig {
+            target_branch: "feature/only".to_string(),
+            new_parent: "develop".to_string(),
+            include_children: false,
+        };
+        assert!(!config.include_children);
+    }
+
+    #[test]
+    fn test_restack_config_clone() {
+        let config = RestackConfig {
+            target_branch: "test".to_string(),
+            new_parent: "main".to_string(),
+            include_children: true,
+        };
+        let cloned = config.clone();
+        assert_eq!(config.target_branch, cloned.target_branch);
+        assert_eq!(config.new_parent, cloned.new_parent);
+        assert_eq!(config.include_children, cloned.include_children);
+    }
+
+    #[test]
+    fn test_restack_plan_no_rebase_needed() {
+        let plan = RestackPlan {
+            target_branch: "feature/test".to_string(),
+            new_parent: "main".to_string(),
+            old_parent: Some("main".to_string()),
+            branches_to_rebase: vec![],
+            needs_rebase: false,
+            diverged: vec![],
+        };
+        assert!(!plan.needs_rebase);
+        assert!(plan.branches_to_rebase.is_empty());
+    }
+
+    #[test]
+    fn test_restack_plan_with_children() {
+        let plan = RestackPlan {
+            target_branch: "feature/parent".to_string(),
+            new_parent: "main".to_string(),
+            old_parent: Some("develop".to_string()),
+            branches_to_rebase: vec![
+                "feature/parent".to_string(),
+                "feature/child1".to_string(),
+                "feature/child2".to_string(),
+            ],
+            needs_rebase: true,
+            diverged: vec![],
+        };
+        assert!(plan.needs_rebase);
+        assert_eq!(plan.branches_to_rebase.len(), 3);
+    }
+
+    #[test]
+    fn test_restack_plan_with_diverged() {
+        let plan = RestackPlan {
+            target_branch: "feature/diverged".to_string(),
+            new_parent: "main".to_string(),
+            old_parent: None,
+            branches_to_rebase: vec!["feature/diverged".to_string()],
+            needs_rebase: true,
+            diverged: vec![DivergenceInfo {
+                branch: "feature/diverged".to_string(),
+                ahead: 2,
+                behind: 1,
+            }],
+        };
+        assert_eq!(plan.diverged.len(), 1);
+        assert_eq!(plan.diverged[0].ahead, 2);
+    }
+
+    #[test]
+    fn test_restack_plan_clone() {
+        let plan = RestackPlan {
+            target_branch: "test".to_string(),
+            new_parent: "main".to_string(),
+            old_parent: Some("old".to_string()),
+            branches_to_rebase: vec!["test".to_string()],
+            needs_rebase: true,
+            diverged: vec![],
+        };
+        let cloned = plan.clone();
+        assert_eq!(plan.target_branch, cloned.target_branch);
+        assert_eq!(plan.needs_rebase, cloned.needs_rebase);
+    }
+
+    #[test]
+    fn test_restack_result_creation() {
+        let result = RestackResult {
+            target_branch: "feature/x".to_string(),
+            old_parent: Some("develop".to_string()),
+            new_parent: "main".to_string(),
+            branches_rebased: vec!["feature/x".to_string()],
+            diverged_branches: vec![],
+        };
+        assert_eq!(result.target_branch, "feature/x");
+        assert_eq!(result.old_parent, Some("develop".to_string()));
+        assert_eq!(result.new_parent, "main");
+        assert_eq!(result.branches_rebased.len(), 1);
+    }
+
+    #[test]
+    fn test_restack_result_with_diverged() {
+        let result = RestackResult {
+            target_branch: "test".to_string(),
+            old_parent: None,
+            new_parent: "main".to_string(),
+            branches_rebased: vec!["test".to_string()],
+            diverged_branches: vec![DivergenceInfo {
+                branch: "test".to_string(),
+                ahead: 1,
+                behind: 2,
+            }],
+        };
+        assert_eq!(result.diverged_branches.len(), 1);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_restack_result_serializes() {
+        let result = RestackResult {
+            target_branch: "feature/serialize".to_string(),
+            old_parent: Some("old".to_string()),
+            new_parent: "new".to_string(),
+            branches_rebased: vec!["feature/serialize".to_string()],
+            diverged_branches: vec![],
+        };
+        let json = serde_json::to_string(&result).expect("serialization should succeed");
+        assert!(json.contains("feature/serialize"));
+        assert!(json.contains("old"));
+        assert!(json.contains("new"));
+    }
+
+    #[test]
+    fn test_restack_result_clone() {
+        let result = RestackResult {
+            target_branch: "test".to_string(),
+            old_parent: None,
+            new_parent: "main".to_string(),
+            branches_rebased: vec!["test".to_string()],
+            diverged_branches: vec![],
+        };
+        let cloned = result.clone();
+        assert_eq!(result.target_branch, cloned.target_branch);
+        assert_eq!(result.new_parent, cloned.new_parent);
+    }
+
+    #[test]
+    fn test_restack_result_multiple_rebased() {
+        let result = RestackResult {
+            target_branch: "parent".to_string(),
+            old_parent: Some("base".to_string()),
+            new_parent: "main".to_string(),
+            branches_rebased: vec![
+                "parent".to_string(),
+                "child1".to_string(),
+                "child2".to_string(),
+                "grandchild".to_string(),
+            ],
+            diverged_branches: vec![],
+        };
+        assert_eq!(result.branches_rebased.len(), 4);
+        assert!(result.branches_rebased.contains(&"grandchild".to_string()));
+    }
 }

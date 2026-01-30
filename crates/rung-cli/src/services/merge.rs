@@ -288,6 +288,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rung_core::stack::StackBranch;
 
     #[test]
     fn test_collect_descendants_empty() {
@@ -297,5 +298,204 @@ mod tests {
                 &stack, "main",
             );
         assert!(descendants.is_empty());
+    }
+
+    #[test]
+    fn test_descendant_result_creation() {
+        let result = DescendantResult {
+            branch: "feature/child".to_string(),
+            rebased: true,
+            pr_updated: false,
+        };
+        assert_eq!(result.branch, "feature/child");
+        assert!(result.rebased);
+        assert!(!result.pr_updated);
+    }
+
+    #[test]
+    fn test_descendant_result_clone() {
+        let result = DescendantResult {
+            branch: "test".to_string(),
+            rebased: true,
+            pr_updated: true,
+        };
+        let cloned = result.clone();
+        assert_eq!(result.branch, cloned.branch);
+        assert_eq!(result.rebased, cloned.rebased);
+        assert_eq!(result.pr_updated, cloned.pr_updated);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_collect_descendants_single_child() {
+        let mut stack = Stack::default();
+        let parent = BranchName::new("feature/parent").expect("valid");
+        let child = BranchName::new("feature/child").expect("valid");
+        let main = BranchName::new("main").expect("valid");
+
+        stack.add_branch(StackBranch::new(parent, Some(main)));
+        stack.add_branch(StackBranch::new(
+            child,
+            Some(BranchName::new("feature/parent").expect("valid")),
+        ));
+
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack,
+                "feature/parent",
+            );
+        assert_eq!(descendants.len(), 1);
+        assert_eq!(descendants[0], "feature/child");
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_collect_descendants_multiple_children() {
+        let mut stack = Stack::default();
+        let parent = BranchName::new("feature/parent").expect("valid");
+        let child1 = BranchName::new("feature/child1").expect("valid");
+        let child2 = BranchName::new("feature/child2").expect("valid");
+        let main = BranchName::new("main").expect("valid");
+
+        stack.add_branch(StackBranch::new(parent, Some(main)));
+        stack.add_branch(StackBranch::new(
+            child1,
+            Some(BranchName::new("feature/parent").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            child2,
+            Some(BranchName::new("feature/parent").expect("valid")),
+        ));
+
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack,
+                "feature/parent",
+            );
+        assert_eq!(descendants.len(), 2);
+        assert!(descendants.contains(&"feature/child1".to_string()));
+        assert!(descendants.contains(&"feature/child2".to_string()));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_collect_descendants_nested_children() {
+        let mut stack = Stack::default();
+        let main = BranchName::new("main").expect("valid");
+        let parent = BranchName::new("feature/parent").expect("valid");
+        let child = BranchName::new("feature/child").expect("valid");
+        let grandchild = BranchName::new("feature/grandchild").expect("valid");
+
+        stack.add_branch(StackBranch::new(parent, Some(main)));
+        stack.add_branch(StackBranch::new(
+            child,
+            Some(BranchName::new("feature/parent").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            grandchild,
+            Some(BranchName::new("feature/child").expect("valid")),
+        ));
+
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack,
+                "feature/parent",
+            );
+        assert_eq!(descendants.len(), 2);
+        // Should contain both child and grandchild (in topological order from BFS)
+        assert!(descendants.contains(&"feature/child".to_string()));
+        assert!(descendants.contains(&"feature/grandchild".to_string()));
+    }
+
+    #[test]
+    fn test_collect_descendants_no_match() {
+        let stack = Stack::default();
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack,
+                "nonexistent",
+            );
+        assert!(descendants.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_collect_descendants_from_middle_of_chain() {
+        let mut stack = Stack::default();
+        let main = BranchName::new("main").expect("valid");
+        let level1 = BranchName::new("level1").expect("valid");
+        let level2 = BranchName::new("level2").expect("valid");
+        let level3 = BranchName::new("level3").expect("valid");
+
+        stack.add_branch(StackBranch::new(level1, Some(main)));
+        stack.add_branch(StackBranch::new(
+            level2,
+            Some(BranchName::new("level1").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            level3,
+            Some(BranchName::new("level2").expect("valid")),
+        ));
+
+        // Get descendants from level2 - should only get level3
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack, "level2",
+            );
+        assert_eq!(descendants.len(), 1);
+        assert_eq!(descendants[0], "level3");
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_collect_descendants_diamond_topology() {
+        // main -> A -> B
+        //      -> A -> C
+        //      -> B and C both point to D (diamond merge)
+        let mut stack = Stack::default();
+        let main = BranchName::new("main").expect("valid");
+        let a = BranchName::new("branch-a").expect("valid");
+        let b = BranchName::new("branch-b").expect("valid");
+        let c = BranchName::new("branch-c").expect("valid");
+
+        stack.add_branch(StackBranch::new(a, Some(main)));
+        stack.add_branch(StackBranch::new(
+            b,
+            Some(BranchName::new("branch-a").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            c,
+            Some(BranchName::new("branch-a").expect("valid")),
+        ));
+
+        let descendants =
+            MergeService::<rung_git::Repository, rung_github::GitHubClient>::collect_descendants(
+                &stack, "branch-a",
+            );
+        assert_eq!(descendants.len(), 2);
+        assert!(descendants.contains(&"branch-b".to_string()));
+        assert!(descendants.contains(&"branch-c".to_string()));
+    }
+
+    #[test]
+    fn test_descendant_result_all_fields_true() {
+        let result = DescendantResult {
+            branch: "all-true".to_string(),
+            rebased: true,
+            pr_updated: true,
+        };
+        assert!(result.rebased);
+        assert!(result.pr_updated);
+    }
+
+    #[test]
+    fn test_descendant_result_all_fields_false() {
+        let result = DescendantResult {
+            branch: "all-false".to_string(),
+            rebased: false,
+            pr_updated: false,
+        };
+        assert!(!result.rebased);
+        assert!(!result.pr_updated);
     }
 }

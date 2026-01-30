@@ -156,4 +156,61 @@ mod tests {
         assert!(!result.commit_created);
         assert!(result.commit_message.is_none());
     }
+
+    #[test]
+    fn test_create_result_deep_stack() {
+        let result = CreateResult {
+            branch_name: "feature/deep".to_string(),
+            parent_name: "feature/level2".to_string(),
+            commit_created: false,
+            commit_message: None,
+            stack_depth: 5,
+        };
+
+        assert_eq!(result.stack_depth, 5);
+        assert_eq!(result.parent_name, "feature/level2");
+    }
+
+    #[test]
+    fn test_create_result_debug_impl() {
+        let result = CreateResult {
+            branch_name: "test".to_string(),
+            parent_name: "main".to_string(),
+            commit_created: true,
+            commit_message: Some("msg".to_string()),
+            stack_depth: 1,
+        };
+        // Test that Debug is implemented
+        let debug_str = format!("{result:?}");
+        assert!(debug_str.contains("test"));
+        assert!(debug_str.contains("main"));
+    }
+
+    #[test]
+    fn test_create_result_root_branch() {
+        let result = CreateResult {
+            branch_name: "first-branch".to_string(),
+            parent_name: "main".to_string(),
+            commit_created: true,
+            commit_message: Some("Initial work".to_string()),
+            stack_depth: 1,
+        };
+
+        assert_eq!(result.stack_depth, 1);
+        assert!(result.commit_created);
+    }
+
+    #[test]
+    fn test_create_result_long_commit_message() {
+        let long_message = "This is a much longer commit message that spans multiple words and describes the changes in detail for testing purposes";
+        let result = CreateResult {
+            branch_name: "feature/detailed".to_string(),
+            parent_name: "main".to_string(),
+            commit_created: true,
+            commit_message: Some(long_message.to_string()),
+            stack_depth: 1,
+        };
+
+        assert_eq!(result.commit_message, Some(long_message.to_string()));
+    }
 }

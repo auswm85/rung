@@ -340,9 +340,253 @@ pub struct PushInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rung_core::sync::{ExternalMergeInfo, ReparentedBranch};
+    use rung_github::PullRequestState;
 
     #[test]
     fn test_batch_threshold() {
         assert_eq!(BATCH_THRESHOLD, 5);
+    }
+
+    #[test]
+    fn test_push_info_creation() {
+        let info = PushInfo {
+            branch: "feature/test".to_string(),
+            success: true,
+        };
+        assert_eq!(info.branch, "feature/test");
+        assert!(info.success);
+    }
+
+    #[test]
+    fn test_push_info_failure() {
+        let info = PushInfo {
+            branch: "broken-branch".to_string(),
+            success: false,
+        };
+        assert_eq!(info.branch, "broken-branch");
+        assert!(!info.success);
+    }
+
+    #[test]
+    fn test_push_info_clone() {
+        let info = PushInfo {
+            branch: "test".to_string(),
+            success: true,
+        };
+        let cloned = info.clone();
+        assert_eq!(info.branch, cloned.branch);
+        assert_eq!(info.success, cloned.success);
+    }
+
+    #[test]
+    fn test_process_pr_result_merged() {
+        let pr = rung_github::PullRequest {
+            number: 42,
+            title: "Test PR".to_string(),
+            body: None,
+            state: PullRequestState::Merged,
+            base_branch: "main".to_string(),
+            head_branch: "feature/test".to_string(),
+            html_url: "https://github.com/test/test/pull/42".to_string(),
+            mergeable: None,
+            mergeable_state: None,
+            draft: false,
+        };
+
+        let mut merged_prs = Vec::new();
+        let mut ghost_parents = Vec::new();
+
+        SyncService::<rung_git::Repository, rung_github::GitHubClient>::process_pr_result(
+            &pr,
+            "feature/test",
+            None,
+            42,
+            "main",
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
+
+        assert_eq!(merged_prs.len(), 1);
+        assert_eq!(merged_prs[0].branch_name, "feature/test");
+        assert_eq!(merged_prs[0].pr_number, 42);
+        assert_eq!(merged_prs[0].merged_into, "main");
+        assert!(ghost_parents.is_empty());
+    }
+
+    #[test]
+    fn test_process_pr_result_open_matching_base() {
+        let pr = rung_github::PullRequest {
+            number: 43,
+            title: "Open PR".to_string(),
+            body: None,
+            state: PullRequestState::Open,
+            base_branch: "main".to_string(),
+            head_branch: "feature/open".to_string(),
+            html_url: "https://github.com/test/test/pull/43".to_string(),
+            mergeable: Some(true),
+            mergeable_state: None,
+            draft: false,
+        };
+
+        let mut merged_prs = Vec::new();
+        let mut ghost_parents = Vec::new();
+
+        SyncService::<rung_git::Repository, rung_github::GitHubClient>::process_pr_result(
+            &pr,
+            "feature/open",
+            None,
+            43,
+            "main",
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
+
+        assert!(merged_prs.is_empty());
+        assert!(ghost_parents.is_empty());
+    }
+
+    #[test]
+    fn test_process_pr_result_ghost_parent_detected() {
+        let pr = rung_github::PullRequest {
+            number: 44,
+            title: "Ghost Parent PR".to_string(),
+            body: None,
+            state: PullRequestState::Open,
+            base_branch: "old-parent".to_string(),
+            head_branch: "feature/ghost".to_string(),
+            html_url: "https://github.com/test/test/pull/44".to_string(),
+            mergeable: Some(true),
+            mergeable_state: None,
+            draft: false,
+        };
+
+        let mut merged_prs = Vec::new();
+        let mut ghost_parents = Vec::new();
+
+        SyncService::<rung_git::Repository, rung_github::GitHubClient>::process_pr_result(
+            &pr,
+            "feature/ghost",
+            None,
+            44,
+            "main",
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
+
+        assert!(merged_prs.is_empty());
+        assert_eq!(ghost_parents.len(), 1);
+        assert_eq!(ghost_parents[0].name, "feature/ghost");
+        assert_eq!(ghost_parents[0].old_parent, "old-parent");
+        assert_eq!(ghost_parents[0].new_parent, "main");
+        assert_eq!(ghost_parents[0].pr_number, Some(44));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_process_pr_result_with_stack_parent() {
+        use rung_core::BranchName;
+
+        let pr = rung_github::PullRequest {
+            number: 45,
+            title: "Stacked PR".to_string(),
+            body: None,
+            state: PullRequestState::Open,
+            base_branch: "feature/base".to_string(),
+            head_branch: "feature/child".to_string(),
+            html_url: "https://github.com/test/test/pull/45".to_string(),
+            mergeable: Some(true),
+            mergeable_state: None,
+            draft: false,
+        };
+
+        let mut merged_prs = Vec::new();
+        let mut ghost_parents = Vec::new();
+        let stack_parent = BranchName::new("feature/base").expect("valid branch name");
+
+        SyncService::<rung_git::Repository, rung_github::GitHubClient>::process_pr_result(
+            &pr,
+            "feature/child",
+            Some(&stack_parent),
+            45,
+            "main",
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
+
+        // Base matches stack parent, so no ghost parent
+        assert!(merged_prs.is_empty());
+        assert!(ghost_parents.is_empty());
+    }
+
+    #[test]
+    fn test_process_pr_result_closed_not_merged() {
+        let pr = rung_github::PullRequest {
+            number: 46,
+            title: "Closed PR".to_string(),
+            body: None,
+            state: PullRequestState::Closed,
+            base_branch: "main".to_string(),
+            head_branch: "feature/closed".to_string(),
+            html_url: "https://github.com/test/test/pull/46".to_string(),
+            mergeable: None,
+            mergeable_state: None,
+            draft: false,
+        };
+
+        let mut merged_prs = Vec::new();
+        let mut ghost_parents = Vec::new();
+
+        SyncService::<rung_git::Repository, rung_github::GitHubClient>::process_pr_result(
+            &pr,
+            "feature/closed",
+            None,
+            46,
+            "main",
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
+
+        // Closed but not merged - should not be in merged_prs
+        assert!(merged_prs.is_empty());
+        // Also no ghost parent since base matches
+        assert!(ghost_parents.is_empty());
+    }
+
+    #[test]
+    fn test_external_merge_info_fields() {
+        let info = ExternalMergeInfo {
+            branch_name: "feature/merged".to_string(),
+            pr_number: 100,
+            merged_into: "main".to_string(),
+        };
+        assert_eq!(info.branch_name, "feature/merged");
+        assert_eq!(info.pr_number, 100);
+        assert_eq!(info.merged_into, "main");
+    }
+
+    #[test]
+    fn test_reparented_branch_fields() {
+        let reparent = ReparentedBranch {
+            name: "feature/moved".to_string(),
+            old_parent: "old-branch".to_string(),
+            new_parent: "new-branch".to_string(),
+            pr_number: Some(99),
+        };
+        assert_eq!(reparent.name, "feature/moved");
+        assert_eq!(reparent.old_parent, "old-branch");
+        assert_eq!(reparent.new_parent, "new-branch");
+        assert_eq!(reparent.pr_number, Some(99));
+    }
+
+    #[test]
+    fn test_reparented_branch_without_pr() {
+        let reparent = ReparentedBranch {
+            name: "local-only".to_string(),
+            old_parent: "old".to_string(),
+            new_parent: "new".to_string(),
+            pr_number: None,
+        };
+        assert!(reparent.pr_number.is_none());
     }
 }

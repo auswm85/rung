@@ -140,4 +140,52 @@ mod tests {
         assert_eq!(result.stack_depth, 3);
         assert_eq!(result.parent_name, "feature/parent");
     }
+
+    #[test]
+    fn test_adopt_result_debug_impl() {
+        let result = AdoptResult {
+            branch_name: "test".to_string(),
+            parent_name: "main".to_string(),
+            stack_depth: 1,
+        };
+        // Test that Debug is implemented
+        let debug_str = format!("{result:?}");
+        assert!(debug_str.contains("test"));
+        assert!(debug_str.contains("main"));
+    }
+
+    #[test]
+    fn test_adopt_result_root_level() {
+        let result = AdoptResult {
+            branch_name: "feature/new".to_string(),
+            parent_name: "main".to_string(),
+            stack_depth: 1,
+        };
+
+        // Root level adoption has depth 1
+        assert_eq!(result.stack_depth, 1);
+    }
+
+    #[test]
+    fn test_adopt_result_deep_stack() {
+        let result = AdoptResult {
+            branch_name: "feature/deep".to_string(),
+            parent_name: "feature/level4".to_string(),
+            stack_depth: 5,
+        };
+
+        assert_eq!(result.stack_depth, 5);
+    }
+
+    #[test]
+    fn test_adopt_result_special_branch_names() {
+        let result = AdoptResult {
+            branch_name: "fix/issue-123".to_string(),
+            parent_name: "hotfix/urgent".to_string(),
+            stack_depth: 2,
+        };
+
+        assert_eq!(result.branch_name, "fix/issue-123");
+        assert_eq!(result.parent_name, "hotfix/urgent");
+    }
 }
