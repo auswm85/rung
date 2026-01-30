@@ -7,7 +7,7 @@ use std::path::Path;
 
 use git2::Oid;
 
-use crate::{RemoteDivergence, Result};
+use crate::{BlameResult, Hunk, RemoteDivergence, Result};
 
 /// Trait for git repository operations.
 ///
@@ -136,4 +136,23 @@ pub trait GitOps {
 
     /// Reset a branch to a specific commit.
     fn reset_branch(&self, branch: &str, commit: Oid) -> Result<()>;
+}
+
+/// Trait for absorb-specific git operations.
+///
+/// This trait abstracts the git operations needed for the absorb command,
+/// enabling dependency injection and testability.
+#[allow(clippy::missing_errors_doc)]
+pub trait AbsorbOps: GitOps {
+    /// Get the staged diff as a list of hunks.
+    fn staged_diff_hunks(&self) -> Result<Vec<Hunk>>;
+
+    /// Query git blame for a specific line range in a file.
+    fn blame_lines(&self, file_path: &str, start: u32, end: u32) -> Result<Vec<BlameResult>>;
+
+    /// Check if a commit is an ancestor of another commit.
+    fn is_ancestor(&self, ancestor: Oid, descendant: Oid) -> Result<bool>;
+
+    /// Create a fixup commit targeting the specified commit.
+    fn create_fixup_commit(&self, target: Oid) -> Result<Oid>;
 }
