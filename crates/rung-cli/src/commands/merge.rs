@@ -93,13 +93,23 @@ fn setup_merge_context(repo: &Repository, state: &State) -> Result<(MergeContext
 }
 
 /// Clean up local state after merge: checkout parent, delete local branch, pull.
+/// Checkout failures are non-fatal since the merge itself succeeded.
 fn cleanup_after_merge(
     repo: &Repository,
     current_branch: &str,
     parent_branch: &str,
     json: bool,
-) -> Result<()> {
-    repo.checkout(parent_branch)?;
+) -> Option<String> {
+    // Checkout is non-fatal - the merge succeeded, so we continue with cleanup
+    let checked_out = if let Err(e) = repo.checkout(parent_branch) {
+        if !json {
+            output::warn(&format!("Could not checkout '{parent_branch}': {e}"));
+            output::info("You may need to manually checkout the desired branch.");
+        }
+        None
+    } else {
+        Some(parent_branch.to_string())
+    };
 
     if let Err(e) = repo.delete_branch(current_branch) {
         if !json {
@@ -115,7 +125,7 @@ fn cleanup_after_merge(
         output::warn(&format!("Could not pull latest {parent_branch}: {e}"));
     }
 
-    Ok(())
+    checked_out
 }
 
 /// Run the merge command.
@@ -136,7 +146,7 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
     }
 
     let rt = tokio::runtime::Runtime::new()?;
-    let parent_branch = rt.block_on(execute_merge(
+    let (parent_branch, descendants_rebased) = rt.block_on(execute_merge(
         &repo,
         &state,
         &stack,
@@ -146,25 +156,28 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
         json,
     ))?;
 
-    cleanup_after_merge(&repo, &ctx.current_branch, &parent_branch, json)?;
+    let checked_out = cleanup_after_merge(&repo, &ctx.current_branch, &parent_branch, json);
 
     if json {
         return output_json(&MergeOutput {
             merged_branch: ctx.current_branch,
             pr_number: ctx.pr_number,
             merge_method: method.to_string(),
-            checked_out: Some(parent_branch),
-            descendants_rebased: ctx.descendants.len(),
+            checked_out,
+            descendants_rebased,
         });
     }
 
-    output::info(&format!("Checked out '{parent_branch}'"));
+    if checked_out.is_some() {
+        output::info(&format!("Checked out '{parent_branch}'"));
+    }
     output::success("Merge complete!");
 
     Ok(())
 }
 
 /// Execute the GitHub merge operation.
+/// Returns (`parent_branch`, `descendants_rebased_count`).
 #[allow(clippy::too_many_arguments, clippy::future_not_send)]
 async fn execute_merge(
     repo: &Repository,
@@ -174,7 +187,7 @@ async fn execute_merge(
     merge_method: MergeMethod,
     no_delete: bool,
     json: bool,
-) -> Result<String> {
+) -> Result<(String, usize)> {
     let auth = Auth::auto();
     let client = GitHubClient::new(&auth)?;
     let service = MergeService::new(repo, &client, ctx.owner.clone(), ctx.repo_name.clone());
@@ -230,18 +243,17 @@ async fn execute_merge(
     // Step 5: Rebase descendants (non-fatal after merge)
     // rebase_descendants_after_merge already handles its own error messaging
     // We explicitly match but don't propagate since the merge itself succeeded
-    if let Err(_e) =
-        rebase_descendants_after_merge(&service, state, stack, ctx, &parent_branch, json).await
-    {
-        // Error already printed inside the function
-    }
+    let descendants_rebased =
+        rebase_descendants_after_merge(&service, state, stack, ctx, &parent_branch, json)
+            .await
+            .unwrap_or(0);
 
     // Step 6: Delete remote branch
     if !no_delete {
         delete_remote_branch(&service, &ctx.current_branch, json).await;
     }
 
-    Ok(parent_branch)
+    Ok((parent_branch, descendants_rebased))
 }
 
 /// Print info about child PR relinking.
@@ -299,6 +311,7 @@ async fn rollback_on_failure(
 }
 
 /// Rebase descendants after a successful merge.
+/// Returns the count of successfully rebased descendants.
 #[allow(clippy::future_not_send)]
 async fn rebase_descendants_after_merge(
     service: &MergeService<'_, Repository, GitHubClient>,
@@ -307,9 +320,9 @@ async fn rebase_descendants_after_merge(
     ctx: &MergeContext,
     parent_branch: &str,
     json: bool,
-) -> Result<()> {
+) -> Result<usize> {
     if ctx.descendants.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let results = service
@@ -325,10 +338,14 @@ async fn rebase_descendants_after_merge(
 
     match results {
         Ok(results) => {
-            if !json {
+            let success_count = if json {
+                results.iter().filter(|r| r.rebased).count()
+            } else {
+                let mut count = 0;
                 for result in &results {
                     if result.rebased {
                         output::info(&format!("  Rebased and pushed {}", result.branch));
+                        count += 1;
                     } else if let Some(err) = &result.error {
                         output::warn(&format!("  Failed to rebase {}: {err}", result.branch));
                     }
@@ -336,8 +353,9 @@ async fn rebase_descendants_after_merge(
                         output::info(&format!("  Updated PR base for {}", result.branch));
                     }
                 }
-            }
-            Ok(())
+                count
+            };
+            Ok(success_count)
         }
         Err(e) => {
             if !json {

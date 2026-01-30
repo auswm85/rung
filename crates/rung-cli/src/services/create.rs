@@ -131,11 +131,20 @@ impl<'a> CreateService<'a> {
 
     /// Stage all changes and create a commit if there are staged changes.
     fn create_initial_commit(&self, message: &str) -> Result<(bool, Option<String>)> {
-        // Check for changes before staging
+        // Check for pre-staged changes first (user may have staged specific files)
+        if self.repo.has_staged_changes()? {
+            self.repo
+                .create_commit(message)
+                .context("Failed to create commit")?;
+            return Ok((true, Some(message.to_string())));
+        }
+
+        // No staged changes - check if there are unstaged changes to stage
         if self.repo.is_clean()? {
             return Ok((false, None));
         }
 
+        // Stage all unstaged changes
         self.repo.stage_all().context("Failed to stage changes")?;
 
         if self.repo.has_staged_changes()? {
