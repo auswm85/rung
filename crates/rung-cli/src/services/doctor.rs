@@ -4,7 +4,7 @@
 //! enabling testing and reuse.
 
 use anyhow::{Context, Result};
-use rung_core::{Stack, State};
+use rung_core::Stack;
 use rung_git::Repository;
 use rung_github::{Auth, GitHubClient, PullRequestState};
 use serde::Serialize;
@@ -123,15 +123,15 @@ impl DiagnosticReport {
 }
 
 /// Service for running diagnostic checks.
-pub struct DoctorService<'a> {
-    repo: &'a Repository,
-    state: &'a State,
+pub struct DoctorService<'a, G: rung_git::GitOps, S: rung_core::StateStore> {
+    repo: &'a G,
+    state: &'a S,
     stack: &'a Stack,
 }
 
-impl<'a> DoctorService<'a> {
+impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> {
     /// Create a new doctor service.
-    pub const fn new(repo: &'a Repository, state: &'a State, stack: &'a Stack) -> Self {
+    pub const fn new(repo: &'a G, state: &'a S, stack: &'a Stack) -> Self {
         Self { repo, state, stack }
     }
 
@@ -579,5 +579,228 @@ mod tests {
         assert!(result.has_warnings());
         assert!(!result.is_clean());
         assert_eq!(result.issues.len(), 4);
+    }
+
+    // Mock-based tests for DoctorService methods
+    #[allow(clippy::unwrap_used)]
+    mod mock_tests {
+        use super::*;
+        use crate::services::test_mocks::{MockGitOps, MockStateStore};
+        use rung_core::stack::StackBranch;
+        use rung_git::Oid;
+
+        #[test]
+        fn test_check_git_state_clean() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_git_state();
+
+            assert!(result.is_clean());
+        }
+
+        #[test]
+        fn test_check_git_state_dirty_working_directory() {
+            let git = MockGitOps::new();
+            *git.is_clean.borrow_mut() = false;
+
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_git_state();
+
+            assert!(result.has_warnings());
+            assert!(result.issues[0].message.contains("uncommitted changes"));
+        }
+
+        #[test]
+        fn test_check_git_state_rebasing() {
+            let git = MockGitOps::new();
+            *git.is_rebasing.borrow_mut() = true;
+
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_git_state();
+
+            assert!(result.has_errors());
+            assert!(
+                result
+                    .issues
+                    .iter()
+                    .any(|i| i.message.contains("Rebase in progress"))
+            );
+        }
+
+        #[test]
+        fn test_check_stack_integrity_empty_stack() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_stack_integrity();
+
+            assert!(result.is_clean());
+        }
+
+        #[test]
+        fn test_check_stack_integrity_branch_not_in_git() {
+            let git = MockGitOps::new(); // No branches exist
+
+            let state = MockStateStore::new();
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/missing", None::<&str>).unwrap());
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_stack_integrity();
+
+            assert!(result.has_warnings());
+            assert!(result.issues[0].message.contains("not in git"));
+        }
+
+        #[test]
+        fn test_check_stack_integrity_missing_parent() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/child", oid);
+            // Parent "feature/parent" doesn't exist in git or stack
+
+            let state = MockStateStore::new();
+            let mut stack = Stack::default();
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_stack_integrity();
+
+            assert!(result.has_errors());
+            assert!(
+                result
+                    .issues
+                    .iter()
+                    .any(|i| i.message.contains("missing parent"))
+            );
+        }
+
+        #[test]
+        fn test_check_stack_integrity_valid_stack() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid)
+                .with_branch("feature/b", oid);
+
+            let state = MockStateStore::new();
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+            stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_stack_integrity();
+
+            assert!(result.is_clean());
+        }
+
+        #[test]
+        fn test_check_sync_state_clean() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack.clone());
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_sync_state().unwrap();
+
+            // With same commits, no sync needed
+            assert!(!result.has_errors());
+        }
+
+        #[test]
+        fn test_check_sync_state_sync_in_progress() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+            *state.sync_in_progress.borrow_mut() = true;
+
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_sync_state().unwrap();
+
+            assert!(result.has_warnings());
+            assert!(
+                result.issues[0]
+                    .message
+                    .contains("Sync operation in progress")
+            );
+        }
+
+        #[test]
+        fn test_run_diagnostics() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let report = service.run_diagnostics().unwrap();
+
+            // Empty stack with clean repo should have github auth error
+            // (since no real GitHub token available in tests)
+            // but git_state and stack_integrity should be clean
+            assert!(report.git_state.is_clean());
+            assert!(report.stack_integrity.is_clean());
+        }
+
+        #[test]
+        fn test_check_git_state_multiple_issues() {
+            let git = MockGitOps::new();
+            *git.is_clean.borrow_mut() = false;
+            *git.is_rebasing.borrow_mut() = true;
+
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_git_state();
+
+            // Should have both dirty working dir warning and rebase error
+            assert!(result.has_errors());
+            assert!(result.has_warnings());
+            assert!(result.issues.len() >= 2);
+        }
+
+        #[test]
+        fn test_check_stack_integrity_parent_in_stack_not_git() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/child", oid);
+            // Parent exists in stack but not in git
+
+            let state = MockStateStore::new();
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/parent", None::<&str>).unwrap());
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            let service = DoctorService::new(&git, &state, &stack);
+            let result = service.check_stack_integrity();
+
+            // Parent exists in stack, so child is OK, but parent branch is not in git
+            assert!(result.has_warnings());
+            assert!(
+                result
+                    .issues
+                    .iter()
+                    .any(|i| i.message.contains("feature/parent")
+                        && i.message.contains("not in git"))
+            );
+        }
     }
 }

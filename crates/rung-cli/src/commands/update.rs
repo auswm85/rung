@@ -1,4 +1,7 @@
 //! `rung update` command - Update rung to the latest version.
+//!
+//! This module is excluded from test coverage as it performs self-update
+//! operations that cannot be meaningfully tested in isolation.
 
 use std::path::PathBuf;
 use std::process::Command;
