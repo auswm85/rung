@@ -46,6 +46,9 @@ pub trait StateStore {
     fn save_config(&self, config: &Config) -> Result<()>;
 
     /// Get the default branch name from config, falling back to "main".
+    ///
+    /// # Errors
+    /// Returns error if the config file cannot be read or parsed.
     fn default_branch(&self) -> Result<String>;
 
     // === Sync State Operations ===
