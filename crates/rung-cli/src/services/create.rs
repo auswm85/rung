@@ -49,6 +49,11 @@ impl<'a> CreateService<'a> {
         Ok(self.repo.is_clean()?)
     }
 
+    /// Check if there are staged changes ready to commit.
+    pub fn has_staged_changes(&self) -> Result<bool> {
+        Ok(self.repo.has_staged_changes()?)
+    }
+
     /// Create a new branch in the stack.
     ///
     /// This will:
@@ -94,10 +99,23 @@ impl<'a> CreateService<'a> {
         };
 
         // All git operations succeeded - now persist to stack
-        let mut stack = self.state.load_stack()?;
+        let mut stack = match self.state.load_stack() {
+            Ok(s) => s,
+            Err(e) => {
+                // Clean up: checkout parent and delete the branch
+                let _ = self.repo.checkout(parent_str);
+                let _ = self.repo.delete_branch(name);
+                return Err(e.into());
+            }
+        };
         let branch = StackBranch::new(branch_name.clone(), Some(parent.clone()));
         stack.add_branch(branch);
-        self.state.save_stack(&stack)?;
+        if let Err(e) = self.state.save_stack(&stack) {
+            // Clean up: checkout parent and delete the branch
+            let _ = self.repo.checkout(parent_str);
+            let _ = self.repo.delete_branch(name);
+            return Err(e.into());
+        }
 
         // Calculate stack depth
         let stack_depth = stack.ancestry(name).len();

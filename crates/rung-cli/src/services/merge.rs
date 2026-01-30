@@ -3,7 +3,7 @@
 //! This service encapsulates the business logic for the merge command,
 //! accepting trait-based dependencies for testability.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
@@ -304,17 +304,17 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
             .context("Failed to delete remote branch")
     }
 
-    /// Collect all descendants of a branch in topological order.
+    /// Collect all descendants of a branch in topological order (BFS).
     #[must_use]
     pub fn collect_descendants(stack: &Stack, root: &str) -> Vec<String> {
         let mut descendants = Vec::new();
-        let mut queue = vec![root.to_string()];
+        let mut queue = VecDeque::from([root.to_string()]);
 
-        while let Some(parent) = queue.pop() {
+        while let Some(parent) = queue.pop_front() {
             for branch in &stack.branches {
                 if branch.parent.as_ref().is_some_and(|p| p == &parent) {
                     descendants.push(branch.name.to_string());
-                    queue.push(branch.name.to_string());
+                    queue.push_back(branch.name.to_string());
                 }
             }
         }
