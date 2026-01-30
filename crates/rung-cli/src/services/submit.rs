@@ -643,4 +643,187 @@ mod tests {
             PlannedBranchAction::Update { pr_number: 123, .. }
         ));
     }
+
+    #[test]
+    fn test_generate_title_various_formats() {
+        // Simple hyphenated
+        assert_eq!(generate_title("add-feature"), "Add Feature");
+        // CamelCase-like with hyphens
+        assert_eq!(generate_title("AddNew-feature"), "AddNew Feature");
+        // Numbers in name
+        assert_eq!(generate_title("fix-issue-42"), "Fix Issue 42");
+        // Single word
+        assert_eq!(generate_title("hotfix"), "Hotfix");
+        // Path with multiple segments
+        assert_eq!(generate_title("user/john/feature/auth"), "Auth");
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_build_branch_chain_single_branch() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        let name = BranchName::new("feature-1").expect("valid branch name");
+        let parent = BranchName::new("main").expect("valid branch name");
+        stack.add_branch(StackBranch::new(name, Some(parent)));
+
+        let chain = build_branch_chain(&stack, "feature-1");
+        assert_eq!(chain, vec!["feature-1"]);
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_build_branch_chain_with_parent() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        let f1 = BranchName::new("feature-1").expect("valid");
+        let main = BranchName::new("main").expect("valid");
+        stack.add_branch(StackBranch::new(f1.clone(), Some(main)));
+
+        let f2 = BranchName::new("feature-2").expect("valid");
+        stack.add_branch(StackBranch::new(f2, Some(f1)));
+
+        let chain = build_branch_chain(&stack, "feature-2");
+        assert!(chain.contains(&"feature-1".to_string()));
+        assert!(chain.contains(&"feature-2".to_string()));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_build_branch_chain_complex() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        let a = BranchName::new("a").expect("valid");
+        let b = BranchName::new("b").expect("valid");
+        let c = BranchName::new("c").expect("valid");
+        let main = BranchName::new("main").expect("valid");
+
+        stack.add_branch(StackBranch::new(a.clone(), Some(main)));
+        stack.add_branch(StackBranch::new(b.clone(), Some(a)));
+        stack.add_branch(StackBranch::new(c, Some(b)));
+
+        let chain = build_branch_chain(&stack, "c");
+        // Should contain all branches in the chain
+        assert!(chain.contains(&"a".to_string()));
+        assert!(chain.contains(&"b".to_string()));
+        assert!(chain.contains(&"c".to_string()));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_generate_stack_comment_single_branch() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        let name = BranchName::new("feature-1").expect("valid");
+        let parent = BranchName::new("main").expect("valid");
+        stack.add_branch(StackBranch::new(name, Some(parent)));
+
+        if let Some(b) = stack
+            .branches
+            .iter_mut()
+            .find(|b| b.name.as_str() == "feature-1")
+        {
+            b.pr = Some(42);
+        }
+
+        let comment = generate_stack_comment(&stack, 42, "main");
+        assert!(comment.contains(STACK_COMMENT_MARKER));
+        assert!(comment.contains("#42"));
+        assert!(comment.contains("main"));
+        assert!(comment.contains("rung"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_generate_stack_comment_with_chain() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        let f1 = BranchName::new("feature-1").expect("valid");
+        let f2 = BranchName::new("feature-2").expect("valid");
+        let main = BranchName::new("main").expect("valid");
+
+        stack.add_branch(StackBranch::new(f1.clone(), Some(main)));
+        stack.add_branch(StackBranch::new(f2, Some(f1)));
+
+        if let Some(b) = stack
+            .branches
+            .iter_mut()
+            .find(|b| b.name.as_str() == "feature-1")
+        {
+            b.pr = Some(10);
+        }
+        if let Some(b) = stack
+            .branches
+            .iter_mut()
+            .find(|b| b.name.as_str() == "feature-2")
+        {
+            b.pr = Some(20);
+        }
+
+        let comment = generate_stack_comment(&stack, 20, "main");
+        assert!(comment.contains("#10"));
+        assert!(comment.contains("#20"));
+        assert!(comment.contains("👈")); // Current PR marker
+    }
+
+    #[test]
+    fn test_submit_plan_all_updates() {
+        let plan = SubmitPlan {
+            actions: vec![
+                PlannedBranchAction::Update {
+                    branch: "a".into(),
+                    pr_number: 1,
+                    pr_url: "url1".into(),
+                    base: "main".into(),
+                },
+                PlannedBranchAction::Update {
+                    branch: "b".into(),
+                    pr_number: 2,
+                    pr_url: "url2".into(),
+                    base: "a".into(),
+                },
+            ],
+        };
+
+        assert_eq!(plan.count_creates(), 0);
+        assert_eq!(plan.count_updates(), 2);
+        assert!(!plan.is_empty());
+    }
+
+    #[test]
+    fn test_submit_plan_all_creates() {
+        let plan = SubmitPlan {
+            actions: vec![
+                PlannedBranchAction::Create {
+                    branch: "a".into(),
+                    title: "A".into(),
+                    body: String::new(),
+                    base: "main".into(),
+                    draft: false,
+                },
+                PlannedBranchAction::Create {
+                    branch: "b".into(),
+                    title: "B".into(),
+                    body: String::new(),
+                    base: "a".into(),
+                    draft: false,
+                },
+            ],
+        };
+
+        assert_eq!(plan.count_creates(), 2);
+        assert_eq!(plan.count_updates(), 0);
+    }
+
+    #[test]
+    fn test_stack_comment_marker_constant() {
+        assert!(STACK_COMMENT_MARKER.starts_with("<!--"));
+        assert!(STACK_COMMENT_MARKER.ends_with("-->"));
+        assert!(STACK_COMMENT_MARKER.contains("rung"));
+    }
 }
