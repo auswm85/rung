@@ -4,6 +4,7 @@
 //! trait-based dependencies, enabling testing with mock implementations.
 
 pub mod absorb;
+pub mod create;
 pub mod doctor;
 pub mod merge;
 pub mod restack;
@@ -12,6 +13,7 @@ pub mod submit;
 pub mod sync;
 
 pub use absorb::AbsorbService;
+pub use create::CreateService;
 pub use doctor::{CheckResult, DoctorService, Issue, Severity};
 pub use merge::MergeService;
 pub use restack::{DivergenceInfo, RestackConfig, RestackService};
