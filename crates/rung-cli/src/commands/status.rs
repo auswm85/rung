@@ -3,12 +3,14 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail};
-use rung_core::{BranchState, State};
-use rung_git::{RemoteDivergence, Repository};
+use colored::Colorize;
+use rung_core::State;
+use rung_git::Repository;
 use rung_github::{Auth, GitHubClient, PullRequestState};
 use serde::Serialize;
 
 use crate::output::{self, PrStatus};
+use crate::services::{BranchStatusInfo, RemoteDivergenceInfo, StatusService};
 
 /// Run the status command.
 pub fn run(json: bool, fetch: bool) -> Result<()> {
@@ -24,21 +26,26 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         bail!("Rung not initialized - run `rung init` first");
     }
 
+    // Load stack
+    let stack = state.load_stack()?;
+
+    // Create service
+    let service = StatusService::new(&repo, &state, &stack);
+
     // Fetch latest from remote if requested
     if fetch {
         if !json {
             output::info("Fetching from remote...");
         }
-        repo.fetch_all().context("Failed to fetch from remote")?;
+        service
+            .fetch_remote()
+            .context("Failed to fetch from remote")?;
     }
 
-    // Get current branch
-    let current = repo.current_branch().ok();
+    // Compute status
+    let status = service.compute_status()?;
 
-    // Load stack
-    let stack = state.load_stack()?;
-
-    if stack.is_empty() {
+    if status.is_empty() {
         if json {
             println!("{}", serde_json::to_string_pretty(&JsonOutput::empty())?);
         } else {
@@ -47,7 +54,7 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Fetch PRs if requested (best-effort - don't fail status command on GitHub errors)
+    // Fetch PR statuses if requested (best-effort - don't fail status command on GitHub errors)
     let mut pr_cache = HashMap::new();
     if fetch {
         if let Err(e) = fetch_pr_statuses(&repo, &stack, &mut pr_cache, json) {
@@ -57,54 +64,42 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         }
     }
 
-    // Compute branch states
-    let mut branches_with_state: Vec<BranchInfo> = vec![];
+    // Enrich branches with PR status info
+    let branches_with_pr_status: Vec<BranchWithPrStatus> = status
+        .branches
+        .into_iter()
+        .map(|branch| {
+            let (pr_state, display_status) = branch.pr.map_or((None, None), |pr_num| {
+                pr_cache.get(&pr_num).map_or((None, None), |pr| {
+                    let status = match (pr.state, pr.draft) {
+                        (PullRequestState::Merged, _) => PrStatus::Merged,
+                        (PullRequestState::Closed, _) => PrStatus::Closed,
+                        (_, true) => PrStatus::Draft,
+                        _ => PrStatus::Open,
+                    };
+                    let pr_state = match status {
+                        PrStatus::Open => "open",
+                        PrStatus::Draft => "draft",
+                        PrStatus::Merged => "merged",
+                        PrStatus::Closed => "closed",
+                    };
+                    (Some(pr_state.to_string()), Some(status))
+                })
+            });
+            BranchWithPrStatus {
+                info: branch,
+                pr_state,
+                display_status,
+            }
+        })
+        .collect();
 
-    for branch in &stack.branches {
-        let branch_state = compute_branch_state(&repo, branch, &stack)?;
-        let remote_divergence = repo
-            .remote_divergence(&branch.name)
-            .ok()
-            .map(|d| RemoteDivergenceInfo::from(&d));
-
-        let (pr_state, display_status) = branch.pr.map_or((None, None), |pr_num| {
-            pr_cache.get(&pr_num).map_or((None, None), |pr| {
-                let status = match (pr.state, pr.draft) {
-                    (PullRequestState::Merged, _) => PrStatus::Merged,
-                    (PullRequestState::Closed, _) => PrStatus::Closed,
-                    (_, true) => PrStatus::Draft,
-                    _ => PrStatus::Open,
-                };
-                let pr_state = match status {
-                    PrStatus::Open => "open",
-                    PrStatus::Draft => "draft",
-                    PrStatus::Merged => "merged",
-                    PrStatus::Closed => "closed",
-                };
-                (Some(pr_state.to_string()), Some(status))
-            })
-        });
-
-        branches_with_state.push(BranchInfo {
-            name: branch.name.to_string(),
-            parent: branch.parent.as_ref().map(ToString::to_string),
-            state: branch_state,
-            pr: branch.pr,
-            pr_state,
-            display_status,
-            is_current: current.as_deref() == Some(branch.name.as_str()),
-            remote_divergence,
-        });
-    }
-
+    // Output
     if json {
-        let output = JsonOutput {
-            branches: branches_with_state,
-            current,
-        };
+        let output = JsonOutput::from_branches(&branches_with_pr_status, status.current_branch);
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_tree(&branches_with_state);
+        print_tree(&branches_with_pr_status);
     }
 
     Ok(())
@@ -141,59 +136,19 @@ fn fetch_pr_statuses(
     Ok(())
 }
 
-/// Compute the sync state of a branch relative to its parent.
-fn compute_branch_state(
-    repo: &Repository,
-    branch: &rung_core::stack::StackBranch,
-    stack: &rung_core::Stack,
-) -> Result<BranchState> {
-    let Some(parent_name) = &branch.parent else {
-        // Root branch, always synced
-        return Ok(BranchState::Synced);
-    };
-
-    // Check if parent exists in repo
-    if !repo.branch_exists(parent_name) {
-        // Check if parent is in stack (might be deleted)
-        if stack.find_branch(parent_name).is_some() {
-            return Ok(BranchState::Detached);
-        }
-        // Parent is external (like main), check if it exists
-        if !repo.branch_exists(parent_name) {
-            return Ok(BranchState::Detached);
-        }
-    }
-
-    // Get commits
-    let branch_commit = repo.branch_commit(&branch.name)?;
-    let parent_commit = repo.branch_commit(parent_name)?;
-
-    // Find merge base
-    let merge_base = repo.merge_base(branch_commit, parent_commit)?;
-
-    // If merge base is the parent commit, we're synced
-    if merge_base == parent_commit {
-        return Ok(BranchState::Synced);
-    }
-
-    // Count how many commits behind
-    let commits_behind = repo.count_commits_between(merge_base, parent_commit)?;
-
-    Ok(BranchState::Diverged { commits_behind })
-}
-
 /// Print a tree view of the stack.
-fn print_tree(branches: &[BranchInfo]) {
+fn print_tree(branches: &[BranchWithPrStatus]) {
     println!();
     println!("  {}", "Stack".bold());
     output::hr();
 
     for branch in branches {
-        let state_icon = output::state_indicator(&branch.state);
-        let name = output::branch_name(&branch.name, branch.is_current);
-        let pr = output::pr_ref(branch.pr, branch.display_status);
+        let state_icon = output::state_indicator(&branch.info.state);
+        let name = output::branch_name(&branch.info.name, branch.info.is_current);
+        let pr = output::pr_ref(branch.info.pr, branch.display_status);
 
         let parent_info = branch
+            .info
             .parent
             .as_ref()
             .map(|p| format!(" ← {}", p.dimmed()))
@@ -201,6 +156,7 @@ fn print_tree(branches: &[BranchInfo]) {
 
         // Add remote divergence indicator if present
         let divergence = branch
+            .info
             .remote_divergence
             .as_ref()
             .and_then(remote_divergence_indicator)
@@ -227,7 +183,7 @@ fn print_tree(branches: &[BranchInfo]) {
         .iter()
         .filter(|b| {
             matches!(
-                b.remote_divergence,
+                b.info.remote_divergence,
                 Some(RemoteDivergenceInfo::Diverged { .. })
             )
         })
@@ -235,10 +191,12 @@ fn print_tree(branches: &[BranchInfo]) {
 
     if !diverged.is_empty() {
         for b in &diverged {
-            if let Some(RemoteDivergenceInfo::Diverged { ahead, behind }) = &b.remote_divergence {
+            if let Some(RemoteDivergenceInfo::Diverged { ahead, behind }) =
+                &b.info.remote_divergence
+            {
                 output::warn(&format!(
                     "{} has diverged from remote ({} ahead, {} behind)",
-                    b.name, ahead, behind
+                    b.info.name, ahead, behind
                 ));
             }
         }
@@ -263,12 +221,27 @@ fn remote_divergence_indicator(divergence: &RemoteDivergenceInfo) -> Option<Stri
     }
 }
 
-use colored::Colorize;
+/// Branch info with PR status for display.
+struct BranchWithPrStatus {
+    info: BranchStatusInfo,
+    #[allow(dead_code)]
+    pr_state: Option<String>,
+    display_status: Option<PrStatus>,
+}
 
+/// JSON output wrapper (preserves existing JSON structure).
 #[derive(Debug, Serialize)]
 struct JsonOutput {
-    branches: Vec<BranchInfo>,
+    branches: Vec<JsonBranchInfo>,
     current: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonBranchInfo {
+    #[serde(flatten)]
+    info: BranchStatusInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pr_state: Option<String>,
 }
 
 impl JsonOutput {
@@ -278,46 +251,17 @@ impl JsonOutput {
             current: None,
         }
     }
-}
 
-#[derive(Debug, Serialize)]
-struct BranchInfo {
-    name: String,
-    parent: Option<String>,
-    state: BranchState,
-    pr: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pr_state: Option<String>,
-    #[serde(skip)]
-    display_status: Option<PrStatus>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    is_current: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    remote_divergence: Option<RemoteDivergenceInfo>,
-}
-
-/// Serializable remote divergence info for JSON output.
-#[derive(Debug, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-enum RemoteDivergenceInfo {
-    InSync,
-    Ahead { commits: usize },
-    Behind { commits: usize },
-    Diverged { ahead: usize, behind: usize },
-    NoRemote,
-}
-
-impl From<&RemoteDivergence> for RemoteDivergenceInfo {
-    fn from(d: &RemoteDivergence) -> Self {
-        match d {
-            RemoteDivergence::InSync => Self::InSync,
-            RemoteDivergence::Ahead { commits } => Self::Ahead { commits: *commits },
-            RemoteDivergence::Behind { commits } => Self::Behind { commits: *commits },
-            RemoteDivergence::Diverged { ahead, behind } => Self::Diverged {
-                ahead: *ahead,
-                behind: *behind,
-            },
-            RemoteDivergence::NoRemote => Self::NoRemote,
+    fn from_branches(branches: &[BranchWithPrStatus], current: Option<String>) -> Self {
+        Self {
+            branches: branches
+                .iter()
+                .map(|b| JsonBranchInfo {
+                    info: b.info.clone(),
+                    pr_state: b.pr_state.clone(),
+                })
+                .collect(),
+            current,
         }
     }
 }
