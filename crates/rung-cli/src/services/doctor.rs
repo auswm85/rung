@@ -3,6 +3,8 @@
 //! This module contains the diagnostic logic separated from CLI concerns,
 //! enabling testing and reuse.
 
+use std::collections::HashSet;
+
 use anyhow::{Context, Result};
 use rung_core::Stack;
 use rung_git::Repository;
@@ -205,61 +207,60 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             }
         }
 
-        // Check for circular dependencies
+        // Check for circular dependencies (report each cycle only once)
+        let mut reported: HashSet<String> = HashSet::new();
         for branch in &self.stack.branches {
-            if self.has_circular_dependency(&branch.name, &mut vec![]) {
+            let branch_name = branch.name.to_string();
+            if reported.contains(&branch_name) {
+                continue;
+            }
+            if let Some(cycle) = self.find_circular_dependency(&branch_name) {
                 result.issues.push(Issue::error(format!(
-                    "Circular dependency detected involving '{}'",
-                    branch.name
+                    "Circular dependency detected: {}",
+                    cycle.join(" -> ")
                 )));
+                for node in cycle {
+                    reported.insert(node);
+                }
             }
         }
 
         result
     }
 
-    /// Check if a branch has a circular dependency.
-    fn has_circular_dependency<'b>(
-        &self,
-        branch_name: &'b str,
-        visited: &mut Vec<&'b str>,
-    ) -> bool {
-        if visited.contains(&branch_name) {
-            return true;
-        }
-
-        visited.push(branch_name);
-
-        if let Some(branch) = self.stack.find_branch(branch_name) {
-            if let Some(parent) = &branch.parent {
-                if self.stack.find_branch(parent).is_some() {
-                    // Need to clone to avoid lifetime issues
-                    let parent_owned = parent.clone();
-                    // This is safe because we're only checking existence
-                    return self.has_circular_dependency_owned(&parent_owned, visited);
-                }
-            }
-        }
-
-        false
+    /// Find a circular dependency starting from the given branch.
+    /// Returns `Some(cycle_nodes)` if a cycle is found, `None` otherwise.
+    fn find_circular_dependency(&self, branch_name: &str) -> Option<Vec<String>> {
+        let mut path = Vec::new();
+        self.find_circular_dependency_impl(branch_name, &mut path)
     }
 
-    /// Helper for circular dependency check with owned string.
-    fn has_circular_dependency_owned(&self, branch_name: &str, visited: &mut Vec<&str>) -> bool {
-        if visited.contains(&branch_name) {
-            return true;
+    /// Helper for circular dependency detection that tracks the path.
+    fn find_circular_dependency_impl(
+        &self,
+        branch_name: &str,
+        path: &mut Vec<String>,
+    ) -> Option<Vec<String>> {
+        // Check if we've seen this branch in the current path (cycle detected)
+        if let Some(pos) = path.iter().position(|b| b == branch_name) {
+            // Return only the cycle portion (from where the cycle starts)
+            let mut cycle: Vec<String> = path[pos..].to_vec();
+            cycle.push(branch_name.to_owned()); // Close the cycle
+            return Some(cycle);
         }
+
+        path.push(branch_name.to_owned());
 
         if let Some(branch) = self.stack.find_branch(branch_name) {
             if let Some(parent) = &branch.parent {
                 if self.stack.find_branch(parent).is_some() {
-                    let parent_owned = parent.clone();
-                    return self.has_circular_dependency_owned(&parent_owned, visited);
+                    return self.find_circular_dependency_impl(parent, path);
                 }
             }
         }
 
-        false
+        path.pop();
+        None
     }
 
     /// Check sync state of branches.
@@ -344,8 +345,14 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         };
 
         // Check PRs for branches that have them
-        let Ok(rt) = tokio::runtime::Runtime::new() else {
-            return result;
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                result.issues.push(Issue::warning(format!(
+                    "GitHub PR checks skipped: failed to create async runtime: {e}"
+                )));
+                return result;
+            }
         };
 
         for branch in &self.stack.branches {

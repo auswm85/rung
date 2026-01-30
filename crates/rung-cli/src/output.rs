@@ -130,6 +130,8 @@ pub fn hr() {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     use super::*;
     use colored::Colorize;
     use rung_core::BranchState;
@@ -214,6 +216,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_quiet_mode_default() {
         // Reset to default state
         set_quiet(false);
@@ -221,6 +224,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_quiet_mode_enabled() {
         set_quiet(true);
         assert!(is_quiet());

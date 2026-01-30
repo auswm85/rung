@@ -336,12 +336,12 @@ fn print_reconcile_results(result: &ReconcileResult, json: bool) {
         ));
     }
     for repair in &result.repaired {
+        let pr_display = repair
+            .pr_number
+            .map_or_else(|| "no PR".to_string(), |n| format!("PR #{n}"));
         output::warn(&format!(
-            "Ghost parent: PR #{} ({}) base was '{}', correcting to '{}'",
-            repair.pr_number.unwrap_or(0),
-            repair.name,
-            repair.old_parent,
-            repair.new_parent
+            "Ghost parent: {pr_display} ({}) base was '{}', correcting to '{}'",
+            repair.name, repair.old_parent, repair.new_parent
         ));
     }
 }

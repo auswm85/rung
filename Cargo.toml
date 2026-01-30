@@ -53,6 +53,7 @@ indicatif = "0.17"
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
+serial_test = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

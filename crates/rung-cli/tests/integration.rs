@@ -1620,7 +1620,7 @@ fn test_doctor_dirty_working_directory() {
         .current_dir(&temp)
         .assert()
         .success()
-        .stderr(predicate::str::contains("issue"));
+        .stdout(predicate::str::contains("uncommitted changes"));
 }
 
 #[test]
@@ -1723,12 +1723,14 @@ fn test_log_no_commits_between() {
         .success();
 
     // Log should show no commits (message may be in stdout or stderr)
-    rung()
-        .arg("log")
-        .current_dir(&temp)
-        .assert()
-        .success()
-        .stderr(predicate::str::contains("no commits"));
+    let result = rung().arg("log").current_dir(&temp).assert().success();
+
+    let stdout = String::from_utf8_lossy(&result.get_output().stdout);
+    let stderr = String::from_utf8_lossy(&result.get_output().stderr);
+    assert!(
+        stdout.contains("no commits") || stderr.contains("no commits"),
+        "Expected 'no commits' in stdout or stderr.\nstdout: {stdout}\nstderr: {stderr}"
+    );
 }
 
 // ============================================================================

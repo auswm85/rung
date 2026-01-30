@@ -53,9 +53,12 @@ impl<'a> CreateService<'a> {
     ///
     /// This will:
     /// 1. Create the git branch at current HEAD
-    /// 2. Add it to the stack with the given parent
-    /// 3. Checkout the new branch
-    /// 4. Optionally stage all changes and create a commit
+    /// 2. Checkout the new branch
+    /// 3. Optionally stage all changes and create a commit
+    /// 4. Add it to the stack (only after git operations succeed)
+    ///
+    /// If any step fails after the branch is created, the branch is deleted
+    /// to maintain consistency between git and stack state.
     pub fn create_branch(
         &self,
         branch_name: &BranchName,
@@ -68,21 +71,33 @@ impl<'a> CreateService<'a> {
         // Create the branch at current HEAD (parent's tip)
         self.repo.create_branch(name)?;
 
-        // Add to stack
+        // Checkout the new branch (rollback on failure)
+        if let Err(e) = self.repo.checkout(name) {
+            // Clean up: delete the branch we just created
+            let _ = self.repo.delete_branch(name);
+            return Err(anyhow::Error::from(e).context("Failed to checkout new branch"));
+        }
+
+        // Handle optional commit (rollback on failure)
+        let (commit_created, commit_message) = if let Some(msg) = message {
+            match self.create_initial_commit(msg) {
+                Ok(result) => result,
+                Err(e) => {
+                    // Clean up: checkout parent and delete the branch
+                    let _ = self.repo.checkout(parent_str);
+                    let _ = self.repo.delete_branch(name);
+                    return Err(e.context("Failed to create initial commit"));
+                }
+            }
+        } else {
+            (false, None)
+        };
+
+        // All git operations succeeded - now persist to stack
         let mut stack = self.state.load_stack()?;
         let branch = StackBranch::new(branch_name.clone(), Some(parent.clone()));
         stack.add_branch(branch);
         self.state.save_stack(&stack)?;
-
-        // Checkout the new branch
-        self.repo.checkout(name)?;
-
-        // Handle optional commit
-        let (commit_created, commit_message) = if let Some(msg) = message {
-            self.create_initial_commit(msg)?
-        } else {
-            (false, None)
-        };
 
         // Calculate stack depth
         let stack_depth = stack.ancestry(name).len();

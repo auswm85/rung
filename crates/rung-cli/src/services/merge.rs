@@ -17,6 +17,9 @@ pub struct DescendantResult {
     pub branch: String,
     pub rebased: bool,
     pub pr_updated: bool,
+    /// Error message if rebase or push failed for this branch.
+    #[allow(dead_code)]
+    pub error: Option<String>,
 }
 
 /// Service for merge operations with trait-based dependencies.
@@ -41,21 +44,42 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
     }
 
     /// Validate that a PR is mergeable.
+    ///
+    /// GitHub may return `mergeable: None` while computing merge status.
+    /// This method polls until `mergeable` becomes `Some(true)` or retries exhaust.
     pub async fn validate_mergeable(&self, pr_number: u64) -> Result<rung_github::PullRequest> {
-        let pr = self
-            .client
-            .get_pr(&self.owner, &self.repo_name, pr_number)
-            .await
-            .context("Failed to fetch PR status")?;
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 1000;
 
-        if pr.mergeable == Some(false) {
-            bail!(
-                "PR #{pr_number} is not mergeable. State: {}",
-                pr.mergeable_state.as_deref().unwrap_or("unknown")
-            );
+        let mut attempts = 0;
+        loop {
+            let pr = self
+                .client
+                .get_pr(&self.owner, &self.repo_name, pr_number)
+                .await
+                .context("Failed to fetch PR status")?;
+
+            match pr.mergeable {
+                Some(true) => return Ok(pr),
+                Some(false) => {
+                    bail!(
+                        "PR #{pr_number} is not mergeable. State: {}",
+                        pr.mergeable_state.as_deref().unwrap_or("unknown")
+                    );
+                }
+                None => {
+                    attempts += 1;
+                    if attempts >= MAX_RETRIES {
+                        bail!(
+                            "PR #{pr_number} mergeable status unknown after {MAX_RETRIES} attempts. \
+                             State: {}",
+                            pr.mergeable_state.as_deref().unwrap_or("unknown")
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                }
+            }
         }
-
-        Ok(pr)
     }
 
     /// Shift child PR bases to parent before merge.
@@ -221,13 +245,25 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
             // Attempt rebase
             if let Err(e) = self.repo.rebase_onto_from(new_base_commit, old_base_commit) {
-                bail!("Rebase conflict in '{branch_name}': {e}");
+                results.push(DescendantResult {
+                    branch: branch_name.clone(),
+                    rebased: false,
+                    pr_updated: false,
+                    error: Some(format!("Rebase conflict: {e}")),
+                });
+                continue;
             }
 
             // Force push rebased branch
-            self.repo
-                .push(branch_name, true)
-                .with_context(|| format!("Failed to push rebased {branch_name}"))?;
+            if let Err(e) = self.repo.push(branch_name, true) {
+                results.push(DescendantResult {
+                    branch: branch_name.clone(),
+                    rebased: true,
+                    pr_updated: false,
+                    error: Some(format!("Push failed: {e}")),
+                });
+                continue;
+            }
 
             // Update PR base for grandchildren (direct children were already shifted)
             let mut pr_updated = false;
@@ -253,6 +289,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
                 branch: branch_name.clone(),
                 rebased: true,
                 pr_updated,
+                error: None,
             });
         }
 
@@ -306,10 +343,12 @@ mod tests {
             branch: "feature/child".to_string(),
             rebased: true,
             pr_updated: false,
+            error: None,
         };
         assert_eq!(result.branch, "feature/child");
         assert!(result.rebased);
         assert!(!result.pr_updated);
+        assert!(result.error.is_none());
     }
 
     #[test]
@@ -318,11 +357,13 @@ mod tests {
             branch: "test".to_string(),
             rebased: true,
             pr_updated: true,
+            error: None,
         };
         let cloned = result.clone();
         assert_eq!(result.branch, cloned.branch);
         assert_eq!(result.rebased, cloned.rebased);
         assert_eq!(result.pr_updated, cloned.pr_updated);
+        assert_eq!(result.error, cloned.error);
     }
 
     #[test]
@@ -483,9 +524,11 @@ mod tests {
             branch: "all-true".to_string(),
             rebased: true,
             pr_updated: true,
+            error: None,
         };
         assert!(result.rebased);
         assert!(result.pr_updated);
+        assert!(result.error.is_none());
     }
 
     #[test]
@@ -494,9 +537,30 @@ mod tests {
             branch: "all-false".to_string(),
             rebased: false,
             pr_updated: false,
+            error: None,
         };
         assert!(!result.rebased);
         assert!(!result.pr_updated);
+        assert!(result.error.is_none());
+    }
+
+    #[test]
+    fn test_descendant_result_with_error() {
+        let result = DescendantResult {
+            branch: "failed".to_string(),
+            rebased: false,
+            pr_updated: false,
+            error: Some("Rebase conflict: merge conflict".to_string()),
+        };
+        assert!(!result.rebased);
+        assert!(!result.pr_updated);
+        assert!(result.error.is_some());
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("conflict"))
+        );
     }
 
     // Mock-based tests for MergeService methods
@@ -510,7 +574,7 @@ mod tests {
 
         // Mock GitHubApi for merge testing
         struct MockGitHubClient {
-            pr_mergeable: bool,
+            pr_mergeable: Option<bool>,
             merge_should_fail: bool,
             delete_should_fail: bool,
             update_pr_called: AtomicBool,
@@ -519,7 +583,7 @@ mod tests {
         impl MockGitHubClient {
             fn new() -> Self {
                 Self {
-                    pr_mergeable: true,
+                    pr_mergeable: Some(true),
                     merge_should_fail: false,
                     delete_should_fail: false,
                     update_pr_called: AtomicBool::new(false),
@@ -527,7 +591,12 @@ mod tests {
             }
 
             fn with_unmergeable_pr(mut self) -> Self {
-                self.pr_mergeable = false;
+                self.pr_mergeable = Some(false);
+                self
+            }
+
+            fn with_unknown_mergeable(mut self) -> Self {
+                self.pr_mergeable = None;
                 self
             }
 
@@ -560,11 +629,11 @@ mod tests {
                         base_branch: "main".to_string(),
                         head_branch: "feature".to_string(),
                         html_url: format!("https://github.com/test/repo/pull/{number}"),
-                        mergeable: Some(mergeable),
-                        mergeable_state: Some(if mergeable {
-                            "clean".to_string()
-                        } else {
-                            "blocked".to_string()
+                        mergeable,
+                        mergeable_state: Some(match mergeable {
+                            Some(true) => "clean".to_string(),
+                            Some(false) => "blocked".to_string(),
+                            None => "unknown".to_string(),
                         }),
                         draft: false,
                     })
@@ -776,6 +845,22 @@ mod tests {
             assert!(result.is_err());
             let err = result.unwrap_err().to_string();
             assert!(err.contains("not mergeable"));
+        }
+
+        #[tokio::test]
+        #[ignore = "slow test - retries 5 times with 1s delay"]
+        async fn test_validate_mergeable_unknown_status_retries() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new().with_unknown_mergeable();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let result = service.validate_mergeable(123).await;
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(err.contains("unknown after"));
+            assert!(err.contains("State: unknown"));
         }
 
         #[tokio::test]
