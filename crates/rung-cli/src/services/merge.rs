@@ -204,7 +204,10 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
         descendants: &[String],
         old_commits: &HashMap<String, Oid>,
     ) -> Result<Vec<DescendantResult>> {
+        use std::collections::HashSet;
+
         let mut results = Vec::new();
+        let mut failed_branches: HashSet<String> = HashSet::new();
 
         // Fetch to get the merge commit on the parent branch
         self.repo
@@ -220,6 +223,20 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
                 .parent
                 .as_ref()
                 .map_or(parent_branch, |p| p.as_str());
+
+            // Skip if an ancestor failed - propagate failure down the chain
+            if failed_branches.contains(stack_parent) {
+                failed_branches.insert(branch_name.clone());
+                results.push(DescendantResult {
+                    branch: branch_name.clone(),
+                    rebased: false,
+                    pr_updated: false,
+                    error: Some(format!(
+                        "Skipped: ancestor '{stack_parent}' failed to rebase"
+                    )),
+                });
+                continue;
+            }
 
             // Determine the new base for this branch
             let new_base = if stack_parent == current_branch {
@@ -245,6 +262,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
             // Attempt rebase
             if let Err(e) = self.repo.rebase_onto_from(new_base_commit, old_base_commit) {
+                failed_branches.insert(branch_name.clone());
                 results.push(DescendantResult {
                     branch: branch_name.clone(),
                     rebased: false,
@@ -256,6 +274,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
             // Force push rebased branch
             if let Err(e) = self.repo.push(branch_name, true) {
+                failed_branches.insert(branch_name.clone());
                 results.push(DescendantResult {
                     branch: branch_name.clone(),
                     rebased: true,
@@ -266,8 +285,9 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
             }
 
             // Update PR base for grandchildren (direct children were already shifted)
+            // Only update if this branch and all its ancestors succeeded
             let mut pr_updated = false;
-            if stack_parent != current_branch {
+            if stack_parent != current_branch && !failed_branches.contains(branch_name) {
                 if let Some(child_pr_num) = branch_info.pr {
                     let update = UpdatePullRequest {
                         title: None,

@@ -258,7 +258,7 @@ impl MockStateStore {
             config: RefCell::new(Config::default()),
             initialized: true,
             default_branch: "main".to_string(),
-            rung_dir: PathBuf::from("/tmp/mock-rung"),
+            rung_dir: std::env::temp_dir().join("mock-rung"),
             sync_in_progress: RefCell::new(false),
             restack_in_progress: RefCell::new(false),
         }

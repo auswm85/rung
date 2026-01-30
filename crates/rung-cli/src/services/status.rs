@@ -59,7 +59,7 @@ impl StackStatus {
     #[allow(dead_code)]
     pub const fn empty() -> Self {
         Self {
-            branches: vec![],
+            branches: Vec::new(),
             current_branch: None,
         }
     }

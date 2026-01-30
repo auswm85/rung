@@ -427,18 +427,23 @@ impl<'a, G: GitOps> RestackService<'a, G> {
 
         let current_branch = restack_state.current_branch.clone();
 
+        let original_branch = restack_state.original_branch.clone();
+
         // Continue the in-progress rebase
         match self.repo.rebase_continue() {
             Ok(()) => {
                 restack_state.advance();
                 state.save_restack_state(&restack_state)?;
-                self.execute_restack_loop(state, &restack_state.original_branch.clone())
+                self.execute_restack_loop(state, &original_branch)
             }
             Err(rung_git::Error::RebaseConflict(files)) => Err(RestackError::Conflict {
                 branch: current_branch,
                 files,
             }),
-            Err(e) => Err(RestackError::from(e)),
+            Err(e) => {
+                self.restore_from_backup(state, &restack_state, &original_branch);
+                Err(RestackError::from(e))
+            }
         }
     }
 
