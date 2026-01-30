@@ -41,7 +41,9 @@ impl SubmitPlan {
     /// Create an empty plan.
     #[must_use]
     pub const fn empty() -> Self {
-        Self { actions: vec![] }
+        Self {
+            actions: Vec::new(),
+        }
     }
 
     /// Count the number of PR creates in this plan.

@@ -173,23 +173,29 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
         merged_prs: &mut Vec<ExternalMergeInfo>,
         ghost_parents: &mut Vec<ReparentedBranch>,
     ) {
-        if pr.state == PullRequestState::Merged {
-            merged_prs.push(ExternalMergeInfo {
-                branch_name: branch_name.to_string(),
-                pr_number,
-                merged_into: pr.base_branch.clone(),
-            });
-        } else {
-            // PR is still open - validate its base matches our expectation
-            let expected_base = stack_parent.map_or(base_branch, |p| p.as_str());
-
-            if pr.base_branch != expected_base {
-                ghost_parents.push(ReparentedBranch {
-                    name: branch_name.to_string(),
-                    old_parent: pr.base_branch.clone(),
-                    new_parent: expected_base.to_string(),
-                    pr_number: Some(pr_number),
+        match pr.state {
+            PullRequestState::Merged => {
+                merged_prs.push(ExternalMergeInfo {
+                    branch_name: branch_name.to_string(),
+                    pr_number,
+                    merged_into: pr.base_branch.clone(),
                 });
+            }
+            PullRequestState::Open => {
+                // PR is still open - validate its base matches our expectation
+                let expected_base = stack_parent.map_or(base_branch, |p| p.as_str());
+
+                if pr.base_branch != expected_base {
+                    ghost_parents.push(ReparentedBranch {
+                        name: branch_name.to_string(),
+                        old_parent: pr.base_branch.clone(),
+                        new_parent: expected_base.to_string(),
+                        pr_number: Some(pr_number),
+                    });
+                }
+            }
+            PullRequestState::Closed => {
+                // Closed PRs are ignored - they are neither merged nor candidates for reparenting
             }
         }
     }
@@ -275,13 +281,16 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
             let update = UpdatePullRequest {
                 title: None,
                 body: None,
-                base: Some(new_base),
+                base: Some(new_base.clone()),
             };
 
-            let _ = self
+            if let Err(e) = self
                 .client
                 .update_pr(&self.owner, &self.repo_name, pr_number, update)
-                .await;
+                .await
+            {
+                eprintln!("Warning: Failed to update PR #{pr_number} base to '{new_base}': {e}");
+            }
         }
 
         Ok(())
@@ -549,7 +558,42 @@ mod tests {
 
         // Closed but not merged - should not be in merged_prs
         assert!(merged_prs.is_empty());
-        // Also no ghost parent since base matches
+        // Closed PRs are ignored entirely, so no ghost parent even if base matches
+        assert!(ghost_parents.is_empty());
+    }
+
+    #[test]
+    fn test_process_pr_result_closed_with_mismatched_base() {
+        // A closed PR with a mismatched base should still be ignored
+        let pr = rung_github::PullRequest {
+            number: 47,
+            title: "Closed PR with wrong base".to_string(),
+            body: None,
+            state: PullRequestState::Closed,
+            base_branch: "old-parent".to_string(), // Mismatched base
+            head_branch: "feature/closed-mismatch".to_string(),
+            html_url: "https://github.com/test/test/pull/47".to_string(),
+            mergeable: None,
+            mergeable_state: None,
+            draft: false,
+        };
+
+        let mut merged_prs = Vec::new();
+        let mut ghost_parents = Vec::new();
+
+        SyncService::<rung_git::Repository, rung_github::GitHubClient>::process_pr_result(
+            &pr,
+            "feature/closed-mismatch",
+            None,
+            47,
+            "main", // Expected base is "main" but PR has "old-parent"
+            &mut merged_prs,
+            &mut ghost_parents,
+        );
+
+        // Closed PRs are ignored - not in merged_prs
+        assert!(merged_prs.is_empty());
+        // Closed PRs are ignored - not in ghost_parents even with mismatched base
         assert!(ghost_parents.is_empty());
     }
 
