@@ -490,4 +490,94 @@ mod tests {
         assert_eq!(report.error_count(), 2);
         assert_eq!(report.warning_count(), 2);
     }
+
+    #[test]
+    fn test_issue_builder_pattern() {
+        let issue = Issue::error("Problem").with_suggestion("Do this");
+        assert_eq!(issue.message, "Problem");
+        assert_eq!(issue.suggestion, Some("Do this".to_string()));
+        assert_eq!(issue.severity, Severity::Error);
+    }
+
+    #[test]
+    fn test_issue_warning_with_suggestion() {
+        let issue = Issue::warning("Minor").with_suggestion("Consider this");
+        assert_eq!(issue.severity, Severity::Warning);
+        assert_eq!(issue.suggestion, Some("Consider this".to_string()));
+    }
+
+    #[test]
+    fn test_check_result_multiple_warnings() {
+        let mut result = CheckResult::default();
+        result.issues.push(Issue::warning("warn1"));
+        result.issues.push(Issue::warning("warn2"));
+        result.issues.push(Issue::warning("warn3"));
+
+        assert!(!result.is_clean());
+        assert!(result.has_warnings());
+        assert!(!result.has_errors());
+        assert_eq!(result.issues.len(), 3);
+    }
+
+    #[test]
+    fn test_check_result_multiple_errors() {
+        let mut result = CheckResult::default();
+        result.issues.push(Issue::error("err1"));
+        result.issues.push(Issue::error("err2"));
+
+        assert!(result.has_errors());
+        assert!(!result.has_warnings());
+        assert_eq!(result.issues.len(), 2);
+    }
+
+    #[test]
+    fn test_diagnostic_report_empty() {
+        let report = DiagnosticReport::default();
+        assert!(report.is_healthy());
+        assert_eq!(report.error_count(), 0);
+        assert_eq!(report.warning_count(), 0);
+        assert!(report.all_issues().is_empty());
+    }
+
+    #[test]
+    fn test_diagnostic_report_single_category() {
+        let mut report = DiagnosticReport::default();
+        report.git_state.issues.push(Issue::error("detached head"));
+
+        assert!(!report.is_healthy());
+        assert_eq!(report.error_count(), 1);
+        assert_eq!(report.warning_count(), 0);
+        assert_eq!(report.all_issues().len(), 1);
+    }
+
+    #[test]
+    fn test_severity_equality() {
+        assert_eq!(Severity::Error, Severity::Error);
+        assert_eq!(Severity::Warning, Severity::Warning);
+        assert_ne!(Severity::Error, Severity::Warning);
+    }
+
+    #[test]
+    fn test_issue_clone() {
+        let original = Issue::error("test").with_suggestion("fix");
+        let cloned = original.clone();
+
+        assert_eq!(original.message, cloned.message);
+        assert_eq!(original.severity, cloned.severity);
+        assert_eq!(original.suggestion, cloned.suggestion);
+    }
+
+    #[test]
+    fn test_check_result_mixed_issues() {
+        let mut result = CheckResult::default();
+        result.issues.push(Issue::error("error 1"));
+        result.issues.push(Issue::warning("warning 1"));
+        result.issues.push(Issue::error("error 2"));
+        result.issues.push(Issue::warning("warning 2"));
+
+        assert!(result.has_errors());
+        assert!(result.has_warnings());
+        assert!(!result.is_clean());
+        assert_eq!(result.issues.len(), 4);
+    }
 }
