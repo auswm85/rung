@@ -229,7 +229,12 @@ async fn execute_merge(
 
     // Step 5: Rebase descendants (non-fatal after merge)
     // rebase_descendants_after_merge already handles its own error messaging
-    let _ = rebase_descendants_after_merge(&service, state, stack, ctx, &parent_branch, json).await;
+    // We explicitly match but don't propagate since the merge itself succeeded
+    if let Err(_e) =
+        rebase_descendants_after_merge(&service, state, stack, ctx, &parent_branch, json).await
+    {
+        // Error already printed inside the function
+    }
 
     // Step 6: Delete remote branch
     if !no_delete {
@@ -276,12 +281,19 @@ async fn rollback_on_failure(
     if !json {
         output::warn("Merge failed, rolling back PR base changes...");
     }
-    service.rollback_pr_bases(shifted_prs).await;
+    let failures = service.rollback_pr_bases(shifted_prs).await;
     if !json {
         for (child_pr_num, original_base) in shifted_prs {
-            output::info(&format!(
-                "  Restored PR #{child_pr_num} base to '{original_base}'"
-            ));
+            // Check if this PR failed to rollback
+            if let Some((_, err)) = failures.iter().find(|(pr, _)| pr == child_pr_num) {
+                output::warn(&format!(
+                    "  Failed to restore PR #{child_pr_num} base to '{original_base}': {err}"
+                ));
+            } else {
+                output::info(&format!(
+                    "  Restored PR #{child_pr_num} base to '{original_base}'"
+                ));
+            }
         }
     }
 }
@@ -317,6 +329,8 @@ async fn rebase_descendants_after_merge(
                 for result in &results {
                     if result.rebased {
                         output::info(&format!("  Rebased and pushed {}", result.branch));
+                    } else if let Some(err) = &result.error {
+                        output::warn(&format!("  Failed to rebase {}: {err}", result.branch));
                     }
                     if result.pr_updated {
                         output::info(&format!("  Updated PR base for {}", result.branch));
