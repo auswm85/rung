@@ -62,8 +62,12 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
         if let Some(msg) = message {
             if service.is_clean()? {
                 output::warn("Working directory is clean - branch would be created without commit");
-            } else {
+            } else if service.has_staged_changes()? {
                 output::info(&format!("Would create commit with message: {msg}"));
+            } else {
+                output::warn(
+                    "No staged changes - branch would be created without commit (unstaged/untracked files exist)",
+                );
             }
         }
     } else {

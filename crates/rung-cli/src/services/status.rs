@@ -134,16 +134,14 @@ impl<'a> StatusService<'a> {
             return Ok(BranchState::Synced);
         };
 
-        // Check if parent exists in repo
+        // Check if parent is in stack but deleted from git
+        if self.stack.find_branch(parent_name).is_some() && !self.repo.branch_exists(parent_name) {
+            return Ok(BranchState::Detached);
+        }
+
+        // Check if external parent (like main) doesn't exist in repo
         if !self.repo.branch_exists(parent_name) {
-            // Check if parent is in stack (might be deleted)
-            if self.stack.find_branch(parent_name).is_some() {
-                return Ok(BranchState::Detached);
-            }
-            // Parent is external (like main), check if it exists
-            if !self.repo.branch_exists(parent_name) {
-                return Ok(BranchState::Detached);
-            }
+            return Ok(BranchState::Detached);
         }
 
         // Get commits

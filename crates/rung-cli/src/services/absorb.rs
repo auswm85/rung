@@ -27,7 +27,8 @@ impl<'a> AbsorbService<'a> {
     }
 
     /// Detect the base branch by querying GitHub for the default branch.
-    pub fn detect_base_branch(&self) -> Result<String> {
+    #[allow(clippy::future_not_send)] // Git operations are sync; future doesn't need to be Send
+    pub async fn detect_base_branch(&self) -> Result<String> {
         let origin_url = self
             .repo
             .origin_url()
@@ -38,8 +39,9 @@ impl<'a> AbsorbService<'a> {
         let client = GitHubClient::new(&Auth::auto()).context(
             "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
         )?;
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(client.get_default_branch(&owner, &repo_name))
+        client
+            .get_default_branch(&owner, &repo_name)
+            .await
             .context("Could not fetch default branch. Use --base <branch> to specify manually.")
     }
 

@@ -204,18 +204,32 @@ async fn execute_merge(
         output::success(&format!("Merged PR #{}", ctx.pr_number));
     }
 
-    // Step 4: Update stack after merge
-    let children_count =
-        service.update_stack_after_merge(state, &ctx.current_branch, &parent_branch)?;
+    // NOTE: After merge_pr succeeds, the PR is merged on GitHub.
+    // Subsequent failures should NOT abort - we log warnings and continue.
 
-    if !json && children_count > 0 {
-        output::info(&format!(
-            "Re-parented {children_count} child branch(es) to '{parent_branch}'"
-        ));
+    // Step 4: Update stack after merge (non-fatal after merge)
+    match service.update_stack_after_merge(state, &ctx.current_branch, &parent_branch) {
+        Ok(children_count) => {
+            if !json && children_count > 0 {
+                output::info(&format!(
+                    "Re-parented {children_count} child branch(es) to '{parent_branch}'"
+                ));
+            }
+        }
+        Err(e) => {
+            if !json {
+                output::error(&format!("Failed to update stack after merge: {e}"));
+                output::warn(
+                    "PR was merged successfully, but local stack state may be inconsistent.",
+                );
+                output::info("To fix, run: rung sync");
+            }
+        }
     }
 
-    // Step 5: Rebase descendants
-    rebase_descendants_after_merge(&service, state, stack, ctx, &parent_branch, json).await?;
+    // Step 5: Rebase descendants (non-fatal after merge)
+    // rebase_descendants_after_merge already handles its own error messaging
+    let _ = rebase_descendants_after_merge(&service, state, stack, ctx, &parent_branch, json).await;
 
     // Step 6: Delete remote branch
     if !no_delete {

@@ -85,7 +85,18 @@ impl<'a> AdoptService<'a> {
     }
 
     /// Adopt a branch into the stack.
+    ///
+    /// Validates that the branch is not already in the stack and that the
+    /// parent is valid (either the base branch or an existing stack branch).
     pub fn adopt_branch(&self, branch_name: &BranchName, parent_name: &str) -> Result<AdoptResult> {
+        // Validate branch is not already in stack
+        if self.is_in_stack(branch_name.as_str())? {
+            bail!("Branch '{}' is already in the stack", branch_name.as_str());
+        }
+
+        // Validate parent is valid
+        self.validate_parent(parent_name)?;
+
         let base_branch = self.state.default_branch()?;
         let mut stack = self.state.load_stack()?;
 

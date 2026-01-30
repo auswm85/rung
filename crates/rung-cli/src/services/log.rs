@@ -66,7 +66,8 @@ impl<'a> LogService<'a> {
             .iter()
             .map(|&oid| {
                 let commit = self.repo.find_commit(oid)?;
-                let hash = commit.id().to_string()[..7].to_owned();
+                let id_str = commit.id().to_string();
+                let hash = id_str.get(..7).unwrap_or(&id_str).to_owned();
                 let message = commit.message().unwrap_or("").trim().to_owned();
                 let sig = commit.author();
                 let author = sig.name().unwrap_or("unknown").to_owned();
