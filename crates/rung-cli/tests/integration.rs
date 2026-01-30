@@ -552,7 +552,7 @@ fn test_sync_conflict_and_continue() {
         .output()
         .unwrap();
 
-    // Try to sync (should fail with conflic)
+    // Try to sync (should fail with conflict)
     rung()
         .args(["sync", "--base", "main"])
         .current_dir(&temp)
@@ -560,7 +560,7 @@ fn test_sync_conflict_and_continue() {
         .success()
         .stdout(predicate::str::contains("Conflict").or(predicate::str::contains("Paused")));
 
-    // Resolve conflic manually
+    // Resolve conflict manually
     fs::write(&file, "Resolved content\n").expect("Failed to write file");
     StdCommand::new("git")
         .args(["add", "."])
