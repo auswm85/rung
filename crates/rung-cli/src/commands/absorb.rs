@@ -112,7 +112,12 @@ fn print_absorb_plan(actions: &[AbsorbAction]) {
         by_target.entry(key).or_default().push(action);
     }
 
-    for (commit_sha, actions) in &by_target {
+    // Sort by commit SHA for deterministic output
+    let mut commit_shas: Vec<_> = by_target.keys().collect();
+    commit_shas.sort();
+
+    for commit_sha in commit_shas {
+        let actions = &by_target[commit_sha];
         let short_sha = &commit_sha[..8.min(commit_sha.len())];
         let message = &actions[0].target_message;
         output::detail(&format!(
