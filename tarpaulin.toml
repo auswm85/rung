@@ -1,0 +1,15 @@
+# Tarpaulin coverage configuration
+# https://github.com/xd009642/tarpaulin
+
+[default]
+# Exclude files that cannot be meaningfully tested
+exclude-files = [
+    # Self-update command - downloads and replaces binary
+    "crates/rung-cli/src/commands/update.rs",
+]
+
+# Skip clean to speed up repeated runs
+skip-clean = true
+
+# Timeout for test execution
+timeout = "120s"

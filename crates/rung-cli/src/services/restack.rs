@@ -652,4 +652,270 @@ mod tests {
         assert_eq!(result.branches_rebased.len(), 4);
         assert!(result.branches_rebased.contains(&"grandchild".to_string()));
     }
+
+    // Mock-based tests for RestackService methods
+    #[allow(clippy::unwrap_used)]
+    mod mock_tests {
+        use super::*;
+        use crate::services::test_mocks::{MockGitOps, MockStateStore};
+        use rung_core::stack::{Stack, StackBranch};
+        use rung_git::Oid;
+
+        #[test]
+        fn test_create_plan_branch_not_in_stack() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let state = MockStateStore::new();
+
+            let service = RestackService::new(&git);
+            let config = RestackConfig {
+                target_branch: "nonexistent".to_string(),
+                new_parent: "main".to_string(),
+                include_children: false,
+            };
+
+            let result = service.create_plan(&state, &config);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().to_string().contains("not in the stack"));
+        }
+
+        #[test]
+        fn test_create_plan_new_parent_not_exists() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("feature/a", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let config = RestackConfig {
+                target_branch: "feature/a".to_string(),
+                new_parent: "nonexistent".to_string(),
+                include_children: false,
+            };
+
+            let result = service.create_plan(&state, &config);
+            assert!(result.is_err());
+            assert!(result.unwrap_err().to_string().contains("does not exist"));
+        }
+
+        #[test]
+        fn test_create_plan_noop_same_parent() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let config = RestackConfig {
+                target_branch: "feature/a".to_string(),
+                new_parent: "main".to_string(), // Same as current parent
+                include_children: false,
+            };
+
+            let plan = service.create_plan(&state, &config).unwrap();
+            assert!(!plan.needs_rebase);
+            assert!(plan.branches_to_rebase.is_empty());
+        }
+
+        #[test]
+        fn test_create_plan_needs_rebase() {
+            let oid1 = Oid::zero();
+            // Different commit to simulate divergence
+            let oid2 = Oid::from_str("1234567890123456789012345678901234567890").unwrap();
+            let git = MockGitOps::new()
+                .with_branch("main", oid1)
+                .with_branch("develop", oid2)
+                .with_branch("feature/a", oid1);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let config = RestackConfig {
+                target_branch: "feature/a".to_string(),
+                new_parent: "develop".to_string(),
+                include_children: false,
+            };
+
+            let plan = service.create_plan(&state, &config).unwrap();
+            assert_eq!(plan.target_branch, "feature/a");
+            assert_eq!(plan.new_parent, "develop");
+            assert_eq!(plan.old_parent, Some("main".to_string()));
+            assert!(plan.branches_to_rebase.contains(&"feature/a".to_string()));
+        }
+
+        #[test]
+        fn test_create_plan_with_children() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("develop", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/parent", Some("main")).unwrap());
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let config = RestackConfig {
+                target_branch: "feature/parent".to_string(),
+                new_parent: "develop".to_string(),
+                include_children: true,
+            };
+
+            let plan = service.create_plan(&state, &config).unwrap();
+            assert!(
+                plan.branches_to_rebase
+                    .contains(&"feature/parent".to_string())
+            );
+            assert!(
+                plan.branches_to_rebase
+                    .contains(&"feature/child".to_string())
+            );
+            assert_eq!(plan.branches_to_rebase.len(), 2);
+        }
+
+        #[test]
+        fn test_execute_no_rebase_needed() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("develop")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let plan = RestackPlan {
+                target_branch: "feature/a".to_string(),
+                new_parent: "main".to_string(),
+                old_parent: Some("develop".to_string()),
+                branches_to_rebase: vec![],
+                needs_rebase: false,
+                diverged: vec![],
+            };
+
+            let result = service.execute(&state, &plan, "feature/a").unwrap();
+
+            // Stack should be updated
+            let updated_stack = state.load_stack().unwrap();
+            let branch = updated_stack.find_branch("feature/a").unwrap();
+            assert_eq!(branch.parent.as_deref(), Some("main"));
+
+            // Completed should contain the target branch
+            assert!(result.completed.contains(&"feature/a".to_string()));
+        }
+
+        #[test]
+        fn test_abort_no_restack_in_progress() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+
+            let service = RestackService::new(&git);
+
+            let result = service.abort(&state);
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("No restack in progress")
+            );
+        }
+
+        #[test]
+        fn test_continue_no_restack_in_progress() {
+            let git = MockGitOps::new();
+            let state = MockStateStore::new();
+
+            let service = RestackService::new(&git);
+
+            let result = service.continue_restack(&state);
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("No restack in progress")
+            );
+        }
+
+        #[test]
+        fn test_check_divergence_no_divergence() {
+            let git = MockGitOps::new();
+            let service = RestackService::new(&git);
+
+            let diverged = service.check_divergence(&["feature/a".to_string()]);
+            assert!(diverged.is_empty());
+        }
+
+        #[test]
+        fn test_check_divergence_with_diverged_branches() {
+            let git = MockGitOps::new();
+            git.remote_divergence_map.borrow_mut().insert(
+                "feature/diverged".to_string(),
+                rung_git::RemoteDivergence::Diverged {
+                    ahead: 3,
+                    behind: 2,
+                },
+            );
+
+            let service = RestackService::new(&git);
+
+            let branches = vec!["feature/ok".to_string(), "feature/diverged".to_string()];
+            let diverged = service.check_divergence(&branches);
+
+            assert_eq!(diverged.len(), 1);
+            assert_eq!(diverged[0].branch, "feature/diverged");
+            assert_eq!(diverged[0].ahead, 3);
+            assert_eq!(diverged[0].behind, 2);
+        }
+
+        #[test]
+        fn test_create_plan_cycle_detection() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("feature/a", oid)
+                .with_branch("feature/b", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+            stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            // Try to make feature/a depend on feature/b (which already depends on feature/a)
+            let config = RestackConfig {
+                target_branch: "feature/a".to_string(),
+                new_parent: "feature/b".to_string(),
+                include_children: false,
+            };
+
+            let result = service.create_plan(&state, &config);
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("would create a cycle")
+            );
+        }
+    }
 }
