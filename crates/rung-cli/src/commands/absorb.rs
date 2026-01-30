@@ -2,12 +2,13 @@
 
 use anyhow::{Context, Result, bail};
 use rung_core::State;
-use rung_core::absorb::{self, UnmapReason};
+use rung_core::absorb::{AbsorbAction, UnmapReason};
 use rung_git::Repository;
-use rung_github::{Auth, GitHubClient};
+use std::collections::HashMap;
 
 use crate::commands::utils;
 use crate::output;
+use crate::services::AbsorbService;
 
 /// Run the absorb command.
 pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
@@ -26,8 +27,11 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     // Ensure on branch
     utils::ensure_on_branch(&repo)?;
 
+    // Create service
+    let service = AbsorbService::new(&repo, &state);
+
     // Check for staged changes
-    if !repo.has_staged_changes()? {
+    if !service.has_staged_changes()? {
         bail!("No staged changes to absorb. Stage changes with `git add` first.");
     }
 
@@ -35,11 +39,11 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     let base_branch = if let Some(b) = base {
         b.to_string()
     } else {
-        detect_base_branch(&repo)?
+        service.detect_base_branch()?
     };
 
     // Create absorb plan
-    let plan = absorb::create_absorb_plan(&repo, &state, &base_branch)?;
+    let plan = service.create_plan(&base_branch)?;
 
     if plan.actions.is_empty() && plan.unmapped.is_empty() {
         output::info("Staged changes present but no absorbable hunks found");
@@ -77,11 +81,32 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
 
     // Show what will be absorbed
     output::info(&format!("{} hunk(s) will be absorbed:", plan.actions.len()));
+    print_absorb_plan(&plan.actions);
 
-    // Group by target commit for cleaner output
-    let mut by_target: std::collections::HashMap<String, Vec<&absorb::AbsorbAction>> =
-        std::collections::HashMap::new();
-    for action in &plan.actions {
+    if dry_run {
+        output::info("Dry run - no changes made");
+        return Ok(());
+    }
+
+    // Execute the absorb
+    let result = service.execute_plan(&plan)?;
+
+    output::success(&format!(
+        "Created {} fixup commit(s)",
+        result.fixups_created
+    ));
+
+    if result.fixups_created > 0 {
+        output::info("Run `git rebase -i --autosquash` to apply the fixups");
+    }
+
+    Ok(())
+}
+
+/// Print the absorb plan grouped by target commit.
+fn print_absorb_plan(actions: &[AbsorbAction]) {
+    let mut by_target: HashMap<String, Vec<&AbsorbAction>> = HashMap::new();
+    for action in actions {
         let key = action.target_commit.to_string();
         by_target.entry(key).or_default().push(action);
     }
@@ -99,37 +124,4 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
             output::detail(&format!("    → {}", action.hunk.file_path));
         }
     }
-
-    if dry_run {
-        output::info("Dry run - no changes made");
-        return Ok(());
-    }
-
-    // Execute the absorb
-    let result = absorb::execute_absorb(&repo, &plan)?;
-
-    output::success(&format!(
-        "Created {} fixup commit(s)",
-        result.fixups_created
-    ));
-
-    if result.fixups_created > 0 {
-        output::info("Run `git rebase -i --autosquash` to apply the fixups");
-    }
-
-    Ok(())
-}
-
-/// Auto-detect the base branch by querying GitHub for the default branch.
-fn detect_base_branch(repo: &Repository) -> Result<String> {
-    let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
-        .context("Could not parse GitHub remote URL")?;
-
-    let client = GitHubClient::new(&Auth::auto()).context(
-        "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
-    )?;
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client.get_default_branch(&owner, &repo_name))
-        .context("Could not fetch default branch. Use --base <branch> to specify manually.")
 }

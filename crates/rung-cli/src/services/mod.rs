@@ -3,6 +3,7 @@
 //! This module contains services that encapsulate business logic and accept
 //! trait-based dependencies, enabling testing with mock implementations.
 
+pub mod absorb;
 pub mod doctor;
 pub mod merge;
 pub mod restack;
@@ -10,6 +11,7 @@ pub mod status;
 pub mod submit;
 pub mod sync;
 
+pub use absorb::AbsorbService;
 pub use doctor::{CheckResult, DoctorService, Issue, Severity};
 pub use merge::MergeService;
 pub use restack::{DivergenceInfo, RestackConfig, RestackService};
