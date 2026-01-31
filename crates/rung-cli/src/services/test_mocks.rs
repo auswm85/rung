@@ -286,6 +286,7 @@ pub struct MockStateStore {
     pub default_branch: String,
     pub rung_dir: PathBuf,
     pub sync_in_progress: RefCell<bool>,
+    pub sync_state: RefCell<Option<SyncState>>,
     pub restack_in_progress: RefCell<bool>,
     pub restack_state: RefCell<Option<RestackState>>,
 }
@@ -305,6 +306,7 @@ impl MockStateStore {
             default_branch: "main".to_string(),
             rung_dir: std::env::temp_dir().join("mock-rung"),
             sync_in_progress: RefCell::new(false),
+            sync_state: RefCell::new(None),
             restack_in_progress: RefCell::new(false),
             restack_state: RefCell::new(None),
         }
@@ -362,16 +364,21 @@ impl StateStore for MockStateStore {
     }
 
     fn load_sync_state(&self) -> CoreResult<SyncState> {
-        // Return a default sync state for testing
+        // Return custom state if set, otherwise return a default
+        if let Some(state) = self.sync_state.borrow().as_ref() {
+            return Ok(state.clone());
+        }
         Ok(SyncState::new("test-backup".to_string(), vec![]))
     }
 
-    fn save_sync_state(&self, _state: &SyncState) -> CoreResult<()> {
+    fn save_sync_state(&self, state: &SyncState) -> CoreResult<()> {
+        *self.sync_state.borrow_mut() = Some(state.clone());
         *self.sync_in_progress.borrow_mut() = true;
         Ok(())
     }
 
     fn clear_sync_state(&self) -> CoreResult<()> {
+        *self.sync_state.borrow_mut() = None;
         *self.sync_in_progress.borrow_mut() = false;
         Ok(())
     }
@@ -403,6 +410,7 @@ impl StateStore for MockStateStore {
     }
 
     fn clear_restack_state(&self) -> CoreResult<()> {
+        *self.restack_state.borrow_mut() = None;
         *self.restack_in_progress.borrow_mut() = false;
         Ok(())
     }

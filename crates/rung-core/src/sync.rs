@@ -434,13 +434,15 @@ pub fn continue_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> R
         }
     }
 
-    // Process remaining branches
-    for branch_name in sync_state.remaining.clone() {
+    // Process remaining branches (including the one moved to current_branch by advance())
+    // Use while loop since advance() moves next branch from remaining to current_branch
+    while !sync_state.current_branch.is_empty() {
+        let branch_name = sync_state.current_branch.clone();
+
         // Checkout the branch
         repo.checkout(&branch_name)?;
 
         // Get parent's current tip (we need to look this up from the stack)
-        // For now, we'll get the merge base and target from the previous branch
         let stack = state.load_stack()?;
         let branch = stack
             .find_branch(&branch_name)
