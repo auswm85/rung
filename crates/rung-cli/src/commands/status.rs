@@ -223,7 +223,6 @@ fn remote_divergence_indicator(divergence: &RemoteDivergenceInfo) -> Option<Stri
 /// Branch info with PR status for display.
 struct BranchWithPrStatus {
     info: BranchStatusInfo,
-    #[allow(dead_code)]
     pr_state: Option<String>,
     display_status: Option<PrStatus>,
 }
