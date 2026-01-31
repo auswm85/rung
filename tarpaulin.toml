@@ -1,0 +1,16 @@
+# Tarpaulin coverage configuration
+# https://github.com/xd009642/tarpaulin
+
+[default]
+# Exclude files that cannot be meaningfully unit tested
+exclude-files = [
+    # Command handlers are CLI integration code - they wire services together
+    # and require E2E tests with real git repos, not unit tests
+    "crates/rung-cli/src/commands/*",
+]
+
+# Skip clean to speed up repeated runs
+skip-clean = true
+
+# Timeout for test execution
+timeout = "120s"

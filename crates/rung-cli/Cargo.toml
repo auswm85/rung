@@ -31,6 +31,7 @@ rung-core = { workspace = true }
 rung-git = { workspace = true }
 rung-github = { workspace = true }
 
+chrono = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 serde = { workspace = true }
@@ -40,10 +41,12 @@ colored = { workspace = true }
 console = { workspace = true }
 inquire = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
+serial_test = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

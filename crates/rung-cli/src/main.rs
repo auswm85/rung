@@ -4,6 +4,7 @@ use clap::Parser;
 
 mod commands;
 mod output;
+mod services;
 
 use commands::{Cli, Commands};
 

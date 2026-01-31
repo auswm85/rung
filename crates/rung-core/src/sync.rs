@@ -5,7 +5,8 @@
 
 use crate::error::Result;
 use crate::stack::Stack;
-use crate::state::State;
+use crate::state::SyncState;
+use crate::traits::StateStore;
 
 /// Result of a sync operation.
 #[derive(Debug)]
@@ -53,7 +54,7 @@ pub struct SyncAction {
 impl SyncPlan {
     /// Check if the plan is empty (nothing to sync).
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.branches.is_empty()
     }
 }
@@ -123,7 +124,7 @@ pub struct ExternalMergeInfo {
 /// # Errors
 /// Returns error if stack operations fail.
 pub fn reconcile_merged(
-    state: &State,
+    state: &impl StateStore,
     merged_prs: &[ExternalMergeInfo],
 ) -> Result<ReconcileResult> {
     if merged_prs.is_empty() {
@@ -196,7 +197,7 @@ pub fn reconcile_merged(
 /// # Errors
 /// Returns error if git operations fail.
 pub fn create_sync_plan(
-    repo: &rung_git::Repository,
+    repo: &impl rung_git::GitOps,
     stack: &Stack,
     base_branch: &str,
 ) -> Result<SyncPlan> {
@@ -268,7 +269,10 @@ pub fn create_sync_plan(
 ///
 /// # Errors
 /// Returns error if stack operations fail.
-pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Result<StaleBranches> {
+pub fn remove_stale_branches(
+    repo: &impl rung_git::GitOps,
+    state: &impl StateStore,
+) -> Result<StaleBranches> {
     let mut stack = state.load_stack()?;
     let mut removed = Vec::new();
 
@@ -317,12 +321,10 @@ pub fn remove_stale_branches(repo: &rung_git::Repository, state: &State) -> Resu
 /// # Errors
 /// Returns error if sync fails.
 pub fn execute_sync(
-    repo: &rung_git::Repository,
-    state: &State,
+    repo: &impl rung_git::GitOps,
+    state: &impl StateStore,
     plan: SyncPlan,
 ) -> Result<SyncResult> {
-    use crate::state::SyncState;
-
     // If plan is empty, nothing to do
     if plan.is_empty() {
         return Ok(SyncResult::AlreadySynced);
@@ -407,7 +409,7 @@ pub fn execute_sync(
 ///
 /// # Errors
 /// Returns error if no sync in progress or continuation fails.
-pub fn continue_sync(repo: &rung_git::Repository, state: &State) -> Result<SyncResult> {
+pub fn continue_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> Result<SyncResult> {
     // Load sync state
     let mut sync_state = state.load_sync_state()?;
     let backup_id = sync_state.backup_id.clone();
@@ -432,13 +434,15 @@ pub fn continue_sync(repo: &rung_git::Repository, state: &State) -> Result<SyncR
         }
     }
 
-    // Process remaining branches
-    for branch_name in sync_state.remaining.clone() {
+    // Process remaining branches (including the one moved to current_branch by advance())
+    // Use while loop since advance() moves next branch from remaining to current_branch
+    while !sync_state.current_branch.is_empty() {
+        let branch_name = sync_state.current_branch.clone();
+
         // Checkout the branch
         repo.checkout(&branch_name)?;
 
         // Get parent's current tip (we need to look this up from the stack)
-        // For now, we'll get the merge base and target from the previous branch
         let stack = state.load_stack()?;
         let branch = stack
             .find_branch(&branch_name)
@@ -483,7 +487,7 @@ pub fn continue_sync(repo: &rung_git::Repository, state: &State) -> Result<SyncR
 ///
 /// # Errors
 /// Returns error if no sync in progress or abort fails.
-pub fn abort_sync(repo: &rung_git::Repository, state: &State) -> Result<()> {
+pub fn abort_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> Result<()> {
     // Load sync state
     let sync_state = state.load_sync_state()?;
 
@@ -521,7 +525,7 @@ pub struct UndoResult {
 ///
 /// # Errors
 /// Returns error if no backup found or undo fails.
-pub fn undo_sync(repo: &rung_git::Repository, state: &State) -> Result<UndoResult> {
+pub fn undo_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> Result<UndoResult> {
     // Find latest backup
     let backup_id = state.latest_backup()?;
     let refs = state.load_backup(&backup_id)?;
@@ -549,6 +553,7 @@ pub fn undo_sync(repo: &rung_git::Repository, state: &State) -> Result<UndoResul
 mod tests {
     use super::*;
     use crate::stack::StackBranch;
+    use crate::state::State;
     use std::fs;
     use tempfile::TempDir;
 
@@ -863,5 +868,158 @@ mod tests {
         }
 
         assert!(state.is_sync_in_progress());
+    }
+
+    #[test]
+    fn test_reconcile_merged_empty() {
+        let (temp, _rung_repo, _git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        // Empty merged list should return empty result
+        let result = reconcile_merged(&state, &[]).unwrap();
+        assert!(result.merged.is_empty());
+        assert!(result.reparented.is_empty());
+        assert!(result.repaired.is_empty());
+    }
+
+    #[test]
+    fn test_reconcile_merged_with_children() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create feature-a at current HEAD
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Create stack: main -> feature-a -> feature-b
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.as_str())).unwrap());
+        let mut branch_b = StackBranch::try_new("feature-b", Some("feature-a")).unwrap();
+        branch_b.pr = Some(456);
+        stack.add_branch(branch_b);
+        state.save_stack(&stack).unwrap();
+
+        // Simulate feature-a being merged into main
+        let merged_prs = vec![ExternalMergeInfo {
+            branch_name: "feature-a".to_string(),
+            pr_number: 123,
+            merged_into: main_branch.clone(),
+        }];
+
+        let result = reconcile_merged(&state, &merged_prs).unwrap();
+
+        // feature-a should be in merged list
+        assert_eq!(result.merged.len(), 1);
+        assert_eq!(result.merged[0].name, "feature-a");
+        assert_eq!(result.merged[0].pr_number, 123);
+
+        // feature-b should be reparented to main
+        assert_eq!(result.reparented.len(), 1);
+        assert_eq!(result.reparented[0].name, "feature-b");
+        assert_eq!(result.reparented[0].old_parent, "feature-a");
+        assert_eq!(result.reparented[0].new_parent, main_branch.as_str());
+        assert_eq!(result.reparented[0].pr_number, Some(456));
+
+        // Verify stack was updated
+        let updated_stack = state.load_stack().unwrap();
+        assert!(updated_stack.find_branch("feature-a").is_none());
+        let b = updated_stack.find_branch("feature-b").unwrap();
+        assert_eq!(b.parent.as_ref().unwrap().as_str(), main_branch.as_str());
+    }
+
+    #[test]
+    fn test_undo_sync() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create feature-a at current HEAD
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Get the original SHA of feature-a
+        let _original_sha = head.id().to_string();
+
+        // Checkout feature-a and add a commit
+        git_repo.set_head("refs/heads/feature-a").unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        add_commit(&temp, &git_repo, "feature-a.txt", "Feature A commit");
+
+        // Get the new SHA
+        let new_sha = git_repo
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string();
+
+        // Create a backup (simulating what sync does)
+        let backup_refs = vec![("feature-a", new_sha.as_str())];
+        let backup_id = state.create_backup(&backup_refs).unwrap();
+
+        // Modify the backup to point to original SHA (simulating pre-sync state)
+        // Actually, let's just test that undo_sync works with a valid backup
+        // by creating a backup with current state and verifying it can be restored
+
+        // Create stack
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch)).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        // Now undo should restore from the backup
+        let result = undo_sync(&rung_repo, &state).unwrap();
+
+        assert_eq!(result.branches_restored, 1);
+        assert_eq!(result.backup_id, backup_id);
+    }
+
+    #[test]
+    fn test_sync_plan_base_branch_not_found() {
+        let (_temp, rung_repo, git_repo) = init_test_repo();
+
+        let _main_branch = rung_repo.current_branch().unwrap();
+
+        // Create feature-a
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Create stack with feature-a pointing to non-existent base
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", None::<&str>).unwrap());
+
+        // Plan with non-existent base branch should error
+        let result = create_sync_plan(&rung_repo, &stack, "nonexistent-branch");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sync_plan_skips_stale_branches() {
+        let (_temp, rung_repo, git_repo) = init_test_repo();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create only feature-a in git
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // But stack has both feature-a and feature-b (stale)
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+
+        // Plan should only include feature-a (feature-b is stale)
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        // feature-a is at same commit as main, so plan is empty
+        // but importantly, it didn't error on the stale feature-b
+        assert!(plan.is_empty());
     }
 }

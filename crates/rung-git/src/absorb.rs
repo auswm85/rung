@@ -4,6 +4,7 @@
 
 use crate::Repository;
 use crate::error::{Error, Result};
+use crate::traits::AbsorbOps;
 use git2::Oid;
 
 /// A hunk of changes from a staged diff.
@@ -178,6 +179,24 @@ impl Repository {
     /// Returns error if the check fails.
     pub fn is_ancestor(&self, ancestor: Oid, descendant: Oid) -> Result<bool> {
         Ok(self.inner().graph_descendant_of(descendant, ancestor)?)
+    }
+}
+
+impl AbsorbOps for Repository {
+    fn staged_diff_hunks(&self) -> Result<Vec<Hunk>> {
+        Self::staged_diff_hunks(self)
+    }
+
+    fn blame_lines(&self, file_path: &str, start: u32, end: u32) -> Result<Vec<BlameResult>> {
+        Self::blame_lines(self, file_path, start, end)
+    }
+
+    fn is_ancestor(&self, ancestor: Oid, descendant: Oid) -> Result<bool> {
+        Self::is_ancestor(self, ancestor, descendant)
+    }
+
+    fn create_fixup_commit(&self, target: Oid) -> Result<Oid> {
+        Self::create_fixup_commit(self, target)
     }
 }
 
