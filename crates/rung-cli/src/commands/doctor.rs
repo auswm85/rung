@@ -7,7 +7,7 @@ use rung_git::Repository;
 use serde::Serialize;
 
 use crate::output;
-use crate::services::{CheckResult, DoctorService, Issue, Severity};
+use crate::services::{CheckResult, DiagnosticReport, DoctorService, Issue, Severity};
 
 /// JSON output for doctor command.
 #[derive(Debug, Serialize)]
@@ -95,14 +95,14 @@ pub fn run(json: bool) -> Result<()> {
         print_status(&github_result);
     }
 
-    // Collect all issues
-    let all_issues: Vec<&Issue> = git_result
-        .issues
-        .iter()
-        .chain(stack_result.issues.iter())
-        .chain(sync_result.issues.iter())
-        .chain(github_result.issues.iter())
-        .collect();
+    // Collect all issues using DiagnosticReport
+    let report = DiagnosticReport {
+        git_state: git_result,
+        stack_integrity: stack_result,
+        sync_state: sync_result,
+        github: github_result,
+    };
+    let all_issues = report.all_issues();
 
     // Output
     if json {

@@ -56,12 +56,11 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
 
     // Fetch PR statuses if requested (best-effort - don't fail status command on GitHub errors)
     let mut pr_cache = HashMap::new();
-    if fetch {
-        if let Err(e) = fetch_pr_statuses(&repo, &stack, &mut pr_cache, json) {
-            if !json {
-                output::warn(&format!("Could not fetch PR statuses: {e}"));
-            }
-        }
+    if fetch
+        && let Err(e) = fetch_pr_statuses(&repo, &stack, &mut pr_cache, json)
+        && !json
+    {
+        output::warn(&format!("Could not fetch PR statuses: {e}"));
     }
 
     // Enrich branches with PR status info
