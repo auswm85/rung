@@ -217,8 +217,6 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
         descendants: &[String],
         old_commits: &HashMap<String, Oid>,
     ) -> Result<Vec<DescendantResult>> {
-        use std::collections::HashSet;
-
         let mut results = Vec::new();
         let mut failed_branches: HashSet<String> = HashSet::new();
 
@@ -306,9 +304,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
             }
 
             // Update PR base for grandchildren (direct children were already shifted)
-            // Only update if this branch and all its ancestors succeeded
             let (pr_updated, pr_error) = if stack_parent != current_branch
-                && !failed_branches.contains(branch_name)
                 && let Some(child_pr_num) = branch_info.pr
             {
                 let update = UpdatePullRequest {

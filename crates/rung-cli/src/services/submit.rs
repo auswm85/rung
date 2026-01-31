@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
 use rung_git::GitOps;
 use rung_github::{CreateComment, CreatePullRequest, GitHubApi, UpdateComment, UpdatePullRequest};
@@ -151,7 +151,7 @@ where
 
         // Sort branches topologically (parents before children) to ensure base branches
         // are pushed before PRs that depend on them are created.
-        let sorted_branches = topological_sort(&stack.branches, &config.default_branch);
+        let sorted_branches = topological_sort(&stack.branches, &config.default_branch)?;
 
         for branch in sorted_branches {
             let branch_name = &branch.name;
@@ -552,10 +552,14 @@ fn build_branch_chain(stack: &Stack, current_name: &str) -> Vec<String> {
 /// with no in-stack parent dependencies are processed first, followed by their
 /// children. Branches whose parents are outside the stack (e.g., main/master)
 /// are treated as roots.
+///
+/// # Errors
+/// Returns an error if a cycle is detected in the branch dependencies (i.e., some
+/// branches remain unprocessed after Kahn's algorithm completes).
 fn topological_sort<'a>(
     branches: &'a [rung_core::stack::StackBranch],
     default_branch: &str,
-) -> Vec<&'a rung_core::stack::StackBranch> {
+) -> Result<Vec<&'a rung_core::stack::StackBranch>> {
     // Build a set of branch names in the stack for quick lookup
     let in_stack: HashSet<&str> = branches.iter().map(|b| b.name.as_str()).collect();
 
@@ -598,15 +602,22 @@ fn topological_sort<'a>(
         }
     }
 
-    // If there are any branches not processed (shouldn't happen with valid data),
-    // append them to avoid losing branches
-    for branch in branches {
-        if !sorted.iter().any(|b| b.name == branch.name) {
-            sorted.push(branch);
-        }
+    // Check for cycles: if any branches weren't processed, there's a cycle
+    if sorted.len() != branches.len() {
+        let processed: HashSet<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
+        let remaining: Vec<&str> = branches
+            .iter()
+            .filter(|b| !processed.contains(b.name.as_str()))
+            .map(|b| b.name.as_str())
+            .collect();
+
+        bail!(
+            "Cycle detected in stack dependencies. The following branches have circular or inconsistent parent references: {}",
+            remaining.join(", ")
+        );
     }
 
-    sorted
+    Ok(sorted)
 }
 
 #[cfg(test)]
@@ -822,7 +833,7 @@ mod tests {
             Some(BranchName::new("b").expect("valid")),
         ));
 
-        let sorted = topological_sort(&stack.branches, "main");
+        let sorted = topological_sort(&stack.branches, "main").expect("valid stack");
         let names: Vec<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
 
         // Parents must come before children
@@ -850,7 +861,7 @@ mod tests {
             Some(BranchName::new("main").expect("valid")),
         ));
 
-        let sorted = topological_sort(&stack.branches, "main");
+        let sorted = topological_sort(&stack.branches, "main").expect("valid stack");
         let names: Vec<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
 
         // Despite out-of-order input, parents must come before children
@@ -879,7 +890,7 @@ mod tests {
             Some(BranchName::new("feature-a").expect("valid")),
         ));
 
-        let sorted = topological_sort(&stack.branches, "main");
+        let sorted = topological_sort(&stack.branches, "main").expect("valid stack");
         let names: Vec<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
 
         // feature-a must come before feature-a-child
@@ -892,12 +903,46 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn test_topological_sort_empty() {
         use rung_core::Stack;
 
         let stack = Stack::default();
-        let sorted = topological_sort(&stack.branches, "main");
+        let sorted = topological_sort(&stack.branches, "main").expect("valid stack");
         assert!(sorted.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::expect_used, clippy::unwrap_used)]
+    fn test_topological_sort_detects_cycle() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        // Create a cycle: a -> b -> c -> a
+        stack.add_branch(StackBranch::new(
+            BranchName::new("a").expect("valid"),
+            Some(BranchName::new("c").expect("valid")), // a's parent is c (creates cycle)
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("b").expect("valid"),
+            Some(BranchName::new("a").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("c").expect("valid"),
+            Some(BranchName::new("b").expect("valid")),
+        ));
+
+        let result = topological_sort(&stack.branches, "main");
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Cycle detected"),
+            "Expected cycle detection error, got: {err_msg}"
+        );
+        // All three branches should be listed as problematic
+        assert!(err_msg.contains('a'), "Error should mention branch 'a'");
+        assert!(err_msg.contains('b'), "Error should mention branch 'b'");
+        assert!(err_msg.contains('c'), "Error should mention branch 'c'");
     }
 
     #[test]

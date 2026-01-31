@@ -51,6 +51,8 @@ struct DryRunOutput {
     merged_prs: Vec<DryRunMergedPr>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     branches_to_rebase: Vec<DryRunRebase>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    github_auth_unavailable: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,7 +197,13 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
     }
 
     // Check GitHub auth availability for accurate JSON output
-    let github_auth_unavailable = GitHubClient::new(&Auth::auto()).is_err();
+    // Only flag as unavailable if there's a GitHub remote but auth fails
+    let has_github_remote = repo
+        .origin_url()
+        .ok()
+        .and_then(|url| Repository::parse_github_remote(&url).ok())
+        .is_some();
+    let github_auth_unavailable = has_github_remote && GitHubClient::new(&Auth::auto()).is_err();
 
     handle_sync_result(result, json, github_auth_unavailable)
 }
@@ -302,7 +310,7 @@ fn run_sync_phases(
     };
 
     if dry_run {
-        return print_dry_run(&plan, &reconcile_result, json);
+        return print_dry_run(&plan, &reconcile_result, json, github_auth_unavailable);
     }
 
     let sync_result = if plan.is_empty() {
@@ -388,6 +396,7 @@ fn print_dry_run(
     plan: &rung_core::sync::SyncPlan,
     reconcile_result: &ReconcileResult,
     json: bool,
+    github_auth_unavailable: bool,
 ) -> Result<()> {
     if json {
         let output = DryRunOutput {
@@ -409,6 +418,7 @@ fn print_dry_run(
                     new_base: action.new_base.clone(),
                 })
                 .collect(),
+            github_auth_unavailable,
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
