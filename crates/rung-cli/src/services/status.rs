@@ -407,4 +407,40 @@ mod tests {
         let no_remote = RemoteDivergenceInfo::from(&RemoteDivergence::NoRemote);
         assert!(matches!(no_remote, RemoteDivergenceInfo::NoRemote));
     }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_fetch_remote() {
+        let mock_repo = MockGitOps::new();
+        let stack = Stack::default();
+        let service = StatusService::new(&mock_repo, &stack);
+
+        // fetch_remote should succeed with mock (no-op)
+        let result = service.fetch_remote();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_branch_state_parent_in_stack_but_deleted() {
+        // Test the edge case where parent is in the stack but deleted from git
+        let mock_repo = MockGitOps::new().with_branch("feature/child", Oid::zero());
+        // Note: parent "feature/parent" does NOT exist in git
+
+        let mut stack = Stack::default();
+        // Add the parent branch to the stack (but it's deleted from git)
+        let parent_branch = StackBranch::new(BranchName::new("feature/parent").unwrap(), None);
+        let child_branch = StackBranch::new(
+            BranchName::new("feature/child").unwrap(),
+            Some(BranchName::new("feature/parent").unwrap()),
+        );
+        stack.add_branch(parent_branch);
+        stack.add_branch(child_branch);
+
+        let service = StatusService::new(&mock_repo, &stack);
+
+        // Parent is in stack but deleted from git -> Detached
+        let state = service.compute_branch_state(&stack.branches[1]).unwrap();
+        assert!(matches!(state, BranchState::Detached));
+    }
 }
