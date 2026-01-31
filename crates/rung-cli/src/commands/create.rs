@@ -43,7 +43,7 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
     utils::ensure_on_branch(&repo)?;
 
     // Create service
-    let service = CreateService::new(&repo, &state);
+    let service = CreateService::new(&repo);
 
     // Get current branch (will be parent)
     let parent_str = service.current_branch()?;
@@ -72,7 +72,7 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
         }
     } else {
         // Create the branch
-        let result = service.create_branch(&branch_name, &parent, message)?;
+        let result = service.create_branch(&state, &branch_name, &parent, message)?;
 
         // Report commit status
         if message.is_some() {

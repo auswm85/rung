@@ -4,21 +4,21 @@
 //! workflow, separated from CLI presentation concerns.
 
 use anyhow::{Context, Result};
-use rung_core::State;
+use rung_core::StateStore;
 use rung_core::absorb::{self, AbsorbPlan, AbsorbResult};
-use rung_git::Repository;
+use rung_git::{AbsorbOps, Repository};
 use rung_github::{Auth, GitHubClient};
 
-/// Service for absorb operations.
-pub struct AbsorbService<'a> {
-    repo: &'a Repository,
-    state: &'a State,
+/// Service for absorb operations with trait-based dependencies.
+pub struct AbsorbService<'a, G: AbsorbOps> {
+    repo: &'a G,
 }
 
-impl<'a> AbsorbService<'a> {
+impl<'a, G: AbsorbOps> AbsorbService<'a, G> {
     /// Create a new absorb service.
-    pub const fn new(repo: &'a Repository, state: &'a State) -> Self {
-        Self { repo, state }
+    #[must_use]
+    pub const fn new(repo: &'a G) -> Self {
+        Self { repo }
     }
 
     /// Check if there are staged changes to absorb.
@@ -46,12 +46,8 @@ impl<'a> AbsorbService<'a> {
     }
 
     /// Create an absorb plan for the given base branch.
-    pub fn create_plan(&self, base_branch: &str) -> Result<AbsorbPlan> {
-        Ok(absorb::create_absorb_plan(
-            self.repo,
-            self.state,
-            base_branch,
-        )?)
+    pub fn create_plan<S: StateStore>(&self, state: &S, base_branch: &str) -> Result<AbsorbPlan> {
+        Ok(absorb::create_absorb_plan(self.repo, state, base_branch)?)
     }
 
     /// Execute an absorb plan.

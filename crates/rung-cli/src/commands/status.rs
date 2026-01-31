@@ -30,7 +30,7 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
     let stack = state.load_stack()?;
 
     // Create service
-    let service = StatusService::new(&repo, &state, &stack);
+    let service = StatusService::new(&repo, &stack);
 
     // Fetch latest from remote if requested
     if fetch {

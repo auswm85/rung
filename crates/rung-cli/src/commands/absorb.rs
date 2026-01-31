@@ -28,7 +28,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     utils::ensure_on_branch(&repo)?;
 
     // Create service
-    let service = AbsorbService::new(&repo, &state);
+    let service = AbsorbService::new(&repo);
 
     // Check for staged changes
     if !service.has_staged_changes()? {
@@ -44,7 +44,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     };
 
     // Create absorb plan
-    let plan = service.create_plan(&base_branch)?;
+    let plan = service.create_plan(&state, &base_branch)?;
 
     if plan.actions.is_empty() && plan.unmapped.is_empty() {
         output::info("Staged changes present but no absorbable hunks found");
