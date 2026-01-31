@@ -117,6 +117,12 @@ fn fetch_pr_statuses(
     pr_cache: &mut HashMap<u64, rung_github::PullRequest>,
     json: bool,
 ) -> Result<()> {
+    // Early return if no PRs to fetch
+    let pr_numbers: Vec<u64> = stack.branches.iter().filter_map(|b| b.pr).collect();
+    if pr_numbers.is_empty() {
+        return Ok(());
+    }
+
     let origin_url = repo.origin_url().context("No origin remote configured")?;
     let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
         .context("Could not parse GitHub remote URL")?;
@@ -124,17 +130,14 @@ fn fetch_pr_statuses(
     let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
     let rt = tokio::runtime::Runtime::new()?;
 
-    let pr_numbers: Vec<u64> = stack.branches.iter().filter_map(|b| b.pr).collect();
-    if !pr_numbers.is_empty() {
-        if !json {
-            let label = if pr_numbers.len() == 1 { "PR" } else { "PRs" };
-            output::info(&format!(
-                "Fetching status for {} {label}...",
-                pr_numbers.len(),
-            ));
-        }
-        *pr_cache = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))?;
+    if !json {
+        let label = if pr_numbers.len() == 1 { "PR" } else { "PRs" };
+        output::info(&format!(
+            "Fetching status for {} {label}...",
+            pr_numbers.len(),
+        ));
     }
+    *pr_cache = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))?;
     Ok(())
 }
 
