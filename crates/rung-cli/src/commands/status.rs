@@ -1,11 +1,14 @@
 //! `rung status` command - Display the current stack status.
 
+use std::collections::HashMap;
+
 use anyhow::{Context, Result, bail};
 use rung_core::{BranchState, State};
 use rung_git::{RemoteDivergence, Repository};
+use rung_github::{Auth, GitHubClient, PullRequestState};
 use serde::Serialize;
 
-use crate::output;
+use crate::output::{self, PrStatus};
 
 /// Run the status command.
 pub fn run(json: bool, fetch: bool) -> Result<()> {
@@ -44,6 +47,16 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Fetch PRs if requested (best-effort - don't fail status command on GitHub errors)
+    let mut pr_cache = HashMap::new();
+    if fetch {
+        if let Err(e) = fetch_pr_statuses(&repo, &stack, &mut pr_cache, json) {
+            if !json {
+                output::warn(&format!("Could not fetch PR statuses: {e}"));
+            }
+        }
+    }
+
     // Compute branch states
     let mut branches_with_state: Vec<BranchInfo> = vec![];
 
@@ -53,11 +66,32 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
             .remote_divergence(&branch.name)
             .ok()
             .map(|d| RemoteDivergenceInfo::from(&d));
+
+        let (pr_state, display_status) = branch.pr.map_or((None, None), |pr_num| {
+            pr_cache.get(&pr_num).map_or((None, None), |pr| {
+                let status = match (pr.state, pr.draft) {
+                    (PullRequestState::Merged, _) => PrStatus::Merged,
+                    (PullRequestState::Closed, _) => PrStatus::Closed,
+                    (_, true) => PrStatus::Draft,
+                    _ => PrStatus::Open,
+                };
+                let pr_state = match status {
+                    PrStatus::Open => "open",
+                    PrStatus::Draft => "draft",
+                    PrStatus::Merged => "merged",
+                    PrStatus::Closed => "closed",
+                };
+                (Some(pr_state.to_string()), Some(status))
+            })
+        });
+
         branches_with_state.push(BranchInfo {
             name: branch.name.to_string(),
             parent: branch.parent.as_ref().map(ToString::to_string),
             state: branch_state,
             pr: branch.pr,
+            pr_state,
+            display_status,
             is_current: current.as_deref() == Some(branch.name.as_str()),
             remote_divergence,
         });
@@ -73,6 +107,34 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         print_tree(&branches_with_state);
     }
 
+    Ok(())
+}
+
+/// Fetch PR statuses from GitHub (best-effort).
+fn fetch_pr_statuses(
+    repo: &Repository,
+    stack: &rung_core::Stack,
+    pr_cache: &mut HashMap<u64, rung_github::PullRequest>,
+    json: bool,
+) -> Result<()> {
+    let origin_url = repo.origin_url().context("No origin remote configured")?;
+    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
+        .context("Could not parse GitHub remote URL")?;
+
+    let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
+    let rt = tokio::runtime::Runtime::new()?;
+
+    let pr_numbers: Vec<u64> = stack.branches.iter().filter_map(|b| b.pr).collect();
+    if !pr_numbers.is_empty() {
+        if !json {
+            let label = if pr_numbers.len() == 1 { "PR" } else { "PRs" };
+            output::info(&format!(
+                "Fetching status for {} {label}...",
+                pr_numbers.len(),
+            ));
+        }
+        *pr_cache = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))?;
+    }
     Ok(())
 }
 
@@ -126,7 +188,7 @@ fn print_tree(branches: &[BranchInfo]) {
     for branch in branches {
         let state_icon = output::state_indicator(&branch.state);
         let name = output::branch_name(&branch.name, branch.is_current);
-        let pr = output::pr_ref(branch.pr);
+        let pr = output::pr_ref(branch.pr, branch.display_status);
 
         let parent_info = branch
             .parent
@@ -221,6 +283,10 @@ struct BranchInfo {
     parent: Option<String>,
     state: BranchState,
     pr: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pr_state: Option<String>,
+    #[serde(skip)]
+    display_status: Option<PrStatus>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_current: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

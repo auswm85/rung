@@ -90,15 +90,70 @@ pub fn branch_name(name: &str, is_current: bool) -> String {
     }
 }
 
+/// Status of a pull request for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrStatus {
+    /// PR is open and ready for review.
+    Open,
+    /// PR is a draft.
+    Draft,
+    /// PR has been merged.
+    Merged,
+    /// PR was closed without merging.
+    Closed,
+}
+
 /// Format a PR reference.
 #[must_use]
-pub fn pr_ref(number: Option<u64>) -> String {
-    number.map_or_else(String::new, |n| format!("#{n}").dimmed().to_string())
+pub fn pr_ref(number: Option<u64>, status: Option<PrStatus>) -> String {
+    let Some(n) = number else {
+        return String::new();
+    };
+
+    let text = format!("#{n}");
+
+    match status {
+        Some(PrStatus::Open) => text,                       // Default/White
+        Some(PrStatus::Draft) => text.yellow().to_string(), // Yellow
+        Some(PrStatus::Merged) => text.green().to_string(), // Green
+        Some(PrStatus::Closed) => text.red().to_string(),   // Red
+        None => text.dimmed().to_string(),                  // Dimmed (Unknown state)
+    }
 }
 
 /// Print a horizontal line (suppressed in quiet mode).
 pub fn hr() {
     if !is_quiet() {
         println!("{}", "─".repeat(50).dimmed());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PrStatus, pr_ref};
+    use colored::Colorize;
+
+    #[test]
+    fn pr_ref_colors_match_status() {
+        colored::control::set_override(true);
+
+        let text = "#42";
+        assert_eq!(pr_ref(None, Some(PrStatus::Open)), "");
+        assert_eq!(pr_ref(Some(42), Some(PrStatus::Open)), text);
+        assert_eq!(
+            pr_ref(Some(42), Some(PrStatus::Draft)),
+            text.yellow().to_string()
+        );
+        assert_eq!(
+            pr_ref(Some(42), Some(PrStatus::Merged)),
+            text.green().to_string()
+        );
+        assert_eq!(
+            pr_ref(Some(42), Some(PrStatus::Closed)),
+            text.red().to_string()
+        );
+        assert_eq!(pr_ref(Some(42), None), text.dimmed().to_string());
+
+        colored::control::set_override(false);
     }
 }
