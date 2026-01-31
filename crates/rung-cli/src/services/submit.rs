@@ -3,7 +3,7 @@
 //! This service encapsulates the business logic for the submit command,
 //! accepting trait-based dependencies for testability.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write;
 
 use anyhow::{Context, Result};
@@ -137,6 +137,8 @@ where
     /// Create a submit plan by analyzing the stack and checking existing PRs.
     ///
     /// This is a read-only operation that determines what actions would be taken.
+    /// Branches are processed in topological order (parents before children) to ensure
+    /// that when creating PRs, the base branch always exists on the remote.
     ///
     /// # Errors
     /// Returns error if GitHub API calls fail.
@@ -147,7 +149,11 @@ where
     ) -> Result<SubmitPlan> {
         let mut actions = Vec::new();
 
-        for branch in &stack.branches {
+        // Sort branches topologically (parents before children) to ensure base branches
+        // are pushed before PRs that depend on them are created.
+        let sorted_branches = topological_sort(&stack.branches, &config.default_branch);
+
+        for branch in sorted_branches {
             let branch_name = &branch.name;
             let base_branch = branch
                 .parent
@@ -540,6 +546,68 @@ fn build_branch_chain(stack: &Stack, current_name: &str) -> Vec<String> {
     chain
 }
 
+/// Sort branches topologically so parents come before children.
+///
+/// Uses Kahn's algorithm to produce a stable topological ordering where branches
+/// with no in-stack parent dependencies are processed first, followed by their
+/// children. Branches whose parents are outside the stack (e.g., main/master)
+/// are treated as roots.
+fn topological_sort<'a>(
+    branches: &'a [rung_core::stack::StackBranch],
+    default_branch: &str,
+) -> Vec<&'a rung_core::stack::StackBranch> {
+    // Build a set of branch names in the stack for quick lookup
+    let in_stack: HashSet<&str> = branches.iter().map(|b| b.name.as_str()).collect();
+
+    // Build in-degree map: count of in-stack parents for each branch
+    let mut in_degree: HashMap<&str, usize> = HashMap::new();
+    for branch in branches {
+        let parent_in_stack = branch
+            .parent
+            .as_ref()
+            .is_some_and(|p| p.as_str() != default_branch && in_stack.contains(p.as_str()));
+        in_degree.insert(branch.name.as_str(), usize::from(parent_in_stack));
+    }
+
+    // Initialize queue with branches that have no in-stack parent (roots)
+    let mut queue: VecDeque<&str> = in_degree
+        .iter()
+        .filter(|(_, deg)| **deg == 0)
+        .map(|(name, _)| *name)
+        .collect();
+
+    let mut sorted = Vec::with_capacity(branches.len());
+
+    while let Some(name) = queue.pop_front() {
+        // Find the branch and add to sorted output
+        if let Some(branch) = branches.iter().find(|b| b.name.as_str() == name) {
+            sorted.push(branch);
+
+            // Decrement in-degree of children
+            for child in branches {
+                if child.parent.as_ref().is_some_and(|p| p.as_str() == name)
+                    && let Some(deg) = in_degree.get_mut(child.name.as_str())
+                {
+                    *deg = deg.saturating_sub(1);
+                    if *deg == 0 {
+                        queue.push_back(child.name.as_str());
+                    }
+                }
+            }
+        }
+    }
+
+    // If there are any branches not processed (shouldn't happen with valid data),
+    // append them to avoid losing branches
+    for branch in branches {
+        if !sorted.iter().any(|b| b.name == branch.name) {
+            sorted.push(branch);
+        }
+    }
+
+    sorted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -732,6 +800,103 @@ mod tests {
         assert!(chain.contains(&"a".to_string()));
         assert!(chain.contains(&"b".to_string()));
         assert!(chain.contains(&"c".to_string()));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_topological_sort_already_ordered() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        stack.add_branch(StackBranch::new(
+            BranchName::new("a").expect("valid"),
+            Some(BranchName::new("main").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("b").expect("valid"),
+            Some(BranchName::new("a").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("c").expect("valid"),
+            Some(BranchName::new("b").expect("valid")),
+        ));
+
+        let sorted = topological_sort(&stack.branches, "main");
+        let names: Vec<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
+
+        // Parents must come before children
+        assert!(names.iter().position(|&n| n == "a") < names.iter().position(|&n| n == "b"));
+        assert!(names.iter().position(|&n| n == "b") < names.iter().position(|&n| n == "c"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_topological_sort_out_of_order() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        // Add branches in reverse order (child before parent)
+        stack.add_branch(StackBranch::new(
+            BranchName::new("c").expect("valid"),
+            Some(BranchName::new("b").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("b").expect("valid"),
+            Some(BranchName::new("a").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("a").expect("valid"),
+            Some(BranchName::new("main").expect("valid")),
+        ));
+
+        let sorted = topological_sort(&stack.branches, "main");
+        let names: Vec<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
+
+        // Despite out-of-order input, parents must come before children
+        assert!(names.iter().position(|&n| n == "a") < names.iter().position(|&n| n == "b"));
+        assert!(names.iter().position(|&n| n == "b") < names.iter().position(|&n| n == "c"));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn test_topological_sort_multiple_roots() {
+        use rung_core::{BranchName, Stack, stack::StackBranch};
+
+        let mut stack = Stack::default();
+        // Two independent branches off main
+        stack.add_branch(StackBranch::new(
+            BranchName::new("feature-a").expect("valid"),
+            Some(BranchName::new("main").expect("valid")),
+        ));
+        stack.add_branch(StackBranch::new(
+            BranchName::new("feature-b").expect("valid"),
+            Some(BranchName::new("main").expect("valid")),
+        ));
+        // Child of feature-a
+        stack.add_branch(StackBranch::new(
+            BranchName::new("feature-a-child").expect("valid"),
+            Some(BranchName::new("feature-a").expect("valid")),
+        ));
+
+        let sorted = topological_sort(&stack.branches, "main");
+        let names: Vec<&str> = sorted.iter().map(|b| b.name.as_str()).collect();
+
+        // feature-a must come before feature-a-child
+        assert!(
+            names.iter().position(|&n| n == "feature-a")
+                < names.iter().position(|&n| n == "feature-a-child")
+        );
+        // All 3 branches should be present
+        assert_eq!(names.len(), 3);
+    }
+
+    #[test]
+    fn test_topological_sort_empty() {
+        use rung_core::Stack;
+
+        let stack = Stack::default();
+        let sorted = topological_sort(&stack.branches, "main");
+        assert!(sorted.is_empty());
     }
 
     #[test]
