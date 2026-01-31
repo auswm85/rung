@@ -552,7 +552,7 @@ fn test_sync_conflict_and_continue() {
         .output()
         .unwrap();
 
-    // Try to sync (should fail with conflict)
+    // Try to sync (should pause on conflict)
     rung()
         .args(["sync", "--base", "main"])
         .current_dir(&temp)
