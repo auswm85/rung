@@ -168,6 +168,156 @@ impl<'a, G: GitOps> CreateService<'a, G> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::test_mocks::{MockGitOps, MockStateStore};
+    use rung_git::Oid;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_service_current_branch() {
+        let mock_repo = MockGitOps::new().with_current_branch("feature/test");
+        let service = CreateService::new(&mock_repo);
+
+        let result = service.current_branch().unwrap();
+        assert_eq!(result, "feature/test");
+    }
+
+    #[test]
+    fn test_create_service_branch_exists() {
+        let mock_repo = MockGitOps::new().with_branch("existing-branch", Oid::zero());
+        let service = CreateService::new(&mock_repo);
+
+        assert!(service.branch_exists("existing-branch"));
+        assert!(!service.branch_exists("non-existent"));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_service_is_clean() {
+        let mock_repo = MockGitOps::new().with_clean(true);
+        let service = CreateService::new(&mock_repo);
+        assert!(service.is_clean().unwrap());
+
+        let mock_repo_dirty = MockGitOps::new().with_clean(false);
+        let service_dirty = CreateService::new(&mock_repo_dirty);
+        assert!(!service_dirty.is_clean().unwrap());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_service_has_staged_changes() {
+        let mock_repo = MockGitOps::new().with_staged_changes(true);
+        let service = CreateService::new(&mock_repo);
+        assert!(service.has_staged_changes().unwrap());
+
+        let mock_repo_no_staged = MockGitOps::new().with_staged_changes(false);
+        let service_no_staged = CreateService::new(&mock_repo_no_staged);
+        assert!(!service_no_staged.has_staged_changes().unwrap());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_branch_success() {
+        let mock_repo = MockGitOps::new()
+            .with_current_branch("main")
+            .with_branch("main", Oid::zero());
+        let mock_state = MockStateStore::new();
+
+        let service = CreateService::new(&mock_repo);
+        let branch_name = BranchName::new("feature/new").unwrap();
+        let parent = BranchName::new("main").unwrap();
+
+        let result = service
+            .create_branch(&mock_state, &branch_name, &parent, None)
+            .unwrap();
+
+        assert_eq!(result.branch_name, "feature/new");
+        assert_eq!(result.parent_name, "main");
+        assert!(!result.commit_created);
+        assert!(result.commit_message.is_none());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_branch_with_commit_when_staged() {
+        let mock_repo = MockGitOps::new()
+            .with_current_branch("main")
+            .with_branch("main", Oid::zero())
+            .with_staged_changes(true);
+        let mock_state = MockStateStore::new();
+
+        let service = CreateService::new(&mock_repo);
+        let branch_name = BranchName::new("feature/with-commit").unwrap();
+        let parent = BranchName::new("main").unwrap();
+
+        let result = service
+            .create_branch(&mock_state, &branch_name, &parent, Some("Initial commit"))
+            .unwrap();
+
+        assert_eq!(result.branch_name, "feature/with-commit");
+        assert!(result.commit_created);
+        assert_eq!(result.commit_message, Some("Initial commit".to_string()));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_branch_with_message_clean_repo() {
+        // When repo is clean and no staged changes, no commit is created
+        let mock_repo = MockGitOps::new()
+            .with_current_branch("main")
+            .with_branch("main", Oid::zero())
+            .with_clean(true)
+            .with_staged_changes(false);
+        let mock_state = MockStateStore::new();
+
+        let service = CreateService::new(&mock_repo);
+        let branch_name = BranchName::new("feature/clean").unwrap();
+        let parent = BranchName::new("main").unwrap();
+
+        let result = service
+            .create_branch(&mock_state, &branch_name, &parent, Some("Message"))
+            .unwrap();
+
+        assert_eq!(result.branch_name, "feature/clean");
+        assert!(!result.commit_created);
+        assert!(result.commit_message.is_none());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_branch_with_message_dirty_repo() {
+        // When repo is dirty but nothing staged, stage_all is called
+        let mock_repo = MockGitOps::new()
+            .with_current_branch("main")
+            .with_branch("main", Oid::zero())
+            .with_clean(false)
+            .with_staged_changes(false);
+        let mock_state = MockStateStore::new();
+
+        let service = CreateService::new(&mock_repo);
+        let branch_name = BranchName::new("feature/dirty").unwrap();
+        let parent = BranchName::new("main").unwrap();
+
+        // Note: mock stage_all doesn't actually stage anything, so no commit
+        let result = service
+            .create_branch(&mock_state, &branch_name, &parent, Some("Staged changes"))
+            .unwrap();
+
+        assert_eq!(result.branch_name, "feature/dirty");
+        // Since mock doesn't actually stage, result depends on has_staged_changes
+        assert!(!result.commit_created);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_service_load_stack() {
+        let mock_repo = MockGitOps::new();
+        let mock_state = MockStateStore::new();
+
+        let service = CreateService::new(&mock_repo);
+        let stack = service.load_stack(&mock_state).unwrap();
+
+        assert!(stack.is_empty());
+    }
 
     #[test]
     fn test_create_result_fields() {

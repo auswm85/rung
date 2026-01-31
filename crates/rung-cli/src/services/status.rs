@@ -169,7 +169,137 @@ impl<'a, G: GitOps> StatusService<'a, G> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rung_core::BranchState;
+    use crate::services::test_mocks::MockGitOps;
+    use rung_core::stack::StackBranch;
+    use rung_core::{BranchName, BranchState};
+    use rung_git::Oid;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_status_empty_stack() {
+        let mock_repo = MockGitOps::new().with_current_branch("main");
+        let stack = Stack::default();
+        let service = StatusService::new(&mock_repo, &stack);
+
+        let status = service.compute_status().unwrap();
+        assert!(status.is_empty());
+        assert_eq!(status.current_branch, Some("main".to_string()));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_status_with_branches() {
+        let mock_repo = MockGitOps::new()
+            .with_current_branch("feature/test")
+            .with_branch("main", Oid::zero())
+            .with_branch("feature/test", Oid::zero());
+
+        let mut stack = Stack::default();
+        let branch = StackBranch::new(BranchName::new("feature/test").unwrap(), None);
+        stack.add_branch(branch);
+
+        let service = StatusService::new(&mock_repo, &stack);
+
+        let status = service.compute_status().unwrap();
+        assert!(!status.is_empty());
+        assert_eq!(status.branches.len(), 1);
+        assert_eq!(status.branches[0].name, "feature/test");
+        assert!(status.branches[0].is_current);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_branch_state_root_synced() {
+        let mock_repo = MockGitOps::new().with_branch("feature/root", Oid::zero());
+
+        let stack = Stack::default();
+        let service = StatusService::new(&mock_repo, &stack);
+
+        // Root branch (no parent) is always synced
+        let branch = StackBranch::new(BranchName::new("feature/root").unwrap(), None);
+        let state = service.compute_branch_state(&branch).unwrap();
+        assert!(matches!(state, BranchState::Synced));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_branch_state_parent_missing() {
+        let mock_repo = MockGitOps::new().with_branch("feature/child", Oid::zero());
+        // Note: parent branch doesn't exist
+
+        let stack = Stack::default();
+        let service = StatusService::new(&mock_repo, &stack);
+
+        let branch = StackBranch::new(
+            BranchName::new("feature/child").unwrap(),
+            Some(BranchName::new("deleted-parent").unwrap()),
+        );
+        let state = service.compute_branch_state(&branch).unwrap();
+        assert!(matches!(state, BranchState::Detached));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_branch_state_branch_missing() {
+        let mock_repo = MockGitOps::new().with_branch("main", Oid::zero());
+        // Note: the branch itself doesn't exist, only parent
+
+        let stack = Stack::default();
+        let service = StatusService::new(&mock_repo, &stack);
+
+        let branch = StackBranch::new(
+            BranchName::new("deleted-branch").unwrap(),
+            Some(BranchName::new("main").unwrap()),
+        );
+        let state = service.compute_branch_state(&branch).unwrap();
+        assert!(matches!(state, BranchState::Detached));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_compute_branch_state_synced_with_parent() {
+        // When merge base equals parent commit, branch is synced
+        let oid = Oid::zero();
+        let mock_repo = MockGitOps::new()
+            .with_branch("main", oid)
+            .with_branch("feature/child", oid);
+
+        let stack = Stack::default();
+        let service = StatusService::new(&mock_repo, &stack);
+
+        let branch = StackBranch::new(
+            BranchName::new("feature/child").unwrap(),
+            Some(BranchName::new("main").unwrap()),
+        );
+        let state = service.compute_branch_state(&branch).unwrap();
+        assert!(matches!(state, BranchState::Synced));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_status_service_multiple_branches() {
+        let mock_repo = MockGitOps::new()
+            .with_current_branch("feature/b")
+            .with_branch("main", Oid::zero())
+            .with_branch("feature/a", Oid::zero())
+            .with_branch("feature/b", Oid::zero());
+
+        let mut stack = Stack::default();
+        let branch_a = StackBranch::new(BranchName::new("feature/a").unwrap(), None);
+        let branch_b = StackBranch::new(
+            BranchName::new("feature/b").unwrap(),
+            Some(BranchName::new("feature/a").unwrap()),
+        );
+        stack.add_branch(branch_a);
+        stack.add_branch(branch_b);
+
+        let service = StatusService::new(&mock_repo, &stack);
+
+        let status = service.compute_status().unwrap();
+        assert_eq!(status.branches.len(), 2);
+        assert!(!status.branches[0].is_current); // feature/a
+        assert!(status.branches[1].is_current); // feature/b
+    }
 
     #[test]
     fn test_stack_status_empty() {
