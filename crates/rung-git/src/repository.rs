@@ -425,11 +425,13 @@ impl Repository {
         let commit = self.inner.find_commit(target)?;
         let reference_name = format!("refs/heads/{branch_name}");
 
+        let target_str = target.to_string();
+        let short_sha = target_str.get(..8).unwrap_or(&target_str);
         self.inner.reference(
             &reference_name,
             target,
             true, // force
-            &format!("rung: reset to {}", &target.to_string()[..8]),
+            &format!("rung: reset to {short_sha}"),
         )?;
 
         // If this is the current branch, also update working directory
