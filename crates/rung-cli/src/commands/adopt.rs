@@ -27,7 +27,7 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
     utils::ensure_on_branch(&repo)?;
 
     // Create service
-    let service = AdoptService::new(&repo, &state);
+    let service = AdoptService::new(&repo);
 
     // Determine which branch to adopt
     let current = service.current_branch()?;
@@ -42,19 +42,19 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
     }
 
     // Check if branch is already in the stack
-    if service.is_in_stack(branch_name)? {
+    if service.is_in_stack(&state, branch_name)? {
         bail!("Branch '{branch_name}' is already in the stack");
     }
 
     // Get the base branch for display
-    let base_branch = service.default_branch()?;
+    let base_branch = service.default_branch(&state)?;
 
     // Determine parent branch
     let parent_name = if let Some(p) = parent {
         p.to_string()
     } else {
         // Interactive selection
-        let choices = service.get_parent_choices()?;
+        let choices = service.get_parent_choices(&state)?;
 
         if choices.len() == 1 {
             // Only base branch available
@@ -68,7 +68,7 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
     };
 
     // Validate parent
-    service.validate_parent(&parent_name)?;
+    service.validate_parent(&state, &parent_name)?;
 
     if dry_run {
         output::info(&format!(
@@ -78,7 +78,7 @@ pub fn run(branch: Option<&str>, parent: Option<&str>, dry_run: bool) -> Result<
     }
 
     // Adopt the branch
-    let result = service.adopt_branch(&branch_name_validated, &parent_name)?;
+    let result = service.adopt_branch(&state, &branch_name_validated, &parent_name)?;
 
     output::success(&format!(
         "Adopted branch '{}' with parent '{}'",

@@ -4,8 +4,8 @@
 //! and divergence information, separated from CLI presentation concerns.
 
 use anyhow::Result;
-use rung_core::{BranchState, Stack, State, stack::StackBranch};
-use rung_git::{RemoteDivergence, Repository};
+use rung_core::{BranchState, Stack, stack::StackBranch};
+use rung_git::{GitOps, RemoteDivergence};
 use serde::Serialize;
 
 /// Computed information about a branch's status.
@@ -70,19 +70,16 @@ impl StackStatus {
     }
 }
 
-/// Service for computing stack and branch status.
-pub struct StatusService<'a> {
-    repo: &'a Repository,
-    /// Reserved for future sync state queries and PR status updates.
-    #[allow(dead_code)]
-    state: &'a State,
+/// Service for computing stack and branch status with trait-based dependencies.
+pub struct StatusService<'a, G: GitOps> {
+    repo: &'a G,
     stack: &'a Stack,
 }
 
-impl<'a> StatusService<'a> {
+impl<'a, G: GitOps> StatusService<'a, G> {
     /// Create a new status service.
-    pub const fn new(repo: &'a Repository, state: &'a State, stack: &'a Stack) -> Self {
-        Self { repo, state, stack }
+    pub const fn new(repo: &'a G, stack: &'a Stack) -> Self {
+        Self { repo, stack }
     }
 
     /// Fetch latest from remote.

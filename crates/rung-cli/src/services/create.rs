@@ -4,8 +4,8 @@
 //! separated from CLI presentation concerns.
 
 use anyhow::{Context, Result};
-use rung_core::{BranchName, Stack, State, stack::StackBranch};
-use rung_git::Repository;
+use rung_core::{BranchName, Stack, StateStore, stack::StackBranch};
+use rung_git::GitOps;
 
 /// Result of a branch creation operation.
 #[derive(Debug)]
@@ -22,16 +22,16 @@ pub struct CreateResult {
     pub stack_depth: usize,
 }
 
-/// Service for creating branches in the stack.
-pub struct CreateService<'a> {
-    repo: &'a Repository,
-    state: &'a State,
+/// Service for creating branches in the stack with trait-based dependencies.
+pub struct CreateService<'a, G: GitOps> {
+    repo: &'a G,
 }
 
-impl<'a> CreateService<'a> {
+impl<'a, G: GitOps> CreateService<'a, G> {
     /// Create a new create service.
-    pub const fn new(repo: &'a Repository, state: &'a State) -> Self {
-        Self { repo, state }
+    #[must_use]
+    pub const fn new(repo: &'a G) -> Self {
+        Self { repo }
     }
 
     /// Get the current branch name (will be the parent).
@@ -64,8 +64,9 @@ impl<'a> CreateService<'a> {
     ///
     /// If any step fails after the branch is created, the branch is deleted
     /// to maintain consistency between git and stack state.
-    pub fn create_branch(
+    pub fn create_branch<S: StateStore>(
         &self,
+        state: &S,
         branch_name: &BranchName,
         parent: &BranchName,
         message: Option<&str>,
@@ -99,7 +100,7 @@ impl<'a> CreateService<'a> {
         };
 
         // All git operations succeeded - now persist to stack
-        let mut stack = match self.state.load_stack() {
+        let mut stack = match state.load_stack() {
             Ok(s) => s,
             Err(e) => {
                 // Clean up: checkout parent and delete the branch
@@ -110,7 +111,7 @@ impl<'a> CreateService<'a> {
         };
         let branch = StackBranch::new(branch_name.clone(), Some(parent.clone()));
         stack.add_branch(branch);
-        if let Err(e) = self.state.save_stack(&stack) {
+        if let Err(e) = state.save_stack(&stack) {
             // Clean up: checkout parent and delete the branch
             let _ = self.repo.checkout(parent_str);
             let _ = self.repo.delete_branch(name);
@@ -158,9 +159,9 @@ impl<'a> CreateService<'a> {
     }
 
     /// Get the stack for reading (useful for dry-run scenarios).
-    #[allow(dead_code)]
-    pub fn load_stack(&self) -> Result<Stack> {
-        Ok(self.state.load_stack()?)
+    #[allow(dead_code, clippy::unused_self)]
+    pub fn load_stack<S: StateStore>(&self, state: &S) -> Result<Stack> {
+        Ok(state.load_stack()?)
     }
 }
 
