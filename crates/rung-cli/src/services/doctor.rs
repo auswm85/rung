@@ -139,17 +139,9 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
 
     /// Run all diagnostic checks and return a complete report.
     #[allow(dead_code)]
-    pub fn run_diagnostics(&self) -> Result<DiagnosticReport> {
-        let github_result = if tokio::runtime::Handle::try_current().is_ok() {
-            // We're inside an async runtime - use block_in_place to avoid deadlock
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(self.check_github())
-            })
-        } else {
-            // No runtime exists - create one
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(self.check_github())
-        };
+    #[allow(clippy::future_not_send)] // Git operations are sync; future doesn't need to be Send
+    pub async fn run_diagnostics(&self) -> Result<DiagnosticReport> {
+        let github_result = self.check_github().await;
         Ok(DiagnosticReport {
             git_state: self.check_git_state(),
             stack_integrity: self.check_stack_integrity(),
@@ -756,14 +748,14 @@ mod tests {
             );
         }
 
-        #[test]
-        fn test_run_diagnostics() {
+        #[tokio::test]
+        async fn test_run_diagnostics() {
             let git = MockGitOps::new();
             let state = MockStateStore::new();
             let stack = Stack::default();
 
             let service = DoctorService::new(&git, &state, &stack);
-            let report = service.run_diagnostics().unwrap();
+            let report = service.run_diagnostics().await.unwrap();
 
             // Empty stack with clean repo should have github auth error
             // (since no real GitHub token available in tests)
