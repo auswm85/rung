@@ -22,6 +22,7 @@ pub struct MockGitOps {
     pub is_clean: RefCell<bool>,
     pub is_rebasing: RefCell<bool>,
     pub push_results: RefCell<HashMap<String, bool>>,
+    pub has_staged_changes: RefCell<bool>,
 }
 
 impl Default for MockGitOps {
@@ -40,7 +41,20 @@ impl MockGitOps {
             is_clean: RefCell::new(true),
             is_rebasing: RefCell::new(false),
             push_results: RefCell::new(HashMap::new()),
+            has_staged_changes: RefCell::new(false),
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_staged_changes(self, has_staged: bool) -> Self {
+        *self.has_staged_changes.borrow_mut() = has_staged;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_clean(self, clean: bool) -> Self {
+        *self.is_clean.borrow_mut() = clean;
+        self
     }
 
     pub fn with_branch(self, name: &str, oid: Oid) -> Self {
@@ -161,7 +175,7 @@ impl GitOps for MockGitOps {
     }
 
     fn has_staged_changes(&self) -> GitResult<bool> {
-        Ok(false)
+        Ok(*self.has_staged_changes.borrow())
     }
 
     fn create_commit(&self, _message: &str) -> GitResult<Oid> {
