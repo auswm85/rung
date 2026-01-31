@@ -43,6 +43,29 @@ enum SyncStatus {
     Aborted,
 }
 
+/// JSON output for dry-run mode.
+#[derive(Debug, Serialize)]
+struct DryRunOutput {
+    dry_run: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    merged_prs: Vec<DryRunMergedPr>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    branches_to_rebase: Vec<DryRunRebase>,
+}
+
+#[derive(Debug, Serialize)]
+struct DryRunMergedPr {
+    branch: String,
+    pr_number: u64,
+    merged_into: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DryRunRebase {
+    branch: String,
+    new_base: String,
+}
+
 /// Run the sync command.
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn run(
@@ -70,20 +93,18 @@ pub fn run(
         return handle_abort(&repo, &state, json);
     }
 
-    // Ensure on branch (unless continuing)
-    if !continue_ {
-        utils::ensure_on_branch(&repo)?;
-    }
-
     // Handle continue (no GitHub needed)
     if continue_ {
         return handle_continue(&repo, &state, json, no_push);
     }
 
-    // Check for existing sync in progress
+    // Check for existing sync in progress (before branch validation for better error messages)
     if state.is_sync_in_progress() {
         bail!("Sync already in progress - use --continue to resume or --abort to cancel");
     }
+
+    // Ensure on branch
+    utils::ensure_on_branch(&repo)?;
 
     repo.require_clean()?;
 
@@ -281,8 +302,7 @@ fn run_sync_phases(
     };
 
     if dry_run {
-        print_dry_run(&plan, &reconcile_result, json);
-        return Ok(());
+        return print_dry_run(&plan, &reconcile_result, json);
     }
 
     let sync_result = if plan.is_empty() {
@@ -363,10 +383,35 @@ fn print_reconcile_results(result: &ReconcileResult, json: bool) {
     }
 }
 
-/// Print dry run info.
-fn print_dry_run(plan: &rung_core::sync::SyncPlan, reconcile_result: &ReconcileResult, json: bool) {
+/// Print dry run info (human-readable or JSON).
+fn print_dry_run(
+    plan: &rung_core::sync::SyncPlan,
+    reconcile_result: &ReconcileResult,
+    json: bool,
+) -> Result<()> {
     if json {
-        return;
+        let output = DryRunOutput {
+            dry_run: true,
+            merged_prs: reconcile_result
+                .merged
+                .iter()
+                .map(|m| DryRunMergedPr {
+                    branch: m.name.clone(),
+                    pr_number: m.pr_number,
+                    merged_into: m.merged_into.clone(),
+                })
+                .collect(),
+            branches_to_rebase: plan
+                .branches
+                .iter()
+                .map(|action| DryRunRebase {
+                    branch: action.branch.clone(),
+                    new_base: action.new_base.clone(),
+                })
+                .collect(),
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
     }
     output::info("Dry run - would perform the following:");
     if !reconcile_result.merged.is_empty() {
@@ -380,6 +425,7 @@ fn print_dry_run(plan: &rung_core::sync::SyncPlan, reconcile_result: &ReconcileR
             println!("    → {} (onto {base_short})", action.branch);
         }
     }
+    Ok(())
 }
 
 /// Print PR update results.

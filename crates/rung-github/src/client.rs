@@ -430,15 +430,19 @@ impl GitHubClient {
 
         let graphql_response: GraphQLResponse = response.json().await?;
 
-        // Check for GraphQL-level errors
-        if let Some(errors) = graphql_response.errors
-            && !errors.is_empty()
-        {
-            let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-            return Err(Error::ApiError {
-                status: 200,
-                message: messages.join("; "),
-            });
+        // Only fail if there's no data at all; allow partial results with errors
+        if graphql_response.data.is_none() {
+            if let Some(errors) = graphql_response.errors
+                && !errors.is_empty()
+            {
+                let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+                return Err(Error::ApiError {
+                    status: 200,
+                    message: messages.join("; "),
+                });
+            }
+            // No data and no errors - return empty result
+            return Ok(std::collections::HashMap::new());
         }
 
         let mut result = std::collections::HashMap::new();
@@ -446,7 +450,7 @@ impl GitHubClient {
         if let Some(data) = graphql_response.data
             && let Some(repo_data) = data.repository
         {
-            // Parse each pr0, pr1, pr2... field
+            // Parse each pr0, pr1, pr2... field (null entries are skipped for partial results)
             for (i, &num) in numbers.iter().enumerate() {
                 let key = format!("pr{i}");
                 if let Some(pr_value) = repo_data.get(&key)

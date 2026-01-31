@@ -570,10 +570,11 @@ fn topological_sort<'a>(
     }
 
     // Initialize queue with branches that have no in-stack parent (roots)
-    let mut queue: VecDeque<&str> = in_degree
+    // Use original branches order for deterministic output (HashMap iteration is nondeterministic)
+    let mut queue: VecDeque<&str> = branches
         .iter()
-        .filter(|(_, deg)| **deg == 0)
-        .map(|(name, _)| *name)
+        .filter(|b| in_degree.get(b.name.as_str()) == Some(&0))
+        .map(|b| b.name.as_str())
         .collect();
 
     let mut sorted = Vec::with_capacity(branches.len());

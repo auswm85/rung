@@ -307,8 +307,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
             // Update PR base for grandchildren (direct children were already shifted)
             // Only update if this branch and all its ancestors succeeded
-            let mut pr_updated = false;
-            if stack_parent != current_branch
+            let (pr_updated, pr_error) = if stack_parent != current_branch
                 && !failed_branches.contains(branch_name)
                 && let Some(child_pr_num) = branch_info.pr
             {
@@ -317,21 +316,23 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
                     body: None,
                     base: Some(new_base.clone()),
                 };
-                if self
+                match self
                     .client
                     .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
                     .await
-                    .is_ok()
                 {
-                    pr_updated = true;
+                    Ok(_) => (true, None),
+                    Err(e) => (false, Some(format!("PR update failed: {e}"))),
                 }
-            }
+            } else {
+                (false, None)
+            };
 
             results.push(DescendantResult {
                 branch: branch_name.clone(),
                 rebased: true,
                 pr_updated,
-                error: None,
+                error: pr_error,
             });
         }
 
