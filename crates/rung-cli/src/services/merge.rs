@@ -1179,5 +1179,265 @@ mod tests {
             let failures = service.rollback_pr_bases(&[]).await;
             assert!(failures.is_empty());
         }
+
+        #[tokio::test]
+        #[allow(clippy::expect_used)]
+        async fn test_rebase_descendants_success() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid)
+                .with_push_result("feature/child", true);
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            let mut parent_branch = StackBranch::try_new("feature/parent", None::<&str>).unwrap();
+            parent_branch.pr = Some(10);
+            stack.add_branch(parent_branch);
+
+            let mut child_branch =
+                StackBranch::try_new("feature/child", Some("feature/parent")).unwrap();
+            child_branch.pr = Some(20);
+            stack.add_branch(child_branch);
+
+            let state = MockStateStore::new().with_stack(stack.clone());
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut old_commits = HashMap::new();
+            old_commits.insert("feature/parent".to_string(), oid);
+            old_commits.insert("main".to_string(), oid);
+
+            let descendants = vec!["feature/child".to_string()];
+            let results = service
+                .rebase_descendants(
+                    &state,
+                    &stack,
+                    "feature/parent",
+                    "main",
+                    &descendants,
+                    &old_commits,
+                )
+                .await
+                .expect("rebase should succeed");
+
+            assert_eq!(results.len(), 1);
+            assert!(results[0].rebased);
+            assert!(results[0].error.is_none());
+        }
+
+        #[tokio::test]
+        #[allow(clippy::expect_used)]
+        async fn test_rebase_descendants_push_failure() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid)
+                .with_push_result("feature/child", false); // Push will fail
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/parent", None::<&str>).unwrap());
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack.clone());
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut old_commits = HashMap::new();
+            old_commits.insert("feature/parent".to_string(), oid);
+            old_commits.insert("main".to_string(), oid);
+
+            let descendants = vec!["feature/child".to_string()];
+            let results = service
+                .rebase_descendants(
+                    &state,
+                    &stack,
+                    "feature/parent",
+                    "main",
+                    &descendants,
+                    &old_commits,
+                )
+                .await
+                .expect("rebase should complete even with push failure");
+
+            assert_eq!(results.len(), 1);
+            assert!(results[0].rebased); // Rebase succeeded
+            assert!(!results[0].pr_updated);
+            assert!(results[0].error.is_some());
+            assert!(results[0].error.as_ref().unwrap().contains("Push failed"));
+        }
+
+        #[tokio::test]
+        #[allow(clippy::expect_used)]
+        async fn test_rebase_descendants_rebase_failure() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid)
+                .with_rebase_failure(); // Rebase will fail
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/parent", None::<&str>).unwrap());
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack.clone());
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut old_commits = HashMap::new();
+            old_commits.insert("feature/parent".to_string(), oid);
+            old_commits.insert("main".to_string(), oid);
+
+            let descendants = vec!["feature/child".to_string()];
+            let results = service
+                .rebase_descendants(
+                    &state,
+                    &stack,
+                    "feature/parent",
+                    "main",
+                    &descendants,
+                    &old_commits,
+                )
+                .await
+                .expect("rebase should complete even with rebase failure");
+
+            assert_eq!(results.len(), 1);
+            assert!(!results[0].rebased); // Rebase failed
+            assert!(!results[0].pr_updated);
+            assert!(results[0].error.is_some());
+            assert!(
+                results[0]
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("Rebase conflict")
+            );
+        }
+
+        #[tokio::test]
+        #[allow(clippy::expect_used)]
+        async fn test_rebase_descendants_skips_failed_ancestor() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid)
+                .with_branch("feature/grandchild", oid)
+                .with_rebase_failure(); // First rebase will fail
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/parent", None::<&str>).unwrap());
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+            stack.add_branch(
+                StackBranch::try_new("feature/grandchild", Some("feature/child")).unwrap(),
+            );
+
+            let state = MockStateStore::new().with_stack(stack.clone());
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut old_commits = HashMap::new();
+            old_commits.insert("feature/parent".to_string(), oid);
+            old_commits.insert("feature/child".to_string(), oid);
+            old_commits.insert("main".to_string(), oid);
+
+            let descendants = vec![
+                "feature/child".to_string(),
+                "feature/grandchild".to_string(),
+            ];
+            let results = service
+                .rebase_descendants(
+                    &state,
+                    &stack,
+                    "feature/parent",
+                    "main",
+                    &descendants,
+                    &old_commits,
+                )
+                .await
+                .expect("rebase should complete");
+
+            assert_eq!(results.len(), 2);
+            // First child failed to rebase
+            assert!(!results[0].rebased);
+            assert!(
+                results[0]
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("Rebase conflict")
+            );
+            // Grandchild was skipped due to ancestor failure
+            assert!(!results[1].rebased);
+            assert!(results[1].error.as_ref().unwrap().contains("Skipped"));
+            assert!(results[1].error.as_ref().unwrap().contains("ancestor"));
+        }
+
+        #[tokio::test]
+        #[allow(clippy::expect_used)]
+        async fn test_rebase_descendants_grandchild_pr_update() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/parent", oid)
+                .with_branch("feature/child", oid)
+                .with_branch("feature/grandchild", oid)
+                .with_push_result("feature/child", true)
+                .with_push_result("feature/grandchild", true);
+            let github = MockGitHubClient::new();
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/parent", None::<&str>).unwrap());
+            stack
+                .add_branch(StackBranch::try_new("feature/child", Some("feature/parent")).unwrap());
+
+            // Grandchild has a PR and parent is NOT current_branch, so PR should be updated
+            let mut grandchild =
+                StackBranch::try_new("feature/grandchild", Some("feature/child")).unwrap();
+            grandchild.pr = Some(30);
+            stack.add_branch(grandchild);
+
+            let state = MockStateStore::new().with_stack(stack.clone());
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut old_commits = HashMap::new();
+            old_commits.insert("feature/parent".to_string(), oid);
+            old_commits.insert("feature/child".to_string(), oid);
+            old_commits.insert("main".to_string(), oid);
+
+            let descendants = vec![
+                "feature/child".to_string(),
+                "feature/grandchild".to_string(),
+            ];
+            let results = service
+                .rebase_descendants(
+                    &state,
+                    &stack,
+                    "feature/parent",
+                    "main",
+                    &descendants,
+                    &old_commits,
+                )
+                .await
+                .expect("rebase should succeed");
+
+            assert_eq!(results.len(), 2);
+            // Child rebased but no PR update (direct child of merging branch)
+            assert!(results[0].rebased);
+            assert!(!results[0].pr_updated);
+            // Grandchild rebased and PR was updated
+            assert!(results[1].rebased);
+            assert!(results[1].pr_updated);
+        }
     }
 }
