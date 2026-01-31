@@ -3,7 +3,7 @@
 //! This service encapsulates the business logic for the merge command,
 //! accepting trait-based dependencies for testability.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
@@ -351,10 +351,15 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
     pub fn collect_descendants(stack: &Stack, root: &str) -> Vec<String> {
         let mut descendants = Vec::new();
         let mut queue = VecDeque::from([root.to_string()]);
+        let mut visited = HashSet::new();
+        visited.insert(root.to_string());
 
         while let Some(parent) = queue.pop_front() {
             for branch in &stack.branches {
-                if branch.parent.as_ref().is_some_and(|p| p == &parent) {
+                if branch.parent.as_ref().is_some_and(|p| p == &parent)
+                    && !visited.contains(branch.name.as_str())
+                {
+                    visited.insert(branch.name.to_string());
                     descendants.push(branch.name.to_string());
                     queue.push_back(branch.name.to_string());
                 }
