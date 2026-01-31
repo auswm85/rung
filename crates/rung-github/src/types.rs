@@ -198,3 +198,102 @@ pub struct UpdateComment {
     /// New comment body.
     pub body: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_status_is_success() {
+        assert!(CheckStatus::Success.is_success());
+        assert!(CheckStatus::Skipped.is_success());
+        assert!(!CheckStatus::Failure.is_success());
+        assert!(!CheckStatus::Queued.is_success());
+        assert!(!CheckStatus::InProgress.is_success());
+        assert!(!CheckStatus::Cancelled.is_success());
+    }
+
+    #[test]
+    fn test_check_status_is_failure() {
+        assert!(CheckStatus::Failure.is_failure());
+        assert!(!CheckStatus::Success.is_failure());
+        assert!(!CheckStatus::Skipped.is_failure());
+        assert!(!CheckStatus::Queued.is_failure());
+        assert!(!CheckStatus::InProgress.is_failure());
+        assert!(!CheckStatus::Cancelled.is_failure());
+    }
+
+    #[test]
+    fn test_check_status_is_pending() {
+        assert!(CheckStatus::Queued.is_pending());
+        assert!(CheckStatus::InProgress.is_pending());
+        assert!(!CheckStatus::Success.is_pending());
+        assert!(!CheckStatus::Failure.is_pending());
+        assert!(!CheckStatus::Skipped.is_pending());
+        assert!(!CheckStatus::Cancelled.is_pending());
+    }
+
+    #[test]
+    fn test_pull_request_state_equality() {
+        assert_eq!(PullRequestState::Open, PullRequestState::Open);
+        assert_eq!(PullRequestState::Closed, PullRequestState::Closed);
+        assert_eq!(PullRequestState::Merged, PullRequestState::Merged);
+        assert_ne!(PullRequestState::Open, PullRequestState::Closed);
+    }
+
+    #[test]
+    fn test_merge_method_default() {
+        assert_eq!(MergeMethod::default(), MergeMethod::Squash);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_pull_request_state_serialization() {
+        assert_eq!(
+            serde_json::to_string(&PullRequestState::Open).unwrap(),
+            "\"open\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PullRequestState::Closed).unwrap(),
+            "\"closed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PullRequestState::Merged).unwrap(),
+            "\"merged\""
+        );
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_check_status_serialization() {
+        assert_eq!(
+            serde_json::to_string(&CheckStatus::Queued).unwrap(),
+            "\"queued\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckStatus::InProgress).unwrap(),
+            "\"inprogress\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CheckStatus::Success).unwrap(),
+            "\"success\""
+        );
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_merge_method_serialization() {
+        assert_eq!(
+            serde_json::to_string(&MergeMethod::Merge).unwrap(),
+            "\"merge\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MergeMethod::Squash).unwrap(),
+            "\"squash\""
+        );
+        assert_eq!(
+            serde_json::to_string(&MergeMethod::Rebase).unwrap(),
+            "\"rebase\""
+        );
+    }
+}
