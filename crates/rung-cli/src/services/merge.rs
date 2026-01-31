@@ -137,7 +137,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
 
     /// Rollback PR base changes after a failed merge.
     ///
-    /// Returns a list of PRs that failed to rollback, if any.
+    /// Returns a list of `(pr_number, error_message)` tuples for PRs that failed to rollback.
     pub async fn rollback_pr_bases(&self, shifted_prs: &[(u64, String)]) -> Vec<(u64, String)> {
         let mut failures = Vec::new();
         for (child_pr_num, original_base) in shifted_prs {

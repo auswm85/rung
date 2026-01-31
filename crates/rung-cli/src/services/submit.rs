@@ -161,14 +161,6 @@ where
                 .unwrap_or(&config.default_branch)
                 .to_string();
 
-            // Get title and body from commit message
-            let (mut title, body) = self.get_pr_title_and_body(branch_name);
-            if config.current_branch.as_deref() == Some(branch_name.as_str())
-                && let Some(custom) = config.custom_title
-            {
-                title = custom.to_string();
-            }
-
             // Check if PR already exists
             if let Some(pr_number) = branch.pr {
                 let pr_url = format!(
@@ -196,6 +188,13 @@ where
                         base: base_branch,
                     });
                 } else {
+                    // Only extract title/body when we need to create a new PR
+                    let (mut title, body) = self.get_pr_title_and_body(branch_name);
+                    if config.current_branch.as_deref() == Some(branch_name.as_str())
+                        && let Some(custom) = config.custom_title
+                    {
+                        title = custom.to_string();
+                    }
                     actions.push(PlannedBranchAction::Create {
                         branch: branch_name.to_string(),
                         title,

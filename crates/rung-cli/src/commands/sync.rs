@@ -116,8 +116,11 @@ pub fn run(
         .ok()
         .and_then(|url| Repository::parse_github_remote(&url).ok());
 
+    // Create runtime once for all async operations
+    let rt = tokio::runtime::Runtime::new()?;
+
     // Determine base branch
-    let base_branch = determine_base_branch(base, github_info.as_ref())?;
+    let base_branch = determine_base_branch(base, github_info.as_ref(), &rt)?;
 
     // Fetch base branch
     if !json {
@@ -141,8 +144,6 @@ pub fn run(
             })
             .ok()
     });
-
-    let rt = tokio::runtime::Runtime::new()?;
 
     // Run the main sync phases
     run_sync_phases(
@@ -221,6 +222,7 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
 fn determine_base_branch(
     base: Option<&str>,
     github_info: Option<&(String, String)>,
+    rt: &tokio::runtime::Runtime,
 ) -> Result<String> {
     if let Some(b) = base {
         return Ok(b.to_string());
@@ -234,7 +236,6 @@ fn determine_base_branch(
     let client = GitHubClient::new(&Auth::auto()).context(
         "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
     )?;
-    let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(client.get_default_branch(owner, repo_name))
         .context("Could not fetch default branch. Use --base <branch> to specify manually.")
 }
