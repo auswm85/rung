@@ -166,13 +166,22 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
     }
     sync::abort_sync(repo, state)?;
     if json {
+        // Compute github_auth_unavailable consistently with handle_continue
+        let has_github_remote = repo
+            .origin_url()
+            .ok()
+            .and_then(|url| Repository::parse_github_remote(&url).ok())
+            .is_some();
+        let github_auth_unavailable =
+            has_github_remote && GitHubClient::new(&Auth::auto()).is_err();
+
         return output_json(&SyncOutput {
             status: SyncStatus::Aborted,
             branches_rebased: None,
             backup_id: None,
             conflict_branch: None,
             conflict_files: vec![],
-            github_auth_unavailable: false,
+            github_auth_unavailable,
         });
     }
     output::success("Sync aborted - branches restored from backup");
