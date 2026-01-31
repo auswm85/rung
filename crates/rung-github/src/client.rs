@@ -701,7 +701,7 @@ fn build_graphql_pr_query(numbers: &[u64]) -> String {
 
 impl GitHubApi for GitHubClient {
     async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest> {
-        Self::get_pr(self, owner, repo, number).await
+        self.get_pr(owner, repo, number).await
     }
 
     async fn get_prs_batch(
@@ -710,7 +710,7 @@ impl GitHubApi for GitHubClient {
         repo: &str,
         numbers: &[u64],
     ) -> Result<std::collections::HashMap<u64, PullRequest>> {
-        Self::get_prs_batch(self, owner, repo, numbers).await
+        self.get_prs_batch(owner, repo, numbers).await
     }
 
     async fn find_pr_for_branch(
@@ -719,7 +719,7 @@ impl GitHubApi for GitHubClient {
         repo: &str,
         branch: &str,
     ) -> Result<Option<PullRequest>> {
-        Self::find_pr_for_branch(self, owner, repo, branch).await
+        self.find_pr_for_branch(owner, repo, branch).await
     }
 
     async fn create_pr(
@@ -728,7 +728,7 @@ impl GitHubApi for GitHubClient {
         repo: &str,
         pr: CreatePullRequest,
     ) -> Result<PullRequest> {
-        Self::create_pr(self, owner, repo, pr).await
+        self.create_pr(owner, repo, pr).await
     }
 
     async fn update_pr(
@@ -738,7 +738,7 @@ impl GitHubApi for GitHubClient {
         number: u64,
         update: UpdatePullRequest,
     ) -> Result<PullRequest> {
-        Self::update_pr(self, owner, repo, number, update).await
+        self.update_pr(owner, repo, number, update).await
     }
 
     async fn get_check_runs(
@@ -747,7 +747,7 @@ impl GitHubApi for GitHubClient {
         repo: &str,
         commit_sha: &str,
     ) -> Result<Vec<CheckRun>> {
-        Self::get_check_runs(self, owner, repo, commit_sha).await
+        self.get_check_runs(owner, repo, commit_sha).await
     }
 
     async fn merge_pr(
@@ -757,15 +757,15 @@ impl GitHubApi for GitHubClient {
         number: u64,
         merge: MergePullRequest,
     ) -> Result<MergeResult> {
-        Self::merge_pr(self, owner, repo, number, merge).await
+        self.merge_pr(owner, repo, number, merge).await
     }
 
     async fn delete_ref(&self, owner: &str, repo: &str, ref_name: &str) -> Result<()> {
-        Self::delete_ref(self, owner, repo, ref_name).await
+        self.delete_ref(owner, repo, ref_name).await
     }
 
     async fn get_default_branch(&self, owner: &str, repo: &str) -> Result<String> {
-        Self::get_default_branch(self, owner, repo).await
+        self.get_default_branch(owner, repo).await
     }
 
     async fn list_pr_comments(
@@ -774,7 +774,7 @@ impl GitHubApi for GitHubClient {
         repo: &str,
         pr_number: u64,
     ) -> Result<Vec<IssueComment>> {
-        Self::list_pr_comments(self, owner, repo, pr_number).await
+        self.list_pr_comments(owner, repo, pr_number).await
     }
 
     async fn create_pr_comment(
@@ -784,7 +784,8 @@ impl GitHubApi for GitHubClient {
         pr_number: u64,
         comment: CreateComment,
     ) -> Result<IssueComment> {
-        Self::create_pr_comment(self, owner, repo, pr_number, comment).await
+        self.create_pr_comment(owner, repo, pr_number, comment)
+            .await
     }
 
     async fn update_pr_comment(
@@ -794,7 +795,8 @@ impl GitHubApi for GitHubClient {
         comment_id: u64,
         comment: UpdateComment,
     ) -> Result<IssueComment> {
-        Self::update_pr_comment(self, owner, repo, comment_id, comment).await
+        self.update_pr_comment(owner, repo, comment_id, comment)
+            .await
     }
 }
 
