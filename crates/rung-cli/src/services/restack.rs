@@ -975,5 +975,243 @@ mod tests {
                     .contains("would create a cycle")
             );
         }
+
+        #[test]
+        fn test_execute_restack_loop_completes_immediately() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("develop", oid)
+                .with_branch("feature/a", oid)
+                .with_current_branch("feature/a");
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            // Create a restack state that's already complete (empty branches_to_rebase)
+            let restack_state = RestackState::new(
+                "backup-123".to_string(),
+                "feature/a".to_string(),
+                "develop".to_string(),
+                Some("main".to_string()),
+                "feature/a".to_string(),
+                vec![], // Empty = is_complete() returns true immediately
+                vec![],
+            );
+
+            let state = MockStateStore::new()
+                .with_stack(stack)
+                .with_restack_state(restack_state);
+            *state.restack_in_progress.borrow_mut() = true;
+
+            let service = RestackService::new(&git);
+            let result = service.execute_restack_loop(&state, "feature/a");
+
+            // Should complete successfully since is_complete() is true
+            assert!(result.is_ok());
+            let restack_result = result.unwrap();
+            assert_eq!(restack_result.target_branch, "feature/a");
+        }
+
+        #[test]
+        fn test_execute_restack_loop_with_conflict() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("develop", oid)
+                .with_branch("feature/a", oid)
+                .with_current_branch("feature/a")
+                .with_rebase_failure(); // Rebase will fail
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            // Create a restack state with work to do (feature/a needs rebasing)
+            let restack_state = RestackState::new(
+                "backup-123".to_string(),
+                "feature/a".to_string(),
+                "develop".to_string(),
+                Some("main".to_string()),
+                "feature/a".to_string(),
+                vec!["feature/a".to_string()], // This branch needs rebasing
+                vec![],
+            );
+
+            let state = MockStateStore::new()
+                .with_stack(stack)
+                .with_restack_state(restack_state);
+            *state.restack_in_progress.borrow_mut() = true;
+
+            let service = RestackService::new(&git);
+            let result = service.execute_restack_loop(&state, "feature/a");
+
+            // Should return a conflict error
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                RestackError::Conflict { branch, files } => {
+                    assert_eq!(branch, "feature/a");
+                    assert!(!files.is_empty());
+                }
+                other @ RestackError::Other(_) => {
+                    panic!("Expected Conflict error, got: {other:?}")
+                }
+            }
+        }
+
+        #[test]
+        fn test_abort_with_restack_in_progress() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid)
+                .with_current_branch("feature/a");
+
+            let state = MockStateStore::new();
+            *state.restack_in_progress.borrow_mut() = true;
+
+            let service = RestackService::new(&git);
+            let result = service.abort(&state);
+
+            // Should succeed
+            assert!(result.is_ok());
+            let abort_result = result.unwrap();
+            // Result contains the info from the restack state
+            assert_eq!(abort_result.target_branch, "feature");
+            assert!(abort_result.branches_rebased.is_empty()); // Aborted, nothing rebased
+        }
+
+        #[test]
+        fn test_continue_with_stale_state() {
+            let git = MockGitOps::new()
+                .with_branch("main", Oid::zero())
+                .with_branch("feature/a", Oid::zero());
+            // Note: is_rebasing is false but restack_in_progress is true
+
+            // Create a restack state with a non-empty current_branch
+            // This triggers the stale state detection when is_rebasing() is false
+            let restack_state = RestackState::new(
+                "backup-123".to_string(),
+                "feature/a".to_string(),
+                "develop".to_string(),
+                Some("main".to_string()),
+                "feature/a".to_string(),
+                vec!["feature/a".to_string()], // current_branch will be "feature/a"
+                vec![],
+            );
+
+            let state = MockStateStore::new().with_restack_state(restack_state);
+            *state.restack_in_progress.borrow_mut() = true;
+
+            let service = RestackService::new(&git);
+            let result = service.continue_restack(&state);
+
+            // Should error due to stale state (no rebase in progress but state says there is)
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(
+                err_msg.contains("process may have crashed")
+                    || err_msg.contains("no rebase in progress")
+            );
+        }
+
+        #[test]
+        fn test_restack_error_from_core_error() {
+            let core_err = rung_core::Error::NotInitialized;
+            let restack_err: RestackError = core_err.into();
+            match restack_err {
+                RestackError::Other(e) => {
+                    assert!(e.to_string().contains("not initialized"));
+                }
+                RestackError::Conflict { .. } => panic!("Expected Other variant"),
+            }
+        }
+
+        #[test]
+        fn test_restack_error_from_git_error() {
+            let git_err = rung_git::Error::BranchNotFound("test".to_string());
+            let restack_err: RestackError = git_err.into();
+            match restack_err {
+                RestackError::Other(e) => {
+                    assert!(e.to_string().contains("test"));
+                }
+                RestackError::Conflict { .. } => panic!("Expected Other variant"),
+            }
+        }
+
+        #[test]
+        fn test_restack_error_conflict_display() {
+            let err = RestackError::Conflict {
+                branch: "feature/test".to_string(),
+                files: vec!["file1.rs".to_string(), "file2.rs".to_string()],
+            };
+            let display = err.to_string();
+            assert!(display.contains("feature/test"));
+            assert!(display.contains("Rebase conflict"));
+        }
+
+        #[test]
+        fn test_execute_needs_rebase_creates_backup() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("develop", oid)
+                .with_branch("feature/a", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let plan = RestackPlan {
+                target_branch: "feature/a".to_string(),
+                new_parent: "develop".to_string(),
+                old_parent: Some("main".to_string()),
+                branches_to_rebase: vec!["feature/a".to_string()],
+                needs_rebase: true,
+                diverged: vec![],
+            };
+
+            let result = service.execute(&state, &plan, "feature/a").unwrap();
+
+            // Backup should be created
+            assert!(!result.backup_id.is_empty());
+            // Restack state should be saved
+            assert!(state.is_restack_in_progress());
+        }
+
+        #[test]
+        fn test_execute_with_diverged_branches() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("develop", oid)
+                .with_branch("feature/a", oid);
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+
+            let state = MockStateStore::new().with_stack(stack);
+
+            let service = RestackService::new(&git);
+            let plan = RestackPlan {
+                target_branch: "feature/a".to_string(),
+                new_parent: "develop".to_string(),
+                old_parent: Some("main".to_string()),
+                branches_to_rebase: vec!["feature/a".to_string()],
+                needs_rebase: true,
+                diverged: vec![DivergenceInfo {
+                    branch: "feature/a".to_string(),
+                    ahead: 2,
+                    behind: 3,
+                }],
+            };
+
+            let result = service.execute(&state, &plan, "feature/a").unwrap();
+
+            // Diverged branches should be recorded in state
+            assert_eq!(result.diverged_branches.len(), 1);
+            assert_eq!(result.diverged_branches[0].branch, "feature/a");
+        }
     }
 }

@@ -191,6 +191,12 @@ impl GitOps for MockGitOps {
     }
 
     fn rebase_onto(&self, _target: Oid) -> GitResult<()> {
+        if *self.rebase_should_fail.borrow() {
+            *self.is_rebasing.borrow_mut() = true;
+            return Err(rung_git::Error::RebaseConflict(vec![
+                "conflict.rs".to_string(),
+            ]));
+        }
         Ok(())
     }
 
@@ -278,6 +284,7 @@ pub struct MockStateStore {
     pub rung_dir: PathBuf,
     pub sync_in_progress: RefCell<bool>,
     pub restack_in_progress: RefCell<bool>,
+    pub restack_state: RefCell<Option<RestackState>>,
 }
 
 impl Default for MockStateStore {
@@ -296,11 +303,18 @@ impl MockStateStore {
             rung_dir: std::env::temp_dir().join("mock-rung"),
             sync_in_progress: RefCell::new(false),
             restack_in_progress: RefCell::new(false),
+            restack_state: RefCell::new(None),
         }
     }
 
     pub fn with_stack(self, stack: Stack) -> Self {
         *self.stack.borrow_mut() = stack;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_restack_state(self, state: RestackState) -> Self {
+        *self.restack_state.borrow_mut() = Some(state);
         self
     }
 }
@@ -364,7 +378,10 @@ impl StateStore for MockStateStore {
     }
 
     fn load_restack_state(&self) -> CoreResult<RestackState> {
-        // Return a default restack state for testing
+        // Return custom state if set, otherwise return a default
+        if let Some(state) = self.restack_state.borrow().as_ref() {
+            return Ok(state.clone());
+        }
         Ok(RestackState::new(
             "test-backup".to_string(),
             "feature".to_string(),
