@@ -215,23 +215,31 @@ fn run_sync_phases(
     no_push: bool,
     github_auth_unavailable: bool,
 ) -> Result<()> {
+    // Create SyncService once if GitHub is available
+    let service = match (client, github_info) {
+        (Some(client), Some((owner, repo_name))) => Some(SyncService::new(
+            repo,
+            client,
+            owner.clone(),
+            repo_name.clone(),
+        )),
+        _ => None,
+    };
+
     // Phase 1: Detect merged PRs (if GitHub available)
-    let reconcile_result = match (client, github_info) {
-        (Some(client), Some((owner, repo_name))) => {
-            if !json {
-                output::info("Checking PRs and validating bases...");
-            }
-            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
-            let result = rt.block_on(service.detect_and_reconcile_merged(state, base_branch))?;
-            print_reconcile_results(&result, json);
-            result
+    let reconcile_result = if let Some(service) = &service {
+        if !json {
+            output::info("Checking PRs and validating bases...");
         }
-        _ => ReconcileResult::default(),
+        let result = rt.block_on(service.detect_and_reconcile_merged(state, base_branch))?;
+        print_reconcile_results(&result, json);
+        result
+    } else {
+        ReconcileResult::default()
     };
 
     // Phase 2: Remove stale branches (via service if available, else direct)
-    let stale_result = if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
-        let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+    let stale_result = if let Some(service) = &service {
         service.remove_stale_branches(state)?
     } else {
         sync::remove_stale_branches(repo, state)?
@@ -266,8 +274,7 @@ fn run_sync_phases(
     }
 
     // Phase 3: Create and execute sync plan (via service if available)
-    let plan = if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
-        let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+    let plan = if let Some(service) = &service {
         service.create_sync_plan(&stack, base_branch)?
     } else {
         sync::create_sync_plan(repo, &stack, base_branch)?
@@ -284,8 +291,7 @@ fn run_sync_phases(
         if !json {
             output::info(&format!("Syncing {} branches...", plan.branches.len()));
         }
-        if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
-            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+        if let Some(service) = &service {
             service.execute_sync(state, plan)?
         } else {
             sync::execute_sync(repo, state, plan)?
@@ -298,21 +304,19 @@ fn run_sync_phases(
     }
 
     // Phase 4: Update GitHub PR bases
-    if let (Some(client), Some((owner, repo_name))) = (client, github_info)
+    if let Some(service) = &service
         && (!reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty())
     {
         if !json {
             output::info("Updating PR base branches on GitHub...");
         }
-        let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
         rt.block_on(service.update_pr_bases(&reconcile_result))?;
         print_pr_updates(&reconcile_result, json);
     }
 
     // Phase 5: Push all branches
     if !no_push {
-        if let (Some(client), Some((owner, repo_name))) = (client, github_info) {
-            let service = SyncService::new(repo, client, owner.clone(), repo_name.clone());
+        if let Some(service) = &service {
             let push_results = service.push_stack_branches(state)?;
             if !json {
                 let pushed = push_results.iter().filter(|p| p.success).count();
