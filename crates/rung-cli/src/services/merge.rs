@@ -193,10 +193,16 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
             .mark_merged(current_branch)
             .ok_or_else(|| anyhow::anyhow!("Branch '{current_branch}' missing from stack"))?;
 
-        // Clear merged history when entire stack is done
+        // Persist the merged branch immediately to avoid data loss if later operations fail
+        state.save_stack(&stack)?;
+
+        // Clear merged history when entire stack is done (only after save succeeds)
         stack.clear_merged_if_empty();
 
-        state.save_stack(&stack)?;
+        // Save again if we cleared the merged history
+        if stack.merged.is_empty() {
+            state.save_stack(&stack)?;
+        }
 
         Ok(children_count)
     }

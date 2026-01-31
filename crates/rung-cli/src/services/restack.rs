@@ -309,19 +309,27 @@ impl<'a, G: GitOps> RestackService<'a, G> {
         original_branch: &str,
         mut restack_state: RestackState,
     ) -> Result<RestackResult, RestackError> {
-        // Update stack topology
+        // Update stack topology with transaction-like semantics:
+        // 1. Modify in-memory, 2. Persist stack, 3. Mark updated, 4. Clear state
         if !restack_state.stack_updated {
             let mut stack = state.load_stack()?;
             stack.reparent(
                 &restack_state.target_branch,
                 Some(&restack_state.new_parent),
             )?;
+
+            // Persist stack first - if this fails, restack state remains for recovery
             state.save_stack(&stack)?;
+
+            // Only mark as updated after stack is persisted
             restack_state.mark_stack_updated();
+
+            // Save restack state to record that stack was updated
+            // If this fails, stack is saved but we may retry reparent (which is idempotent)
             state.save_restack_state(&restack_state)?;
         }
 
-        // Clear restack state
+        // Only clear restack state after all updates are successfully persisted
         state.clear_restack_state()?;
 
         // Restore original branch
