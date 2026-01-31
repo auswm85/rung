@@ -7,7 +7,7 @@
 [![Crates.io](https://img.shields.io/crates/v/rung-cli.svg)](https://crates.io/crates/rung-cli)
 [![CI](https://github.com/auswm85/rung/actions/workflows/ci.yml/badge.svg)](https://github.com/auswm85/rung/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![MSRV](https://img.shields.io/badge/MSRV-1.85-orange.svg)](https://www.rust-lang.org)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-orange.svg)](https://www.rust-lang.org)
 
 A Git workflow tool for managing stacked PRs (pull request chains).
 

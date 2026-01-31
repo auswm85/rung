@@ -1167,5 +1167,153 @@ mod tests {
                 SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
             // Service is created successfully
         }
+
+        #[tokio::test]
+        async fn test_execute_create_pr() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid)
+                .with_push_result("feature/a", true);
+            let github = MockGitHubClient::new();
+
+            let service =
+                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+
+            let plan = SubmitPlan {
+                actions: vec![PlannedBranchAction::Create {
+                    branch: "feature/a".to_string(),
+                    title: "Feature A".to_string(),
+                    body: "Description".to_string(),
+                    base: "main".to_string(),
+                    draft: false,
+                }],
+            };
+
+            let results = service.execute(&mut stack, &plan, false).await.unwrap();
+
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].branch, "feature/a");
+            assert_eq!(results[0].pr_number, 100); // MockGitHubClient returns 100
+            assert!(matches!(results[0].action, SubmitAction::Created));
+
+            // Check that PR number was persisted to stack
+            assert_eq!(stack.branches[0].pr, Some(100));
+        }
+
+        #[tokio::test]
+        async fn test_execute_update_pr() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid)
+                .with_push_result("feature/a", true);
+            let github = MockGitHubClient::new();
+
+            let service =
+                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut stack = Stack::default();
+            let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
+            branch.pr = Some(42);
+            stack.add_branch(branch);
+
+            let plan = SubmitPlan {
+                actions: vec![PlannedBranchAction::Update {
+                    branch: "feature/a".to_string(),
+                    pr_number: 42,
+                    pr_url: "https://github.com/owner/repo/pull/42".to_string(),
+                    base: "main".to_string(),
+                }],
+            };
+
+            let results = service.execute(&mut stack, &plan, false).await.unwrap();
+
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].branch, "feature/a");
+            assert_eq!(results[0].pr_number, 42);
+            assert!(matches!(results[0].action, SubmitAction::Updated));
+        }
+
+        #[tokio::test]
+        async fn test_execute_multiple_actions() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid)
+                .with_branch("feature/b", oid)
+                .with_push_result("feature/a", true)
+                .with_push_result("feature/b", true);
+            let github = MockGitHubClient::new();
+
+            let service =
+                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut stack = Stack::default();
+            let mut branch_a = StackBranch::try_new("feature/a", None::<&str>).unwrap();
+            branch_a.pr = Some(10);
+            stack.add_branch(branch_a);
+            stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+
+            let plan = SubmitPlan {
+                actions: vec![
+                    PlannedBranchAction::Update {
+                        branch: "feature/a".to_string(),
+                        pr_number: 10,
+                        pr_url: "https://github.com/owner/repo/pull/10".to_string(),
+                        base: "main".to_string(),
+                    },
+                    PlannedBranchAction::Create {
+                        branch: "feature/b".to_string(),
+                        title: "Feature B".to_string(),
+                        body: "Description".to_string(),
+                        base: "feature/a".to_string(),
+                        draft: true,
+                    },
+                ],
+            };
+
+            let results = service.execute(&mut stack, &plan, false).await.unwrap();
+
+            assert_eq!(results.len(), 2);
+            assert!(matches!(results[0].action, SubmitAction::Updated));
+            assert!(matches!(results[1].action, SubmitAction::Created));
+
+            // Check PR number persisted for newly created PR
+            assert_eq!(stack.branches[1].pr, Some(100));
+        }
+
+        #[tokio::test]
+        async fn test_execute_with_force_push() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid)
+                .with_push_result("feature/a", true);
+            let github = MockGitHubClient::new();
+
+            let service =
+                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let mut stack = Stack::default();
+            stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
+
+            let plan = SubmitPlan {
+                actions: vec![PlannedBranchAction::Create {
+                    branch: "feature/a".to_string(),
+                    title: "Feature A".to_string(),
+                    body: String::new(),
+                    base: "main".to_string(),
+                    draft: false,
+                }],
+            };
+
+            // Execute with force=true
+            let results = service.execute(&mut stack, &plan, true).await.unwrap();
+            assert_eq!(results.len(), 1);
+        }
     }
 }
