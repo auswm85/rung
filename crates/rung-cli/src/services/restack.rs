@@ -1066,7 +1066,18 @@ mod tests {
                 .with_branch("feature/a", oid)
                 .with_current_branch("feature/a");
 
-            let state = MockStateStore::new();
+            // Explicitly set the restack state so the test is deterministic
+            let restack_state = RestackState::new(
+                "backup-123".to_string(),
+                "feature".to_string(), // target_branch
+                "develop".to_string(),
+                Some("main".to_string()),
+                "feature".to_string(),
+                vec![], // No branches to rebase
+                vec![],
+            );
+
+            let state = MockStateStore::new().with_restack_state(restack_state);
             *state.restack_in_progress.borrow_mut() = true;
 
             let service = RestackService::new(&git);

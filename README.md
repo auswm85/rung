@@ -434,7 +434,7 @@ Rung stores its state in `.git/rung/`:
 
 ## Requirements
 
-- Rust 1.85+
+- Rust 1.88+
 - Git 2.x
 - GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
 

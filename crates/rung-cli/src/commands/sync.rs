@@ -173,7 +173,10 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
         push_stack_branches(repo, state, json)?;
     }
 
-    handle_sync_result(result, json, false)
+    // Check GitHub auth availability for accurate JSON output
+    let github_auth_unavailable = GitHubClient::new(&Auth::auto()).is_err();
+
+    handle_sync_result(result, json, github_auth_unavailable)
 }
 
 /// Determine base branch from --base flag or GitHub API.
