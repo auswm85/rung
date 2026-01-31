@@ -34,6 +34,11 @@ reviews:
   finishing_touches:
     docstrings:
       enabled: false
+    unit_tests:
+      enabled: false
+  in_progress_fortune: false
+  estimate_code_review_effort: false
+  suggested_labels: false
 chat:
   auto_reply: true
 knowledge_base:
