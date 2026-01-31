@@ -23,6 +23,7 @@ pub struct MockGitOps {
     pub is_rebasing: RefCell<bool>,
     pub push_results: RefCell<HashMap<String, bool>>,
     pub has_staged_changes: RefCell<bool>,
+    pub rebase_should_fail: RefCell<bool>,
 }
 
 impl Default for MockGitOps {
@@ -42,6 +43,7 @@ impl MockGitOps {
             is_rebasing: RefCell::new(false),
             push_results: RefCell::new(HashMap::new()),
             has_staged_changes: RefCell::new(false),
+            rebase_should_fail: RefCell::new(false),
         }
     }
 
@@ -75,6 +77,12 @@ impl MockGitOps {
         self.push_results
             .borrow_mut()
             .insert(branch.to_string(), success);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_rebase_failure(self) -> Self {
+        *self.rebase_should_fail.borrow_mut() = true;
         self
     }
 }
@@ -187,6 +195,12 @@ impl GitOps for MockGitOps {
     }
 
     fn rebase_onto_from(&self, _onto: Oid, _from: Oid) -> GitResult<()> {
+        if *self.rebase_should_fail.borrow() {
+            *self.is_rebasing.borrow_mut() = true;
+            return Err(rung_git::Error::RebaseConflict(vec![
+                "conflict.rs".to_string(),
+            ]));
+        }
         Ok(())
     }
 
