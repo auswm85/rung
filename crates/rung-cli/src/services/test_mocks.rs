@@ -211,7 +211,11 @@ impl GitOps for MockGitOps {
     }
 
     fn conflicting_files(&self) -> GitResult<Vec<String>> {
-        Ok(vec![])
+        if *self.rebase_should_fail.borrow() {
+            Ok(vec!["conflict.rs".to_string()])
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn rebase_abort(&self) -> GitResult<()> {
