@@ -599,6 +599,74 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_descendant_result_with_abort_error() {
+        // Test error message format when both rebase and abort fail
+        let result = DescendantResult {
+            branch: "failed".to_string(),
+            rebased: false,
+            pr_updated: false,
+            error: Some(
+                "Rebase conflict: merge conflict. Additionally, failed to abort rebase: abort error"
+                    .to_string(),
+            ),
+        };
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("Rebase conflict"))
+        );
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("Additionally"))
+        );
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("abort error"))
+        );
+    }
+
+    #[test]
+    fn test_descendant_result_push_failed() {
+        let result = DescendantResult {
+            branch: "push-failed".to_string(),
+            rebased: true, // Rebase succeeded
+            pr_updated: false,
+            error: Some("Push failed: authentication error".to_string()),
+        };
+        assert!(result.rebased);
+        assert!(!result.pr_updated);
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("Push failed"))
+        );
+    }
+
+    #[test]
+    fn test_descendant_result_skipped_ancestor() {
+        let result = DescendantResult {
+            branch: "skipped".to_string(),
+            rebased: false,
+            pr_updated: false,
+            error: Some("Skipped: ancestor 'parent' failed to rebase".to_string()),
+        };
+        assert!(!result.rebased);
+        assert!(result.error.as_ref().is_some_and(|e| e.contains("Skipped")));
+        assert!(
+            result
+                .error
+                .as_ref()
+                .is_some_and(|e| e.contains("ancestor"))
+        );
+    }
+
     // Mock-based tests for MergeService methods
     #[allow(clippy::manual_async_fn, clippy::unwrap_used, clippy::expect_used)]
     mod mock_tests {
@@ -613,6 +681,7 @@ mod tests {
             pr_mergeable: Option<bool>,
             merge_should_fail: bool,
             delete_should_fail: bool,
+            update_pr_should_fail: bool,
             update_pr_called: AtomicBool,
         }
 
@@ -622,6 +691,7 @@ mod tests {
                     pr_mergeable: Some(true),
                     merge_should_fail: false,
                     delete_should_fail: false,
+                    update_pr_should_fail: false,
                     update_pr_called: AtomicBool::new(false),
                 }
             }
@@ -643,6 +713,11 @@ mod tests {
 
             fn with_delete_failure(mut self) -> Self {
                 self.delete_should_fail = true;
+                self
+            }
+
+            fn with_update_pr_failure(mut self) -> Self {
+                self.update_pr_should_fail = true;
                 self
             }
         }
@@ -719,7 +794,14 @@ mod tests {
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
                 self.update_pr_called.store(true, Ordering::SeqCst);
+                let should_fail = self.update_pr_should_fail;
                 async move {
+                    if should_fail {
+                        return Err(rung_github::Error::ApiError {
+                            status: 422,
+                            message: "Validation failed".to_string(),
+                        });
+                    }
                     Ok(rung_github::PullRequest {
                         number,
                         title: "Updated".to_string(),
@@ -1056,6 +1138,40 @@ mod tests {
 
             // Verify update_pr was called
             assert!(github.update_pr_called.load(Ordering::SeqCst));
+        }
+
+        #[tokio::test]
+        async fn test_rollback_pr_bases_with_failures() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new().with_update_pr_failure();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            let shifted_prs = vec![
+                (20, "feature/parent".to_string()),
+                (30, "feature/other".to_string()),
+            ];
+
+            // Rollback should return failures
+            let failures = service.rollback_pr_bases(&shifted_prs).await;
+            assert_eq!(failures.len(), 2);
+            assert_eq!(failures[0].0, 20);
+            assert!(failures[0].1.contains("Validation failed"));
+            assert_eq!(failures[1].0, 30);
+        }
+
+        #[tokio::test]
+        async fn test_rollback_pr_bases_empty() {
+            let oid = Oid::zero();
+            let git = MockGitOps::new().with_branch("main", oid);
+            let github = MockGitHubClient::new();
+
+            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+
+            // Empty list should return no failures
+            let failures = service.rollback_pr_bases(&[]).await;
+            assert!(failures.is_empty());
         }
     }
 }
