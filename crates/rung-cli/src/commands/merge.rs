@@ -119,7 +119,9 @@ fn cleanup_after_merge(
         output::info(&format!("Deleted local branch '{current_branch}'"));
     }
 
-    if let Err(e) = repo.pull_ff()
+    // Only pull if checkout succeeded, otherwise we'd pull on the wrong branch
+    if checked_out.is_some()
+        && let Err(e) = repo.pull_ff()
         && !json
     {
         output::warn(&format!("Could not pull latest {parent_branch}: {e}"));

@@ -271,6 +271,9 @@ impl GitOps for MockGitOps {
         self.branches
             .borrow_mut()
             .insert(branch.to_string(), commit);
+        self.branch_exists_map
+            .borrow_mut()
+            .insert(branch.to_string(), true);
         Ok(())
     }
 }
@@ -393,7 +396,8 @@ impl StateStore for MockStateStore {
         ))
     }
 
-    fn save_restack_state(&self, _state: &RestackState) -> CoreResult<()> {
+    fn save_restack_state(&self, state: &RestackState) -> CoreResult<()> {
+        *self.restack_state.borrow_mut() = Some(state.clone());
         *self.restack_in_progress.borrow_mut() = true;
         Ok(())
     }
