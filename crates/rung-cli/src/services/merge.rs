@@ -85,6 +85,7 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
     /// Shift child PR bases to parent before merge.
     ///
     /// Returns the list of PRs that were shifted (for potential rollback).
+    /// If an update fails mid-loop, attempts best-effort rollback of already-shifted PRs.
     pub async fn shift_child_pr_bases(
         &self,
         stack: &Stack,
@@ -113,10 +114,19 @@ impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
                     body: None,
                     base: Some(parent_branch.to_string()),
                 };
-                self.client
+                if let Err(e) = self
+                    .client
                     .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
                     .await
-                    .with_context(|| format!("Failed to update PR #{child_pr_num} base"))?;
+                {
+                    // Best-effort rollback of already-shifted PRs
+                    let rollback_failures = self.rollback_pr_bases(&shifted_prs).await;
+                    for (pr_num, err_msg) in rollback_failures {
+                        eprintln!("Warning: failed to rollback PR #{pr_num}: {err_msg}");
+                    }
+                    return Err(e)
+                        .with_context(|| format!("Failed to update PR #{child_pr_num} base"));
+                }
 
                 shifted_prs.push((child_pr_num, current_branch.to_string()));
             }
