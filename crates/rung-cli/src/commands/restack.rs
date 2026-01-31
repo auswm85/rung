@@ -302,7 +302,7 @@ fn check_divergence(
             diverged_branches: diverged_output,
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
-        return Err(anyhow::anyhow!("divergence_detected").context(""));
+        return Err(anyhow::anyhow!("divergence_detected"));
     }
 
     for info in &plan.diverged {

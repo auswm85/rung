@@ -320,6 +320,7 @@ impl MockStateStore {
     #[allow(dead_code)]
     pub fn with_restack_state(self, state: RestackState) -> Self {
         *self.restack_state.borrow_mut() = Some(state);
+        *self.restack_in_progress.borrow_mut() = true;
         self
     }
 }
