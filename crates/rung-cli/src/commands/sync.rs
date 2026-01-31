@@ -30,6 +30,8 @@ struct SyncOutput {
     conflict_branch: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     conflict_files: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    github_auth_unavailable: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -105,9 +107,11 @@ pub fn run(
     }
 
     // Create GitHub client (if available)
+    let mut github_auth_unavailable = false;
     let client = github_info.as_ref().and_then(|_| {
         GitHubClient::new(&Auth::auto())
             .map_err(|_| {
+                github_auth_unavailable = true;
                 if !json {
                     output::warn("GitHub auth unavailable - skipping merge detection");
                 }
@@ -128,6 +132,7 @@ pub fn run(
         json,
         dry_run,
         no_push,
+        github_auth_unavailable,
     )
 }
 
@@ -144,6 +149,7 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
             backup_id: None,
             conflict_branch: None,
             conflict_files: vec![],
+            github_auth_unavailable: false,
         });
     }
     output::success("Sync aborted - branches restored from backup");
@@ -167,7 +173,7 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
         push_stack_branches(repo, state, json)?;
     }
 
-    handle_sync_result(result, json)
+    handle_sync_result(result, json, false)
 }
 
 /// Determine base branch from --base flag or GitHub API.
@@ -193,7 +199,7 @@ fn determine_base_branch(
 }
 
 /// Run the main sync phases.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 fn run_sync_phases(
     repo: &Repository,
     state: &State,
@@ -204,6 +210,7 @@ fn run_sync_phases(
     json: bool,
     dry_run: bool,
     no_push: bool,
+    github_auth_unavailable: bool,
 ) -> Result<()> {
     // Phase 1: Detect merged PRs (if GitHub available)
     let reconcile_result = match (client, github_info) {
@@ -248,6 +255,7 @@ fn run_sync_phases(
                 backup_id: None,
                 conflict_branch: None,
                 conflict_files: vec![],
+                github_auth_unavailable,
             });
         }
         output::info("No branches in stack - nothing to sync");
@@ -283,7 +291,7 @@ fn run_sync_phases(
 
     // If paused on conflict, don't proceed
     if let SyncResult::Paused { .. } = &sync_result {
-        return handle_sync_result(sync_result, json);
+        return handle_sync_result(sync_result, json, github_auth_unavailable);
     }
 
     // Phase 4: Update GitHub PR bases
@@ -317,7 +325,7 @@ fn run_sync_phases(
         }
     }
 
-    handle_sync_result(sync_result, json)
+    handle_sync_result(sync_result, json, github_auth_unavailable)
 }
 
 /// Print reconcile results.
@@ -360,11 +368,9 @@ fn print_dry_run(plan: &rung_core::sync::SyncPlan, reconcile_result: &ReconcileR
     if !plan.is_empty() {
         println!("  Branches to rebase:");
         for action in &plan.branches {
-            println!(
-                "    → {} (onto {})",
-                action.branch,
-                &action.new_base[..8.min(action.new_base.len())]
-            );
+            // Use char-safe truncation to avoid UTF-8 boundary panic
+            let base_short: String = action.new_base.chars().take(8).collect();
+            println!("    → {} (onto {base_short})", action.branch);
         }
     }
 }
@@ -422,7 +428,7 @@ fn push_stack_branches(repo: &Repository, state: &State, json: bool) -> Result<(
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn handle_sync_result(result: SyncResult, json: bool) -> Result<()> {
+fn handle_sync_result(result: SyncResult, json: bool, github_auth_unavailable: bool) -> Result<()> {
     match result {
         SyncResult::AlreadySynced => {
             if json {
@@ -432,6 +438,7 @@ fn handle_sync_result(result: SyncResult, json: bool) -> Result<()> {
                     backup_id: None,
                     conflict_branch: None,
                     conflict_files: vec![],
+                    github_auth_unavailable,
                 });
             }
             output::success("Stack is already up-to-date");
@@ -447,11 +454,13 @@ fn handle_sync_result(result: SyncResult, json: bool) -> Result<()> {
                     backup_id: Some(backup_id),
                     conflict_branch: None,
                     conflict_files: vec![],
+                    github_auth_unavailable,
                 });
             }
+            // Use char-safe truncation for backup_id display
+            let backup_short: String = backup_id.chars().take(8).collect();
             output::success(&format!(
-                "Synced {branches_rebased} branches (backup: {})",
-                &backup_id[..8.min(backup_id.len())]
+                "Synced {branches_rebased} branches (backup: {backup_short})"
             ));
         }
         SyncResult::Paused {
@@ -466,6 +475,7 @@ fn handle_sync_result(result: SyncResult, json: bool) -> Result<()> {
                     backup_id: Some(backup_id),
                     conflict_branch: Some(at_branch),
                     conflict_files,
+                    github_auth_unavailable,
                 });
             }
             output::warn(&format!("Conflict in branch '{at_branch}'"));
