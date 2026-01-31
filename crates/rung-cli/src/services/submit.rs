@@ -420,6 +420,37 @@ fn generate_title(branch_name: &str) -> String {
         .join(" ")
 }
 
+/// Find the base branch for a stack (the first parent not in active branches).
+///
+/// Traverses parent links with cycle detection until finding a branch
+/// that isn't in the active stack branches.
+fn find_stack_base<'a>(stack: &'a Stack, branch_name: &str, default_branch: &'a str) -> &'a str {
+    let branches = &stack.branches;
+    let Some(start) = branches.iter().find(|b| b.name == branch_name) else {
+        return default_branch;
+    };
+
+    let mut current = start;
+    let mut visited = HashSet::new();
+
+    loop {
+        // Cycle detection: if we've seen this branch, stop
+        if !visited.insert(current.name.as_str()) {
+            return default_branch;
+        }
+        if let Some(ref parent) = current.parent {
+            if let Some(p) = branches.iter().find(|br| &br.name == parent) {
+                current = p;
+            } else {
+                // Parent not in active branches (may be merged or base branch)
+                return parent.as_str();
+            }
+        } else {
+            return default_branch;
+        }
+    }
+}
+
 /// Generate stack comment for a PR.
 fn generate_stack_comment(stack: &Stack, current_pr: u64, default_branch: &str) -> String {
     let mut comment = String::from(STACK_COMMENT_MARKER);
@@ -446,29 +477,7 @@ fn generate_stack_comment(stack: &Stack, current_pr: u64, default_branch: &str) 
         }
     }
 
-    let base = current_branch
-        .and_then(|b| {
-            let mut current = b;
-            let mut visited = HashSet::new();
-            loop {
-                // Cycle detection: if we've seen this branch, stop
-                if !visited.insert(current.name.as_str()) {
-                    return Some(default_branch);
-                }
-                if let Some(ref parent) = current.parent {
-                    if let Some(p) = branches.iter().find(|br| &br.name == parent) {
-                        current = p;
-                    } else {
-                        // Parent not in active branches (may be merged or base branch)
-                        return Some(parent.as_str());
-                    }
-                } else {
-                    return Some(default_branch);
-                }
-            }
-        })
-        .unwrap_or(default_branch);
-
+    let base = find_stack_base(stack, current_name, default_branch);
     let _ = writeln!(comment, "* `{base}`");
     comment.push_str("\n---\n*Managed by [rung](https://github.com/auswm85/rung)*");
 

@@ -20,11 +20,11 @@ pub mod test_mocks;
 pub use absorb::AbsorbService;
 pub use adopt::AdoptService;
 pub use create::CreateService;
-pub use doctor::{CheckResult, DoctorService, Issue, Severity};
+pub use doctor::{CheckResult, DiagnosticReport, DoctorService, Issue, Severity};
 pub use log::{CommitInfo, LogResult, LogService};
 pub use merge::MergeService;
 pub use restack::{DivergenceInfo, RestackConfig, RestackError, RestackService};
-pub use status::{BranchStatusInfo, RemoteDivergenceInfo, StackStatus, StatusService};
+pub use status::{BranchStatusInfo, RemoteDivergenceInfo, StatusService};
 pub use submit::{
     BranchSubmitResult, PlannedBranchAction, SubmitAction, SubmitConfig, SubmitPlan, SubmitService,
 };
