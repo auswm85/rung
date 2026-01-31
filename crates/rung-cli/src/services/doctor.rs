@@ -140,9 +140,13 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
     /// Run all diagnostic checks and return a complete report.
     #[allow(dead_code)]
     pub fn run_diagnostics(&self) -> Result<DiagnosticReport> {
-        let github_result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.block_on(self.check_github())
+        let github_result = if tokio::runtime::Handle::try_current().is_ok() {
+            // We're inside an async runtime - use block_in_place to avoid deadlock
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(self.check_github())
+            })
         } else {
+            // No runtime exists - create one
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(self.check_github())
         };

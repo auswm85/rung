@@ -145,20 +145,27 @@ impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
         ghost_parents: &mut Vec<ReparentedBranch>,
     ) {
         for (branch_name, stack_parent, pr_number) in branches_with_prs {
-            if let Ok(pr) = self
+            match self
                 .client
                 .get_pr(&self.owner, &self.repo_name, *pr_number)
                 .await
             {
-                Self::process_pr_result(
-                    &pr,
-                    branch_name,
-                    stack_parent.as_ref(),
-                    *pr_number,
-                    base_branch,
-                    merged_prs,
-                    ghost_parents,
-                );
+                Ok(pr) => {
+                    Self::process_pr_result(
+                        &pr,
+                        branch_name,
+                        stack_parent.as_ref(),
+                        *pr_number,
+                        base_branch,
+                        merged_prs,
+                        ghost_parents,
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Failed to fetch PR #{pr_number} for branch '{branch_name}': {e}"
+                    );
+                }
             }
         }
     }
