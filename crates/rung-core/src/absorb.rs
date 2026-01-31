@@ -247,7 +247,8 @@ pub fn execute_absorb<G: AbsorbOps>(repo: &G, plan: &AbsorbPlan) -> Result<Absor
         let target_descriptions: Vec<String> = by_target
             .iter()
             .map(|(oid, actions)| {
-                let short_sha = &oid.to_string()[..8];
+                let oid_str = oid.to_string();
+                let short_sha = oid_str.get(..8).unwrap_or(&oid_str);
                 let msg = &actions[0].target_message;
                 format!("{short_sha} ({msg})")
             })
