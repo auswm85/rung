@@ -285,15 +285,11 @@ pub enum Commands {
         branch: Option<String>,
 
         /// Show what would be done without making changes.
-        #[arg(long, conflicts_with_all = ["continue", "abort"])]
+        #[arg(long, conflicts_with = "abort")]
         dry_run: bool,
 
-        /// Continue a paused split after resolving conflicts.
-        #[arg(long, name = "continue", conflicts_with_all = ["dry_run", "abort"])]
-        continue_: bool,
-
         /// Abort the current split and restore from backup.
-        #[arg(long, conflicts_with_all = ["dry_run", "continue"])]
+        #[arg(long, conflicts_with = "dry_run")]
         abort: bool,
     },
 }
