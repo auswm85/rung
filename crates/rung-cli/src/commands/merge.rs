@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::commands::utils;
 use crate::output;
-use crate::services::MergeService;
+use crate::services::{MergeService, SubmitService};
 
 /// JSON output for merge command.
 #[derive(Debug, Serialize)]
@@ -242,6 +242,9 @@ async fn execute_merge(
         }
     }
 
+    // Step 4b: Update stack comments on remaining PRs (non-fatal after merge)
+    update_stack_comments_after_merge(repo, state, &client, ctx, json).await;
+
     // Step 5: Rebase descendants (non-fatal after merge)
     // rebase_descendants_after_merge already handles its own error messaging
     // We explicitly match but don't propagate since the merge itself succeeded
@@ -392,6 +395,48 @@ async fn delete_remote_branch(
                 output::warn(&format!("Failed to delete remote branch: {e}"));
             }
         }
+    }
+}
+
+/// Update stack comments on remaining PRs after merge.
+#[allow(clippy::future_not_send)]
+async fn update_stack_comments_after_merge(
+    repo: &Repository,
+    state: &State,
+    client: &GitHubClient,
+    ctx: &MergeContext,
+    json: bool,
+) {
+    // Load the updated stack (with merged branch moved to merged list)
+    let stack = match state.load_stack() {
+        Ok(s) => s,
+        Err(e) => {
+            if !json {
+                output::warn(&format!("Could not load stack for comment update: {e}"));
+            }
+            return;
+        }
+    };
+
+    // Get default branch
+    let default_branch = match state.default_branch() {
+        Ok(b) => b,
+        Err(e) => {
+            if !json {
+                output::warn(&format!("Could not get default branch: {e}"));
+            }
+            return;
+        }
+    };
+
+    let submit_service = SubmitService::new(repo, client, ctx.owner.clone(), ctx.repo_name.clone());
+
+    if let Err(e) = submit_service
+        .update_stack_comments(&stack, &default_branch)
+        .await
+        && !json
+    {
+        output::warn(&format!("Could not update stack comments: {e}"));
     }
 }
 
