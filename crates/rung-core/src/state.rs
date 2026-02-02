@@ -23,6 +23,7 @@ impl State {
     const CONFIG_FILE: &'static str = "config.toml";
     const SYNC_STATE_FILE: &'static str = "sync_state";
     const RESTACK_STATE_FILE: &'static str = "restack_state";
+    const SPLIT_STATE_FILE: &'static str = "split_state";
     const REFS_DIR: &'static str = "refs";
 
     /// Create a new State instance for the given repository.
@@ -230,6 +231,54 @@ impl State {
         Ok(())
     }
 
+    // === Split state operations ===
+
+    fn split_state_path(&self) -> PathBuf {
+        self.rung_dir.join(Self::SPLIT_STATE_FILE)
+    }
+
+    /// Check if a split is in progress.
+    #[must_use]
+    pub fn is_split_in_progress(&self) -> bool {
+        self.split_state_path().exists()
+    }
+
+    /// Load the current split state.
+    ///
+    /// # Errors
+    /// Returns error if no split is in progress or file can't be read.
+    pub fn load_split_state(&self) -> Result<SplitState> {
+        if !self.is_split_in_progress() {
+            return Err(Error::NoBackupFound);
+        }
+
+        let content = fs::read_to_string(self.split_state_path())?;
+        let state: SplitState = serde_json::from_str(&content)?;
+        Ok(state)
+    }
+
+    /// Save split state (called during split operation).
+    ///
+    /// # Errors
+    /// Returns error if serialization or write fails.
+    pub fn save_split_state(&self, state: &SplitState) -> Result<()> {
+        let content = serde_json::to_string_pretty(state)?;
+        fs::write(self.split_state_path(), content)?;
+        Ok(())
+    }
+
+    /// Clear split state (called when split completes or aborts).
+    ///
+    /// # Errors
+    /// Returns error if file removal fails.
+    pub fn clear_split_state(&self) -> Result<()> {
+        let path = self.split_state_path();
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
     // === Backup operations ===
 
     fn refs_dir(&self) -> PathBuf {
@@ -425,6 +474,22 @@ impl StateStore for State {
         Self::clear_restack_state(self)
     }
 
+    fn is_split_in_progress(&self) -> bool {
+        Self::is_split_in_progress(self)
+    }
+
+    fn load_split_state(&self) -> Result<SplitState> {
+        Self::load_split_state(self)
+    }
+
+    fn save_split_state(&self, state: &SplitState) -> Result<()> {
+        Self::save_split_state(self, state)
+    }
+
+    fn clear_split_state(&self) -> Result<()> {
+        Self::clear_split_state(self)
+    }
+
     fn create_backup(&self, branches: &[(&str, &str)]) -> Result<String> {
         Self::create_backup(self, branches)
     }
@@ -590,6 +655,101 @@ impl RestackState {
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.current_branch.is_empty() && self.remaining.is_empty()
+    }
+
+    /// Mark the stack as updated.
+    pub const fn mark_stack_updated(&mut self) {
+        self.stack_updated = true;
+    }
+}
+
+/// A point in the commit history where the branch will be split.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SplitPoint {
+    /// The commit SHA to split at.
+    pub commit_sha: String,
+
+    /// The commit message (for display).
+    pub message: String,
+
+    /// The new branch name for commits up to (and including) this point.
+    pub branch_name: String,
+}
+
+/// State tracked during an in-progress split operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SplitState {
+    /// When the split started.
+    pub started_at: DateTime<Utc>,
+
+    /// Backup ID for this split.
+    pub backup_id: String,
+
+    /// The source branch being split.
+    pub source_branch: String,
+
+    /// The parent branch of the source branch.
+    pub parent_branch: String,
+
+    /// Original branch user was on (to restore after abort).
+    pub original_branch: String,
+
+    /// Split points defining where to split the branch.
+    pub split_points: Vec<SplitPoint>,
+
+    /// Index of the current split point being processed.
+    pub current_index: usize,
+
+    /// Branches that have been successfully created.
+    pub completed: Vec<String>,
+
+    /// Whether the stack.json has been updated.
+    pub stack_updated: bool,
+}
+
+impl SplitState {
+    /// Create a new split state.
+    #[must_use]
+    pub fn new(
+        backup_id: String,
+        source_branch: String,
+        parent_branch: String,
+        original_branch: String,
+        split_points: Vec<SplitPoint>,
+    ) -> Self {
+        Self {
+            started_at: Utc::now(),
+            backup_id,
+            source_branch,
+            parent_branch,
+            original_branch,
+            split_points,
+            current_index: 0,
+            completed: vec![],
+            stack_updated: false,
+        }
+    }
+
+    /// Get the current split point being processed.
+    #[must_use]
+    pub fn current_split_point(&self) -> Option<&SplitPoint> {
+        self.split_points.get(self.current_index)
+    }
+
+    /// Mark current split point as complete and move to next.
+    pub fn advance(&mut self) {
+        if self.current_index >= self.split_points.len() {
+            return;
+        }
+        self.completed
+            .push(self.split_points[self.current_index].branch_name.clone());
+        self.current_index += 1;
+    }
+
+    /// Check if split is complete.
+    #[must_use]
+    pub const fn is_complete(&self) -> bool {
+        self.current_index >= self.split_points.len()
     }
 
     /// Mark the stack as updated.

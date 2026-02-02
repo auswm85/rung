@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::Result;
 use crate::config::Config;
 use crate::stack::Stack;
-use crate::state::{RestackState, SyncState};
+use crate::state::{RestackState, SplitState, SyncState};
 
 /// Trait for state storage operations.
 ///
@@ -78,6 +78,20 @@ pub trait StateStore {
 
     /// Clear restack state (called when restack completes or aborts).
     fn clear_restack_state(&self) -> Result<()>;
+
+    // === Split State Operations ===
+
+    /// Check if a split is in progress.
+    fn is_split_in_progress(&self) -> bool;
+
+    /// Load the current split state.
+    fn load_split_state(&self) -> Result<SplitState>;
+
+    /// Save split state (called during split operation).
+    fn save_split_state(&self, state: &SplitState) -> Result<()>;
+
+    /// Clear split state (called when split completes or aborts).
+    fn clear_split_state(&self) -> Result<()>;
 
     // === Backup Operations ===
 

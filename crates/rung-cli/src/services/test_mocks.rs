@@ -439,4 +439,20 @@ impl StateStore for MockStateStore {
     fn cleanup_backups(&self, _keep: usize) -> CoreResult<()> {
         Ok(())
     }
+
+    fn is_split_in_progress(&self) -> bool {
+        false
+    }
+
+    fn load_split_state(&self) -> CoreResult<rung_core::state::SplitState> {
+        Err(rung_core::Error::NoBackupFound)
+    }
+
+    fn save_split_state(&self, _state: &rung_core::state::SplitState) -> CoreResult<()> {
+        Ok(())
+    }
+
+    fn clear_split_state(&self) -> CoreResult<()> {
+        Ok(())
+    }
 }
