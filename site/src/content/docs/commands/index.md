@@ -27,6 +27,7 @@ These options work with most commands:
 | [`submit`](/commands/submit/)           | `sm`   | Push branches and create/update PRs   |
 | [`merge`](/commands/merge/)             | `m`    | Merge PR and update the stack         |
 | [`restack`](/commands/restack/)         | `re`   | Move branch to different parent       |
+| [`split`](/commands/split/)             | `sp`   | Split branch into multiple branches   |
 | [`nxt`](/commands/navigation/)          | `n`    | Navigate to child branch              |
 | [`prv`](/commands/navigation/)          | `p`    | Navigate to parent branch             |
 | [`move`](/commands/navigation/)         | `mv`   | Interactive branch picker             |
@@ -87,6 +88,15 @@ git add -p                           # Stage changes selectively
 rung absorb --dry-run                # Preview what would be absorbed
 rung absorb                          # Create fixup commits
 git rebase -i --autosquash main      # Apply the fixups
+```
+
+### Splitting Branches
+
+```bash
+rung split                           # Split current branch interactively
+rung split feat/big-change           # Split specific branch
+rung split --dry-run                 # Preview without changes
+rung split --abort                   # Abort and restore
 ```
 
 ### Recovery
