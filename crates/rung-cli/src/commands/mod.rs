@@ -13,6 +13,7 @@ pub mod merge;
 pub mod mv;
 pub mod navigate;
 pub mod restack;
+pub mod split;
 pub mod status;
 pub mod submit;
 pub mod sync;
@@ -272,5 +273,27 @@ pub enum Commands {
         /// Base branch to determine rebaseable range (defaults to auto-detect).
         #[arg(long, short)]
         base: Option<String>,
+    },
+
+    /// Split a branch into multiple stacked branches. [alias: sp]
+    ///
+    /// Interactively select commits to split into separate branches,
+    /// creating a stack of smaller, focused PRs.
+    #[command(alias = "sp")]
+    Split {
+        /// Branch to split. Defaults to the current branch.
+        branch: Option<String>,
+
+        /// Show what would be done without making changes.
+        #[arg(long, conflicts_with_all = ["continue", "abort"])]
+        dry_run: bool,
+
+        /// Continue a paused split after resolving conflicts.
+        #[arg(long, name = "continue", conflicts_with_all = ["dry_run", "abort"])]
+        continue_: bool,
+
+        /// Abort the current split and restore from backup.
+        #[arg(long, conflicts_with_all = ["dry_run", "continue"])]
+        abort: bool,
     },
 }
