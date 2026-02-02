@@ -513,6 +513,18 @@ mod tests {
         fn clear_restack_state(&self) -> crate::Result<()> {
             unimplemented!()
         }
+        fn is_split_in_progress(&self) -> bool {
+            false
+        }
+        fn load_split_state(&self) -> crate::Result<crate::state::SplitState> {
+            Err(crate::Error::NoBackupFound)
+        }
+        fn save_split_state(&self, _state: &crate::state::SplitState) -> crate::Result<()> {
+            Ok(())
+        }
+        fn clear_split_state(&self) -> crate::Result<()> {
+            Ok(())
+        }
         fn create_backup(&self, _branches: &[(&str, &str)]) -> crate::Result<String> {
             unimplemented!()
         }

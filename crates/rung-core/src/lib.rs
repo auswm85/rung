@@ -22,5 +22,5 @@ pub use branch_name::{BranchName, slugify};
 pub use config::Config;
 pub use error::{Error, Result};
 pub use stack::{BranchState, Stack, StackBranch};
-pub use state::{DivergenceRecord, RestackState, State, SyncState};
+pub use state::{DivergenceRecord, RestackState, SplitPoint, SplitState, State, SyncState};
 pub use traits::StateStore;
