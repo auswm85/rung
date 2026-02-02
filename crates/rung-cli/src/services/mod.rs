@@ -10,6 +10,7 @@ pub mod doctor;
 pub mod log;
 pub mod merge;
 pub mod restack;
+pub mod split;
 pub mod status;
 pub mod submit;
 pub mod sync;
@@ -24,6 +25,7 @@ pub use doctor::{CheckResult, DiagnosticReport, DoctorService, Issue, Severity};
 pub use log::{CommitInfo, LogResult, LogService};
 pub use merge::MergeService;
 pub use restack::{DivergenceInfo, RestackConfig, RestackError, RestackService};
+pub use split::SplitService;
 pub use status::{BranchStatusInfo, RemoteDivergenceInfo, StatusService};
 pub use submit::{
     BranchSubmitResult, PlannedBranchAction, SubmitAction, SubmitConfig, SubmitPlan, SubmitService,

@@ -75,6 +75,21 @@ fn main() {
         Commands::Completions { shell } => commands::completions::run(shell),
         Commands::Log => commands::log::run(json),
         Commands::Absorb { dry_run, base } => commands::absorb::run(dry_run, base.as_deref()),
+        Commands::Split {
+            branch,
+            dry_run,
+            continue_,
+            abort,
+        } => {
+            let opts = commands::split::SplitOptions {
+                json,
+                branch: branch.as_deref(),
+                dry_run,
+                continue_,
+                abort,
+            };
+            commands::split::run(&opts)
+        }
     };
 
     if let Err(e) = result {
