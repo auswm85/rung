@@ -93,4 +93,22 @@ mod tests {
         let auth = Auth::Token(SecretString::from("test_token"));
         assert_eq!(auth.resolve().unwrap().expose_secret(), "test_token");
     }
+
+    #[test]
+    fn test_env_var_auth_missing() {
+        // Use a unique var name that's extremely unlikely to exist
+        let auth = Auth::EnvVar("RUNG_TEST_NONEXISTENT_VAR_9a8b7c6d5e4f".into());
+        assert!(auth.resolve().is_err());
+    }
+
+    #[test]
+    fn test_auth_default() {
+        // Default should call auto()
+        let auth = Auth::default();
+        // Just ensure it doesn't panic and returns a valid variant
+        match auth {
+            Auth::GhCli | Auth::EnvVar(_) => {}
+            Auth::Token(_) => panic!("Default should not return Token"),
+        }
+    }
 }

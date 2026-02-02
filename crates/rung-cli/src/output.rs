@@ -130,8 +130,11 @@ pub fn hr() {
 
 #[cfg(test)]
 mod tests {
-    use super::{PrStatus, pr_ref};
+    use serial_test::serial;
+
+    use super::*;
     use colored::Colorize;
+    use rung_core::BranchState;
 
     #[test]
     fn pr_ref_colors_match_status() {
@@ -155,5 +158,77 @@ mod tests {
         assert_eq!(pr_ref(Some(42), None), text.dimmed().to_string());
 
         colored::control::set_override(false);
+    }
+
+    #[test]
+    fn test_state_indicator_synced() {
+        let indicator = state_indicator(&BranchState::Synced);
+        // Contains a bullet point character
+        assert!(!indicator.is_empty());
+    }
+
+    #[test]
+    fn test_state_indicator_diverged() {
+        let indicator = state_indicator(&BranchState::Diverged { commits_behind: 3 });
+        assert!(indicator.contains('3'));
+        assert!(indicator.contains('↓'));
+    }
+
+    #[test]
+    fn test_state_indicator_conflict() {
+        let indicator = state_indicator(&BranchState::Conflict {
+            files: vec!["test.rs".to_string()],
+        });
+        assert!(!indicator.is_empty());
+    }
+
+    #[test]
+    fn test_state_indicator_detached() {
+        let indicator = state_indicator(&BranchState::Detached);
+        assert!(!indicator.is_empty());
+    }
+
+    #[test]
+    fn test_branch_name_current() {
+        let name = branch_name("feature/test", true);
+        assert!(name.contains("feature/test"));
+        assert!(name.contains('▶'));
+    }
+
+    #[test]
+    fn test_branch_name_not_current() {
+        let name = branch_name("feature/test", false);
+        assert!(name.contains("feature/test"));
+        assert!(!name.contains('▶'));
+    }
+
+    #[test]
+    fn test_pr_ref_some() {
+        let pr = pr_ref(Some(123), None);
+        assert!(pr.contains("123"));
+        assert!(pr.contains('#'));
+    }
+
+    #[test]
+    fn test_pr_ref_none() {
+        let pr = pr_ref(None, None);
+        assert!(pr.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_quiet_mode_default() {
+        // Reset to default state
+        set_quiet(false);
+        assert!(!is_quiet());
+    }
+
+    #[test]
+    #[serial]
+    fn test_quiet_mode_enabled() {
+        set_quiet(true);
+        assert!(is_quiet());
+        // Reset
+        set_quiet(false);
     }
 }

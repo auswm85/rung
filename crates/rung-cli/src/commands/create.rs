@@ -1,11 +1,12 @@
 //! `rung create` command - Create a new branch in the stack.
 
 use anyhow::{Context, Result, bail};
-use rung_core::{BranchName, State, slugify, stack::StackBranch};
+use rung_core::{BranchName, State, slugify};
 use rung_git::Repository;
 
 use crate::commands::utils;
 use crate::output;
+use crate::services::CreateService;
 
 /// Run the create command.
 pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<()> {
@@ -20,10 +21,10 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
     let branch_name = BranchName::new(&name).context("Invalid branch name")?;
 
     // Validate message content (even when name is provided explicitly)
-    if let Some(msg) = message {
-        if slugify(msg).is_empty() {
-            bail!("Commit message must contain at least one alphanumeric character");
-        }
+    if let Some(msg) = message
+        && slugify(msg).is_empty()
+    {
+        bail!("Commit message must contain at least one alphanumeric character");
     }
 
     // Open repository
@@ -41,12 +42,15 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
     // Ensure on branch
     utils::ensure_on_branch(&repo)?;
 
+    // Create service
+    let service = CreateService::new(&repo);
+
     // Get current branch (will be parent)
-    let parent_str = repo.current_branch()?;
+    let parent_str = service.current_branch()?;
     let parent = BranchName::new(&parent_str).context("Invalid parent branch name")?;
 
     // Check if branch already exists
-    if repo.branch_exists(&name) {
+    if service.branch_exists(&name) {
         bail!("Branch '{name}' already exists");
     }
 
@@ -56,49 +60,41 @@ pub fn run(name: Option<&str>, message: Option<&str>, dry_run: bool) -> Result<(
         ));
 
         if let Some(msg) = message {
-            if repo.is_clean()? {
+            if service.is_clean()? {
                 output::warn("Working directory is clean - branch would be created without commit");
-            } else {
-                // Real path calls stage_all() which stages all changes, so if not clean we'd commit
+            } else if service.has_staged_changes()? {
                 output::info(&format!("Would create commit with message: {msg}"));
+            } else {
+                output::warn(
+                    "No staged changes - branch would be created without commit (unstaged/untracked files exist)",
+                );
             }
         }
     } else {
-        // Create the branch at current HEAD (parent's tip)
-        repo.create_branch(&name)?;
+        // Create the branch
+        let result = service.create_branch(&state, &branch_name, &parent, message)?;
 
-        // Add to stack
-        let mut stack = state.load_stack()?;
-        let branch = StackBranch::new(branch_name, Some(parent.clone()));
-        stack.add_branch(branch);
-        state.save_stack(&stack)?;
-
-        // Checkout the new branch
-        repo.checkout(&name)?;
-
-        // If message is provided, stage all changes and create a commit on the NEW branch
-        if let Some(msg) = message {
-            // Check for changes before staging to provide clearer feedback
-            if repo.is_clean()? {
+        // Report commit status
+        if message.is_some() {
+            if result.commit_created {
+                if let Some(msg) = &result.commit_message {
+                    output::info(&format!("Created commit: {msg}"));
+                }
+            } else if service.is_clean()? {
                 output::warn("Working directory is clean - branch created without commit");
             } else {
-                repo.stage_all().context("Failed to stage changes")?;
-
-                if repo.has_staged_changes()? {
-                    repo.create_commit(msg).context("Failed to create commit")?;
-                    output::info(&format!("Created commit: {msg}"));
-                } else {
-                    output::warn("No staged changes to commit (untracked files may exist)");
-                }
+                output::warn("No staged changes to commit (untracked files may exist)");
             }
         }
 
-        output::success(&format!("Created branch '{name}' with parent '{parent}'"));
+        output::success(&format!(
+            "Created branch '{}' with parent '{}'",
+            result.branch_name, result.parent_name
+        ));
 
         // Show position in stack
-        let ancestry = stack.ancestry(&name);
-        if ancestry.len() > 1 {
-            output::info(&format!("Stack depth: {}", ancestry.len()));
+        if result.stack_depth > 1 {
+            output::info(&format!("Stack depth: {}", result.stack_depth));
         }
     }
 

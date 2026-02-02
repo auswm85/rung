@@ -7,7 +7,7 @@ version = "0.6.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/auswm85/rung"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 # Internal crates
@@ -53,6 +53,7 @@ indicatif = "0.17"
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
+serial_test = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

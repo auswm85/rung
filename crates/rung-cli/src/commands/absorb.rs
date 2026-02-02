@@ -2,12 +2,13 @@
 
 use anyhow::{Context, Result, bail};
 use rung_core::State;
-use rung_core::absorb::{self, UnmapReason};
+use rung_core::absorb::{AbsorbAction, UnmapReason};
 use rung_git::Repository;
-use rung_github::{Auth, GitHubClient};
+use std::collections::HashMap;
 
 use crate::commands::utils;
 use crate::output;
+use crate::services::AbsorbService;
 
 /// Run the absorb command.
 pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
@@ -26,8 +27,11 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     // Ensure on branch
     utils::ensure_on_branch(&repo)?;
 
+    // Create service
+    let service = AbsorbService::new(&repo);
+
     // Check for staged changes
-    if !repo.has_staged_changes()? {
+    if !service.has_staged_changes()? {
         bail!("No staged changes to absorb. Stage changes with `git add` first.");
     }
 
@@ -35,11 +39,12 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     let base_branch = if let Some(b) = base {
         b.to_string()
     } else {
-        detect_base_branch(&repo)?
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(service.detect_base_branch())?
     };
 
     // Create absorb plan
-    let plan = absorb::create_absorb_plan(&repo, &state, &base_branch)?;
+    let plan = service.create_plan(&state, &base_branch)?;
 
     if plan.actions.is_empty() && plan.unmapped.is_empty() {
         output::info("Staged changes present but no absorbable hunks found");
@@ -77,28 +82,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
 
     // Show what will be absorbed
     output::info(&format!("{} hunk(s) will be absorbed:", plan.actions.len()));
-
-    // Group by target commit for cleaner output
-    let mut by_target: std::collections::HashMap<String, Vec<&absorb::AbsorbAction>> =
-        std::collections::HashMap::new();
-    for action in &plan.actions {
-        let key = action.target_commit.to_string();
-        by_target.entry(key).or_default().push(action);
-    }
-
-    for (commit_sha, actions) in &by_target {
-        let short_sha = &commit_sha[..8.min(commit_sha.len())];
-        let message = &actions[0].target_message;
-        output::detail(&format!(
-            "  {} {} ({} hunk(s))",
-            short_sha,
-            message,
-            actions.len()
-        ));
-        for action in actions {
-            output::detail(&format!("    → {}", action.hunk.file_path));
-        }
-    }
+    print_absorb_plan(&plan.actions);
 
     if dry_run {
         output::info("Dry run - no changes made");
@@ -106,7 +90,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     }
 
     // Execute the absorb
-    let result = absorb::execute_absorb(&repo, &plan)?;
+    let result = service.execute_plan(&plan)?;
 
     output::success(&format!(
         "Created {} fixup commit(s)",
@@ -120,16 +104,30 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Auto-detect the base branch by querying GitHub for the default branch.
-fn detect_base_branch(repo: &Repository) -> Result<String> {
-    let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
-        .context("Could not parse GitHub remote URL")?;
+/// Print the absorb plan grouped by target commit.
+fn print_absorb_plan(actions: &[AbsorbAction]) {
+    let mut by_target: HashMap<String, Vec<&AbsorbAction>> = HashMap::new();
+    for action in actions {
+        let key = action.target_commit.to_string();
+        by_target.entry(key).or_default().push(action);
+    }
 
-    let client = GitHubClient::new(&Auth::auto()).context(
-        "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
-    )?;
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client.get_default_branch(&owner, &repo_name))
-        .context("Could not fetch default branch. Use --base <branch> to specify manually.")
+    // Sort by commit SHA for deterministic output
+    let mut commit_shas: Vec<_> = by_target.keys().collect();
+    commit_shas.sort();
+
+    for commit_sha in commit_shas {
+        let actions = &by_target[commit_sha];
+        let short_sha = &commit_sha[..8.min(commit_sha.len())];
+        let message = &actions[0].target_message;
+        output::detail(&format!(
+            "  {} {} ({} hunk(s))",
+            short_sha,
+            message,
+            actions.len()
+        ));
+        for action in actions {
+            output::detail(&format!("    → {}", action.hunk.file_path));
+        }
+    }
 }

@@ -143,13 +143,13 @@ impl Stack {
 
     /// Check if the stack is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.branches.is_empty()
     }
 
     /// Get the number of branches in the stack.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.branches.len()
     }
 
@@ -181,12 +181,12 @@ impl Stack {
     /// would create a cycle.
     pub fn reparent(&mut self, branch: &str, new_parent: Option<&str>) -> crate::Result<()> {
         // Check for cycle (only if new_parent is in the stack)
-        if let Some(parent) = new_parent {
-            if self.would_create_cycle(branch, parent) {
-                return Err(crate::error::Error::CyclicDependency(format!(
-                    "reparenting '{branch}' to '{parent}' would create a cycle"
-                )));
-            }
+        if let Some(parent) = new_parent
+            && self.would_create_cycle(branch, parent)
+        {
+            return Err(crate::error::Error::CyclicDependency(format!(
+                "reparenting '{branch}' to '{parent}' would create a cycle"
+            )));
         }
 
         // Find and update the branch

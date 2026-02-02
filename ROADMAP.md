@@ -40,7 +40,7 @@ These improvements make Rung more pleasant to use and easier to contribute to:
 - [x] **rung log command** ([#22](https://github.com/auswm85/rung/issues/22)) — Show commits on the current stack branch
 - [x] **Interactive navigation** (`rung move`) — TUI picker to jump to any branch in the stack
 - [x] **NO_COLOR support** ([#20](https://github.com/auswm85/rung/issues/20)) — Respect the `NO_COLOR` environment variable for accessibility and scripting
-- [ ] **Color-coded PR status** ([#76](https://github.com/auswm85/rung/issues/76)) — Visual distinction between open, merged, and draft PRs in `rung status`
+- [x] **Color-coded PR status** ([#76](https://github.com/auswm85/rung/issues/76)) — Visual distinction between open, merged, and draft PRs in `rung status`
 
 ### Security & Safety
 
@@ -50,7 +50,7 @@ These improvements make Rung more pleasant to use and easier to contribute to:
 ### Testing & Reliability
 
 - [x] **Sync conflict integration tests** ([#23](https://github.com/auswm85/rung/issues/23)) — Ensure conflict resolution workflows are well-tested
-- [ ] **Submit command tests** ([#70](https://github.com/auswm85/rung/issues/70)) — Test PR creation and update workflows
+- [x] **Submit command tests** ([#70](https://github.com/auswm85/rung/issues/70)) — Test PR creation and update workflows
 
 ## Next
 
@@ -80,7 +80,7 @@ _Mid-term goals — meaningful features requiring more design work_
 ### Sync Improvements
 
 - [ ] **Parallel sync** — Sync independent branches concurrently for faster operations on wide stacks
-- [ ] **Conflict prediction** — Warn before sync if conflicts are likely based on changed files
+- [ ] **Conflict prediction** ([#112](https://github.com/auswm85/rung/issues/112)) — Warn before sync if conflicts are likely based on changed files
 
 ## Future
 
