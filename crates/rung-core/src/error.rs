@@ -57,6 +57,10 @@ pub enum Error {
     #[error("sync already in progress - run `rung sync --continue` or `rung sync --abort`")]
     SyncInProgress,
 
+    /// Sync operation failed.
+    #[error("sync failed: {0}")]
+    SyncFailed(String),
+
     /// State file parsing error.
     #[error("failed to parse {file}: {message}")]
     StateParseError { file: PathBuf, message: String },
