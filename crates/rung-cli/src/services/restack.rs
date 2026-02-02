@@ -190,6 +190,9 @@ impl<'a, G: GitOps> RestackService<'a, G> {
             stack.reparent(&plan.target_branch, Some(&plan.new_parent))?;
             state.save_stack(&stack)?;
 
+            let diverged_records: Vec<DivergenceRecord> =
+                plan.diverged.iter().map(DivergenceRecord::from).collect();
+
             return Ok(RestackState {
                 started_at: Utc::now(),
                 backup_id: String::new(),
@@ -201,7 +204,7 @@ impl<'a, G: GitOps> RestackService<'a, G> {
                 completed: vec![plan.target_branch.clone()],
                 remaining: VecDeque::new(),
                 stack_updated: true,
-                diverged_branches: vec![],
+                diverged_branches: diverged_records,
             });
         }
 
