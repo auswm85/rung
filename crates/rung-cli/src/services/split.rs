@@ -3,7 +3,8 @@
 //! This service encapsulates the business logic for the split command.
 
 use anyhow::{Context, Result, bail};
-use rung_core::{SplitPoint, SplitState, StateStore};
+use chrono::Utc;
+use rung_core::{SplitPoint, SplitState, StackBranch, StateStore};
 use rung_git::{Oid, Repository};
 use serde::Serialize;
 
@@ -138,28 +139,105 @@ impl<'a> SplitService<'a> {
 
     /// Execute a split operation.
     ///
-    /// # Errors
-    /// Returns error if split fails or conflicts occur.
-    #[allow(dead_code, clippy::unused_self)] // Used in Phase 4
-    pub fn execute<S: StateStore>(&self, _state: &S, _config: &SplitConfig) -> Result<SplitResult> {
-        // TODO: Phase 4 - Split execution engine
-        bail!("Split execution not yet implemented");
-    }
-
-    /// Continue a paused split operation.
+    /// Creates new branches at each split point and updates the stack topology.
     ///
     /// # Errors
-    /// Returns error if no split is in progress or continuation fails.
-    #[allow(clippy::unused_self)] // Will use self.repo in Phase 4
-    pub fn continue_split<S: StateStore>(&self, state: &S) -> Result<SplitResult> {
-        if !state.is_split_in_progress() {
-            bail!("No split in progress");
+    /// Returns error if split fails.
+    pub fn execute<S: StateStore>(&self, state: &S, config: &SplitConfig) -> Result<SplitResult> {
+        // Get current branch for restoration after operation
+        let original_branch = self.repo.current_branch()?;
+
+        // Create backup
+        let source_oid = self.repo.branch_commit(&config.source_branch)?;
+        let backup_id = state.create_backup(&[(&config.source_branch, &source_oid.to_string())])?;
+
+        // Initialize split state for recovery
+        let split_state = SplitState {
+            started_at: Utc::now(),
+            backup_id: backup_id.clone(),
+            source_branch: config.source_branch.clone(),
+            parent_branch: config.parent_branch.clone(),
+            original_branch: original_branch.clone(),
+            split_points: config.split_points.clone(),
+            current_index: 0,
+            completed: vec![],
+            stack_updated: false,
+        };
+        state.save_split_state(&split_state)?;
+
+        // Execute the split
+        match self.execute_split_loop(state, config) {
+            Ok(result) => {
+                // Clean up state on success
+                state.clear_split_state()?;
+                state.delete_backup(&backup_id)?;
+
+                // Return to original branch if possible
+                if self.repo.branch_exists(&original_branch) {
+                    self.repo.checkout(&original_branch)?;
+                }
+
+                Ok(result)
+            }
+            Err(e) => {
+                // On error, state remains for --continue or --abort
+                Err(e)
+            }
+        }
+    }
+
+    /// Execute the split loop, creating branches at each split point.
+    fn execute_split_loop<S: StateStore>(
+        &self,
+        state: &S,
+        config: &SplitConfig,
+    ) -> Result<SplitResult> {
+        let mut stack = state.load_stack()?;
+        let mut created_branches = Vec::new();
+        let mut previous_parent = config.parent_branch.clone();
+
+        for (idx, split_point) in config.split_points.iter().enumerate() {
+            // Create the new branch at the split point commit
+            let commit_oid = Oid::from_str(&split_point.commit_sha)?;
+
+            // Create branch (initially at HEAD, then reset to target)
+            self.repo.create_branch(&split_point.branch_name)?;
+            self.repo
+                .reset_branch(&split_point.branch_name, commit_oid)?;
+
+            // Add to stack with proper parent
+            let stack_branch =
+                StackBranch::try_new(&split_point.branch_name, Some(&previous_parent))?;
+            stack.add_branch(stack_branch);
+            created_branches.push(split_point.branch_name.clone());
+
+            // Update split state progress
+            let mut split_state = state.load_split_state()?;
+            split_state.current_index = idx + 1;
+            split_state.completed.push(split_point.branch_name.clone());
+            state.save_split_state(&split_state)?;
+
+            // Next branch's parent is this branch
+            previous_parent.clone_from(&split_point.branch_name);
         }
 
-        let _split_state = state.load_split_state()?;
+        // Update source branch's parent to be the last created branch
+        if !created_branches.is_empty() {
+            stack.reparent(&config.source_branch, Some(&previous_parent))?;
+        }
 
-        // TODO: Phase 4 - Continue split execution
-        bail!("Split continue not yet implemented");
+        // Save updated stack
+        state.save_stack(&stack)?;
+
+        // Mark stack as updated
+        let mut split_state = state.load_split_state()?;
+        split_state.stack_updated = true;
+        state.save_split_state(&split_state)?;
+
+        Ok(SplitResult {
+            source_branch: config.source_branch.clone(),
+            branches_created: created_branches,
+        })
     }
 
     /// Abort a split operation and restore from backup.

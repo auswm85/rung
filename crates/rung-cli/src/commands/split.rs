@@ -11,12 +11,9 @@ use crate::services::SplitService;
 use crate::services::split::{SplitAnalysis, SplitConfig};
 
 /// Options for the split command.
-#[allow(clippy::struct_excessive_bools)]
 pub struct SplitOptions<'a> {
     /// Show what would be done without making changes.
     pub dry_run: bool,
-    /// Continue a paused split after resolving conflicts.
-    pub continue_: bool,
     /// Abort the current split and restore from backup.
     pub abort: bool,
     /// Output as JSON.
@@ -36,11 +33,6 @@ pub fn run(opts: &SplitOptions<'_>) -> Result<()> {
     }
 
     let service = SplitService::new(&repo);
-
-    // Handle --continue
-    if opts.continue_ {
-        return handle_continue(&service, &state, opts.json);
-    }
 
     // Handle --abort
     if opts.abort {
@@ -116,19 +108,18 @@ pub fn run(opts: &SplitOptions<'_>) -> Result<()> {
         ));
     }
 
-    // TODO: Phase 4 - Split execution engine
-    output::warn("Split execution not yet implemented");
+    // Execute the split
+    let result = service.execute(&state, &split_config)?;
 
-    bail!(
-        "Split not yet implemented for branch '{}' ({} commits)",
-        branch_name,
-        analysis.commits.len()
-    )
-}
+    output::success(&format!(
+        "Split complete: created {} branch(es)",
+        result.branches_created.len()
+    ));
 
-/// Handle --continue flag.
-fn handle_continue(service: &SplitService<'_>, state: &State, _json: bool) -> Result<()> {
-    service.continue_split(state)?;
+    for branch in &result.branches_created {
+        output::detail(&format!("  • {branch}"));
+    }
+
     Ok(())
 }
 

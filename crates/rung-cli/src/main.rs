@@ -78,14 +78,12 @@ fn main() {
         Commands::Split {
             branch,
             dry_run,
-            continue_,
             abort,
         } => {
             let opts = commands::split::SplitOptions {
                 json,
                 branch: branch.as_deref(),
                 dry_run,
-                continue_,
                 abort,
             };
             commands::split::run(&opts)
