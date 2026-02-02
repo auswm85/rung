@@ -108,6 +108,34 @@ impl<'a> SplitService<'a> {
         })
     }
 
+    /// Suggest a branch name based on a commit summary.
+    ///
+    /// Derives a kebab-case name from the first few words of the summary.
+    #[must_use]
+    pub fn suggest_branch_name(summary: &str, fallback_prefix: &str, index: usize) -> String {
+        let cleaned: String = summary
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' {
+                    c
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>()
+            .split_whitespace()
+            .take(4)
+            .collect::<Vec<_>>()
+            .join("-")
+            .to_lowercase();
+
+        if cleaned.is_empty() {
+            format!("{fallback_prefix}-part-{}", index + 1)
+        } else {
+            cleaned
+        }
+    }
+
     /// Execute a split operation.
     ///
     /// # Errors
@@ -283,5 +311,38 @@ mod tests {
             branches_created: vec!["feature-1".to_string(), "feature-2".to_string()],
         };
         assert_eq!(result.branches_created.len(), 2);
+    }
+
+    #[test]
+    fn test_suggest_branch_name_from_summary() {
+        // Normal commit message
+        let name = SplitService::suggest_branch_name("feat: add user auth", "feature", 0);
+        assert_eq!(name, "feat-add-user-auth");
+
+        // Long message - only takes first 4 words
+        let name = SplitService::suggest_branch_name(
+            "fix: resolve the complex issue with multiple components",
+            "feature",
+            0,
+        );
+        assert_eq!(name, "fix-resolve-the-complex");
+
+        // Special characters stripped
+        let name = SplitService::suggest_branch_name("feat(api): add endpoint!", "feature", 0);
+        assert_eq!(name, "feat-api-add-endpoint");
+    }
+
+    #[test]
+    fn test_suggest_branch_name_fallback() {
+        // Empty summary falls back to prefix with index
+        let name = SplitService::suggest_branch_name("", "feature", 0);
+        assert_eq!(name, "feature-part-1");
+
+        let name = SplitService::suggest_branch_name("", "my-branch", 2);
+        assert_eq!(name, "my-branch-part-3");
+
+        // Only special characters also falls back
+        let name = SplitService::suggest_branch_name("!!!", "feature", 1);
+        assert_eq!(name, "feature-part-2");
     }
 }

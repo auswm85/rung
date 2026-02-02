@@ -1,12 +1,14 @@
 //! `rung split` command - Split a branch into multiple stacked branches.
 
 use anyhow::{Context, Result, bail};
-use rung_core::State;
+use inquire::{MultiSelect, Text};
+use rung_core::{SplitPoint, State};
 use rung_git::Repository;
 
 use crate::commands::utils;
 use crate::output;
 use crate::services::SplitService;
+use crate::services::split::{SplitAnalysis, SplitConfig};
 
 /// Options for the split command.
 #[allow(clippy::struct_excessive_bools)]
@@ -92,10 +94,30 @@ pub fn run(opts: &SplitOptions<'_>) -> Result<()> {
         return Ok(());
     }
 
-    // TODO: Phase 3 - Interactive commit selection UI
-    // TODO: Phase 4 - Split execution engine
+    // Phase 3: Interactive commit selection UI
+    let split_config = select_split_points(&analysis, branch_name)?;
 
-    output::warn("Interactive split UI not yet implemented");
+    if split_config.split_points.is_empty() {
+        output::info("No split points selected - nothing to do");
+        return Ok(());
+    }
+
+    output::info(&format!(
+        "Will create {} new branch(es) from '{}'",
+        split_config.split_points.len(),
+        branch_name
+    ));
+
+    for point in &split_config.split_points {
+        output::detail(&format!(
+            "  {} → branch '{}'",
+            &point.commit_sha[..8.min(point.commit_sha.len())],
+            point.branch_name
+        ));
+    }
+
+    // TODO: Phase 4 - Split execution engine
+    output::warn("Split execution not yet implemented");
 
     bail!(
         "Split not yet implemented for branch '{}' ({} commits)",
@@ -115,4 +137,83 @@ fn handle_abort(service: &SplitService<'_>, state: &State, _json: bool) -> Resul
     service.abort(state)?;
     output::success("Split aborted - branches restored from backup");
     Ok(())
+}
+
+/// Interactive UI for selecting split points.
+fn select_split_points(analysis: &SplitAnalysis, source_branch: &str) -> Result<SplitConfig> {
+    // Build display options for each commit
+    let options: Vec<String> = analysis
+        .commits
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let position = format!("[{}/{}]", i + 1, analysis.commits.len());
+            format!("{position} {} {}", c.short_sha, c.summary)
+        })
+        .collect();
+
+    output::info("Select commits to split after (each becomes a new branch):");
+    output::detail("Use SPACE to select, ENTER to confirm, ESC to cancel");
+
+    // Let user select split points
+    let selections = MultiSelect::new("Split after commits:", options.clone())
+        .with_page_size(15)
+        .prompt()
+        .context("Selection cancelled")?;
+
+    if selections.is_empty() {
+        return Ok(SplitConfig {
+            source_branch: source_branch.to_string(),
+            parent_branch: analysis.parent_branch.clone(),
+            split_points: vec![],
+        });
+    }
+
+    // Convert selections to indices (sorted to maintain commit order)
+    let mut selected_indices: Vec<usize> = selections
+        .iter()
+        .filter_map(|s| options.iter().position(|o| o == s))
+        .collect();
+    selected_indices.sort_unstable();
+
+    // For each selected commit, ask for the new branch name
+    let mut split_points = Vec::new();
+
+    for (point_idx, &commit_idx) in selected_indices.iter().enumerate() {
+        let commit = &analysis.commits[commit_idx];
+        let default_name =
+            SplitService::suggest_branch_name(&commit.summary, source_branch, point_idx);
+
+        let name = Text::new(&format!(
+            "Branch name for commits up to {} '{}':",
+            commit.short_sha,
+            truncate(&commit.summary, 40)
+        ))
+        .with_default(&default_name)
+        .with_help_message("Press ENTER to accept default, or type a new name")
+        .prompt()
+        .context("Branch name input cancelled")?;
+
+        split_points.push(SplitPoint {
+            commit_sha: commit.oid.clone(),
+            message: commit.summary.clone(),
+            branch_name: name,
+        });
+    }
+
+    Ok(SplitConfig {
+        source_branch: source_branch.to_string(),
+        parent_branch: analysis.parent_branch.clone(),
+        split_points,
+    })
+}
+
+/// Truncate a string to a maximum length, adding "..." if truncated.
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{truncated}...")
+    }
 }
