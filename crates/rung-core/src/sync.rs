@@ -406,6 +406,8 @@ pub fn execute_sync(
 /// Continue a paused sync after conflict resolution.
 ///
 /// User must have resolved conflicts and staged the changes before calling this.
+/// If the user already ran `git rebase --continue` manually, this will detect
+/// that no rebase is in progress and proceed with remaining branches.
 ///
 /// # Errors
 /// Returns error if no sync in progress or continuation fails.
@@ -414,24 +416,56 @@ pub fn continue_sync(repo: &impl rung_git::GitOps, state: &impl StateStore) -> R
     let mut sync_state = state.load_sync_state()?;
     let backup_id = sync_state.backup_id.clone();
 
-    // Continue the current rebase
-    match repo.rebase_continue() {
-        Ok(()) => {
-            // Success - mark current branch as complete
-            sync_state.advance();
-            state.save_sync_state(&sync_state)?;
+    // Check if a rebase is actually in progress
+    // If user ran `git rebase --continue` manually, there won't be one
+    if repo.is_rebasing() {
+        // Continue the current rebase
+        match repo.rebase_continue() {
+            Ok(()) => {
+                // Success - mark current branch as complete
+                sync_state.advance();
+                state.save_sync_state(&sync_state)?;
+            }
+            Err(rung_git::Error::RebaseConflict(files)) => {
+                // More conflicts
+                return Ok(SyncResult::Paused {
+                    at_branch: sync_state.current_branch.clone(),
+                    conflict_files: files,
+                    backup_id,
+                });
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
         }
-        Err(rung_git::Error::RebaseConflict(files)) => {
-            // More conflicts
-            return Ok(SyncResult::Paused {
-                at_branch: sync_state.current_branch.clone(),
-                conflict_files: files,
-                backup_id,
-            });
+    } else {
+        // No rebase in progress - user may have completed it manually
+        // Verify the rebase actually succeeded before advancing
+        let current_branch = &sync_state.current_branch;
+        let stack = state.load_stack()?;
+        let branch = stack
+            .find_branch(current_branch)
+            .ok_or_else(|| crate::error::Error::NotInStack(current_branch.clone()))?;
+
+        let default_branch = state.default_branch()?;
+        let parent_name = branch.parent.as_deref().unwrap_or(&default_branch);
+
+        let parent_commit = repo.branch_commit(parent_name)?;
+        let current_commit = repo.branch_commit(current_branch)?;
+
+        // Verify parent is an ancestor of current (meaning rebase succeeded)
+        let merge_base = repo.merge_base(parent_commit, current_commit)?;
+        if merge_base != parent_commit {
+            return Err(crate::error::Error::SyncFailed(format!(
+                "Rebase verification failed for '{current_branch}': parent '{parent_name}' \
+                 is not an ancestor. The rebase may not have completed correctly. \
+                 Please run `rung sync --abort` and try again."
+            )));
         }
-        Err(e) => {
-            return Err(e.into());
-        }
+
+        // Verification passed - advance to next branch
+        sync_state.advance();
+        state.save_sync_state(&sync_state)?;
     }
 
     // Process remaining branches (including the one moved to current_branch by advance())
