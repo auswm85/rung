@@ -128,6 +128,11 @@ fn resolve_fold_config(
     analysis: &crate::services::fold::FoldAnalysis,
     current_branch: &str,
 ) -> Result<Option<FoldConfig>> {
+    // Check for mutually exclusive flags
+    if opts.into_parent && opts.include_children {
+        bail!("Cannot use --into-parent and --include-children together");
+    }
+
     if opts.into_parent {
         create_into_parent_config(state, analysis, current_branch)
     } else if opts.include_children {
@@ -444,10 +449,22 @@ fn interactive_fold_selection(
             }
 
             // Get selected branch names
-            let selected_indices: Vec<usize> = selections
+            let mut selected_indices: Vec<usize> = selections
                 .iter()
                 .filter_map(|s| child_options.iter().position(|o| o == s))
                 .collect();
+            selected_indices.sort_unstable();
+
+            // Validate contiguous selection - children must form a continuous chain
+            // to avoid orphaning intermediate branches
+            for window in selected_indices.windows(2) {
+                if window[1] != window[0] + 1 {
+                    bail!(
+                        "Selected children must be contiguous. Cannot skip '{}' between selected branches.",
+                        analysis.children[window[0] + 1].name
+                    );
+                }
+            }
 
             let branches_to_fold: Vec<String> = selected_indices
                 .iter()

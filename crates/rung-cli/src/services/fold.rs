@@ -214,14 +214,15 @@ impl<'a> FoldService<'a> {
         stack: &mut rung_core::Stack,
         prs_to_close: Vec<u64>,
     ) -> Result<FoldResult> {
+        // Validate we have branches to fold
+        if config.branches_to_fold.is_empty() {
+            bail!("No branches specified to fold");
+        }
+
         // The target branch will be reset to include all commits from folded branches.
         // Since branches are adjacent (parent-child chain), the tip of the last
         // branch in the chain contains all commits.
-
-        let last_branch = config
-            .branches_to_fold
-            .last()
-            .unwrap_or(&config.target_branch);
+        let last_branch = &config.branches_to_fold[config.branches_to_fold.len() - 1];
         let final_commit = self.repo.branch_commit(last_branch)?;
 
         // Find any children of the last folded branch - they need to be reparented
@@ -256,7 +257,9 @@ impl<'a> FoldService<'a> {
         // Mark stack as updated so abort knows to restore it
         if let Ok(mut fold_state) = state.load_fold_state() {
             fold_state.mark_stack_updated();
-            let _ = state.save_fold_state(&fold_state);
+            state
+                .save_fold_state(&fold_state)
+                .context("Failed to update fold state after stack modification")?;
         }
 
         // Now delete git branches (best-effort - log errors but continue)
