@@ -305,11 +305,11 @@ pub enum Commands {
         branches: Vec<String>,
 
         /// Fold current branch into its parent.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "include_children")]
         into_parent: bool,
 
         /// Fold children into current branch.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "into_parent")]
         include_children: bool,
 
         /// Show what would be done without making changes.

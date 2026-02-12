@@ -128,11 +128,7 @@ fn resolve_fold_config(
     analysis: &crate::services::fold::FoldAnalysis,
     current_branch: &str,
 ) -> Result<Option<FoldConfig>> {
-    // Check for mutually exclusive flags
-    if opts.into_parent && opts.include_children {
-        bail!("Cannot use --into-parent and --include-children together");
-    }
-
+    // Note: --into-parent and --include-children are mutually exclusive (enforced by clap)
     if opts.into_parent {
         create_into_parent_config(state, analysis, current_branch)
     } else if opts.include_children {
@@ -385,29 +381,41 @@ fn create_specified_branches_config(
     }))
 }
 
+/// Fold operation choices for interactive selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FoldChoice {
+    IntoParent,
+    Children,
+    Cancel,
+}
+
 /// Interactive fold selection.
 fn interactive_fold_selection(
     state: &State,
     analysis: &crate::services::fold::FoldAnalysis,
     current_branch: &str,
 ) -> Result<Option<FoldConfig>> {
-    // Build options
-    let mut options = Vec::new();
+    // Build options with their corresponding choices
+    let mut options: Vec<(String, FoldChoice)> = Vec::new();
 
     // Option to fold into parent
     if analysis.parent_branch.is_some() {
-        options.push(format!(
-            "Fold into parent (merge {current_branch} into parent)"
+        options.push((
+            format!("Fold into parent (merge {current_branch} into parent)"),
+            FoldChoice::IntoParent,
         ));
     }
 
     // Option to fold children
     if !analysis.children.is_empty() {
         let child_names: Vec<_> = analysis.children.iter().map(|c| c.name.as_str()).collect();
-        options.push(format!(
-            "Fold children ({}) into {}",
-            child_names.join(", "),
-            current_branch
+        options.push((
+            format!(
+                "Fold children ({}) into {}",
+                child_names.join(", "),
+                current_branch
+            ),
+            FoldChoice::Children,
         ));
     }
 
@@ -416,75 +424,79 @@ fn interactive_fold_selection(
     }
 
     // Add cancel option
-    options.push("Cancel".to_string());
+    options.push(("Cancel".to_string(), FoldChoice::Cancel));
 
     output::info("Select fold operation:");
 
-    let selection = inquire::Select::new("Fold operation:", options.clone())
+    let display_options: Vec<String> = options.iter().map(|(label, _)| label.clone()).collect();
+    let selection = inquire::Select::new("Fold operation:", display_options)
         .prompt()
         .context("Selection cancelled")?;
 
-    if selection == "Cancel" {
-        return Ok(None);
-    }
+    // Find the choice corresponding to the selection
+    let selected_choice = options
+        .iter()
+        .find(|(label, _)| label == &selection)
+        .map_or(FoldChoice::Cancel, |(_, choice)| *choice);
 
-    if selection.starts_with("Fold into parent") {
-        create_into_parent_config(state, analysis, current_branch)
-    } else if selection.starts_with("Fold children") {
-        // If multiple children, let user select which ones
-        if analysis.children.len() > 1 {
-            let child_options: Vec<String> = analysis
-                .children
-                .iter()
-                .map(|c| format!("{} ({} commits)", c.name, c.commit_count))
-                .collect();
+    match selected_choice {
+        FoldChoice::Cancel => Ok(None),
+        FoldChoice::IntoParent => create_into_parent_config(state, analysis, current_branch),
+        FoldChoice::Children => {
+            // If multiple children, let user select which ones
+            if analysis.children.len() > 1 {
+                let child_options: Vec<String> = analysis
+                    .children
+                    .iter()
+                    .map(|c| format!("{} ({} commits)", c.name, c.commit_count))
+                    .collect();
 
-            let selections = MultiSelect::new("Select children to fold:", child_options.clone())
-                .with_all_selected_by_default()
-                .prompt()
-                .context("Selection cancelled")?;
+                let selections =
+                    MultiSelect::new("Select children to fold:", child_options.clone())
+                        .with_all_selected_by_default()
+                        .prompt()
+                        .context("Selection cancelled")?;
 
-            if selections.is_empty() {
-                return Ok(None);
-            }
-
-            // Get selected branch names
-            let mut selected_indices: Vec<usize> = selections
-                .iter()
-                .filter_map(|s| child_options.iter().position(|o| o == s))
-                .collect();
-            selected_indices.sort_unstable();
-
-            // Validate contiguous selection - children must form a continuous chain
-            // to avoid orphaning intermediate branches
-            for window in selected_indices.windows(2) {
-                if window[1] != window[0] + 1 {
-                    bail!(
-                        "Selected children must be contiguous. Cannot skip '{}' between selected branches.",
-                        analysis.children[window[0] + 1].name
-                    );
+                if selections.is_empty() {
+                    return Ok(None);
                 }
+
+                // Get selected branch names
+                let mut selected_indices: Vec<usize> = selections
+                    .iter()
+                    .filter_map(|s| child_options.iter().position(|o| o == s))
+                    .collect();
+                selected_indices.sort_unstable();
+
+                // Validate contiguous selection - children must form a continuous chain
+                // to avoid orphaning intermediate branches
+                for window in selected_indices.windows(2) {
+                    if window[1] != window[0] + 1 {
+                        bail!(
+                            "Selected children must be contiguous. Cannot skip '{}' between selected branches.",
+                            analysis.children[window[0] + 1].name
+                        );
+                    }
+                }
+
+                let branches_to_fold: Vec<String> = selected_indices
+                    .iter()
+                    .map(|&i| analysis.children[i].name.clone())
+                    .collect();
+
+                let default_branch = state
+                    .default_branch()
+                    .unwrap_or_else(|_| "main".to_string());
+                let new_parent = analysis.parent_branch.clone().unwrap_or(default_branch);
+
+                Ok(Some(FoldConfig {
+                    target_branch: current_branch.to_string(),
+                    branches_to_fold,
+                    new_parent,
+                }))
+            } else {
+                create_include_children_config(state, analysis, current_branch)
             }
-
-            let branches_to_fold: Vec<String> = selected_indices
-                .iter()
-                .map(|&i| analysis.children[i].name.clone())
-                .collect();
-
-            let default_branch = state
-                .default_branch()
-                .unwrap_or_else(|_| "main".to_string());
-            let new_parent = analysis.parent_branch.clone().unwrap_or(default_branch);
-
-            Ok(Some(FoldConfig {
-                target_branch: current_branch.to_string(),
-                branches_to_fold,
-                new_parent,
-            }))
-        } else {
-            create_include_children_config(state, analysis, current_branch)
         }
-    } else {
-        Ok(None)
     }
 }

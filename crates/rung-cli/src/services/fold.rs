@@ -255,19 +255,29 @@ impl<'a> FoldService<'a> {
         state.save_stack(stack)?;
 
         // Mark stack as updated so abort knows to restore it
-        if let Ok(mut fold_state) = state.load_fold_state() {
-            fold_state.mark_stack_updated();
-            state
-                .save_fold_state(&fold_state)
-                .context("Failed to update fold state after stack modification")?;
-        }
+        let mut fold_state = state
+            .load_fold_state()
+            .context("Failed to load fold state after stack modification")?;
+        fold_state.mark_stack_updated();
+        state
+            .save_fold_state(&fold_state)
+            .context("Failed to update fold state after stack modification")?;
 
         // Now delete git branches (best-effort - log errors but continue)
+        // Track completed deletions in fold state for abort recovery
         for branch_name in &branches_folded {
-            if self.repo.branch_exists(branch_name)
-                && let Err(e) = self.repo.delete_branch(branch_name)
-            {
-                eprintln!("Warning: Failed to delete branch '{branch_name}': {e}");
+            if self.repo.branch_exists(branch_name) {
+                if let Err(e) = self.repo.delete_branch(branch_name) {
+                    eprintln!("Warning: Failed to delete branch '{branch_name}': {e}");
+                } else {
+                    // Track successful deletion
+                    fold_state.completed.push(branch_name.clone());
+                    // Best-effort save - don't fail the overall operation
+                    let _ = state.save_fold_state(&fold_state);
+                }
+            } else {
+                // Branch already gone, consider it completed
+                fold_state.completed.push(branch_name.clone());
             }
         }
 

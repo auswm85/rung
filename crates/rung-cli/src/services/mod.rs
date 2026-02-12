@@ -23,6 +23,8 @@ pub use absorb::AbsorbService;
 pub use adopt::AdoptService;
 pub use create::CreateService;
 pub use doctor::{CheckResult, DiagnosticReport, DoctorService, Issue, Severity};
+#[allow(unused_imports)] // Re-exported for public API consistency
+pub use fold::{FoldAnalysis, FoldBranchInfo, FoldConfig, FoldResult, FoldService};
 pub use log::{CommitInfo, LogResult, LogService};
 pub use merge::MergeService;
 pub use restack::{DivergenceInfo, RestackConfig, RestackError, RestackService};
