@@ -24,6 +24,7 @@ impl State {
     const SYNC_STATE_FILE: &'static str = "sync_state";
     const RESTACK_STATE_FILE: &'static str = "restack_state";
     const SPLIT_STATE_FILE: &'static str = "split_state";
+    const FOLD_STATE_FILE: &'static str = "fold_state";
     const REFS_DIR: &'static str = "refs";
 
     /// Create a new State instance for the given repository.
@@ -279,6 +280,54 @@ impl State {
         Ok(())
     }
 
+    // === Fold state operations ===
+
+    fn fold_state_path(&self) -> PathBuf {
+        self.rung_dir.join(Self::FOLD_STATE_FILE)
+    }
+
+    /// Check if a fold is in progress.
+    #[must_use]
+    pub fn is_fold_in_progress(&self) -> bool {
+        self.fold_state_path().exists()
+    }
+
+    /// Load the current fold state.
+    ///
+    /// # Errors
+    /// Returns error if no fold is in progress or file can't be read.
+    pub fn load_fold_state(&self) -> Result<FoldState> {
+        if !self.is_fold_in_progress() {
+            return Err(Error::NoBackupFound);
+        }
+
+        let content = fs::read_to_string(self.fold_state_path())?;
+        let state: FoldState = serde_json::from_str(&content)?;
+        Ok(state)
+    }
+
+    /// Save fold state (called during fold operation).
+    ///
+    /// # Errors
+    /// Returns error if serialization or write fails.
+    pub fn save_fold_state(&self, state: &FoldState) -> Result<()> {
+        let content = serde_json::to_string_pretty(state)?;
+        fs::write(self.fold_state_path(), content)?;
+        Ok(())
+    }
+
+    /// Clear fold state (called when fold completes or aborts).
+    ///
+    /// # Errors
+    /// Returns error if file removal fails.
+    pub fn clear_fold_state(&self) -> Result<()> {
+        let path = self.fold_state_path();
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
     // === Backup operations ===
 
     fn refs_dir(&self) -> PathBuf {
@@ -488,6 +537,22 @@ impl StateStore for State {
 
     fn clear_split_state(&self) -> Result<()> {
         Self::clear_split_state(self)
+    }
+
+    fn is_fold_in_progress(&self) -> bool {
+        Self::is_fold_in_progress(self)
+    }
+
+    fn load_fold_state(&self) -> Result<FoldState> {
+        Self::load_fold_state(self)
+    }
+
+    fn save_fold_state(&self, state: &FoldState) -> Result<()> {
+        Self::save_fold_state(self, state)
+    }
+
+    fn clear_fold_state(&self) -> Result<()> {
+        Self::clear_fold_state(self)
     }
 
     fn create_backup(&self, branches: &[(&str, &str)]) -> Result<String> {
@@ -750,6 +815,67 @@ impl SplitState {
     #[must_use]
     pub const fn is_complete(&self) -> bool {
         self.current_index >= self.split_points.len()
+    }
+
+    /// Mark the stack as updated.
+    pub const fn mark_stack_updated(&mut self) {
+        self.stack_updated = true;
+    }
+}
+
+/// State tracked during an in-progress fold operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoldState {
+    /// When the fold started.
+    pub started_at: DateTime<Utc>,
+
+    /// Backup ID for this fold.
+    pub backup_id: String,
+
+    /// The target branch that will contain all commits after folding.
+    pub target_branch: String,
+
+    /// Branches being folded into the target (in order from parent to child).
+    pub branches_to_fold: Vec<String>,
+
+    /// The parent of the topmost branch being folded (new parent of target).
+    pub new_parent: String,
+
+    /// Original branch user was on (to restore after abort).
+    pub original_branch: String,
+
+    /// PR numbers associated with folded branches (to be closed).
+    pub prs_to_close: Vec<u64>,
+
+    /// Branches that have been successfully removed from stack.
+    pub completed: Vec<String>,
+
+    /// Whether the stack.json has been updated.
+    pub stack_updated: bool,
+}
+
+impl FoldState {
+    /// Create a new fold state.
+    #[must_use]
+    pub fn new(
+        backup_id: String,
+        target_branch: String,
+        branches_to_fold: Vec<String>,
+        new_parent: String,
+        original_branch: String,
+        prs_to_close: Vec<u64>,
+    ) -> Self {
+        Self {
+            started_at: Utc::now(),
+            backup_id,
+            target_branch,
+            branches_to_fold,
+            new_parent,
+            original_branch,
+            prs_to_close,
+            completed: vec![],
+            stack_updated: false,
+        }
     }
 
     /// Mark the stack as updated.

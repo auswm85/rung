@@ -7,6 +7,7 @@ pub mod adopt;
 pub mod completions;
 pub mod create;
 pub mod doctor;
+pub mod fold;
 pub mod init;
 pub mod log;
 pub mod merge;
@@ -289,6 +290,33 @@ pub enum Commands {
         dry_run: bool,
 
         /// Abort the current split and restore from backup.
+        #[arg(long, conflicts_with = "dry_run")]
+        abort: bool,
+    },
+
+    /// Fold adjacent branches into one. [alias: fo]
+    ///
+    /// Combines multiple adjacent branches in the stack into a single branch.
+    /// This is the inverse of `rung split`.
+    #[command(alias = "fo")]
+    Fold {
+        /// Branches to fold (must be adjacent in stack).
+        /// If not specified, interactive selection is used.
+        branches: Vec<String>,
+
+        /// Fold current branch into its parent.
+        #[arg(long)]
+        into_parent: bool,
+
+        /// Fold children into current branch.
+        #[arg(long)]
+        include_children: bool,
+
+        /// Show what would be done without making changes.
+        #[arg(long, conflicts_with = "abort")]
+        dry_run: bool,
+
+        /// Abort the current fold and restore from backup.
         #[arg(long, conflicts_with = "dry_run")]
         abort: bool,
     },

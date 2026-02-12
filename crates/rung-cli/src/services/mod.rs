@@ -7,6 +7,7 @@ pub mod absorb;
 pub mod adopt;
 pub mod create;
 pub mod doctor;
+pub mod fold;
 pub mod log;
 pub mod merge;
 pub mod restack;

@@ -455,4 +455,20 @@ impl StateStore for MockStateStore {
     fn clear_split_state(&self) -> CoreResult<()> {
         Ok(())
     }
+
+    fn is_fold_in_progress(&self) -> bool {
+        false
+    }
+
+    fn load_fold_state(&self) -> CoreResult<rung_core::state::FoldState> {
+        Err(rung_core::Error::NoBackupFound)
+    }
+
+    fn save_fold_state(&self, _state: &rung_core::state::FoldState) -> CoreResult<()> {
+        Ok(())
+    }
+
+    fn clear_fold_state(&self) -> CoreResult<()> {
+        Ok(())
+    }
 }
