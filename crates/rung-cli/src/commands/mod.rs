@@ -302,14 +302,15 @@ pub enum Commands {
     Fold {
         /// Branches to fold (must be adjacent in stack).
         /// If not specified, interactive selection is used.
+        #[arg(conflicts_with_all = ["into_parent", "include_children"])]
         branches: Vec<String>,
 
         /// Fold current branch into its parent.
-        #[arg(long, conflicts_with = "include_children")]
+        #[arg(long, conflicts_with_all = ["include_children", "branches"])]
         into_parent: bool,
 
         /// Fold children into current branch.
-        #[arg(long, conflicts_with = "into_parent")]
+        #[arg(long, conflicts_with_all = ["into_parent", "branches"])]
         include_children: bool,
 
         /// Show what would be done without making changes.
