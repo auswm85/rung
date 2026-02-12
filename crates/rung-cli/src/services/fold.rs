@@ -166,19 +166,22 @@ impl<'a> FoldService<'a> {
             .filter_map(|name| stack.find_branch(name).and_then(|b| b.pr))
             .collect();
 
-        // Initialize fold state for recovery
-        let fold_state = FoldState::new(
+        // Initialize fold state for recovery (include original stack for abort)
+        let original_stack_json =
+            serde_json::to_string(&stack).context("Failed to serialize original stack")?;
+        let mut fold_state = FoldState::new(
             backup_id.clone(),
             config.target_branch.clone(),
             config.branches_to_fold.clone(),
             config.new_parent.clone(),
             original_branch.clone(),
-            prs_to_close,
+            prs_to_close.clone(),
         );
+        fold_state.set_original_stack(original_stack_json);
         state.save_fold_state(&fold_state)?;
 
         // Execute the fold
-        match self.execute_fold_inner(state, config, &mut stack) {
+        match self.execute_fold_inner(state, config, &mut stack, prs_to_close) {
             Ok(result) => {
                 // Clean up state on success
                 state.clear_fold_state()?;
@@ -209,6 +212,7 @@ impl<'a> FoldService<'a> {
         state: &S,
         config: &FoldConfig,
         stack: &mut rung_core::Stack,
+        prs_to_close: Vec<u64>,
     ) -> Result<FoldResult> {
         // The target branch will be reset to include all commits from folded branches.
         // Since branches are adjacent (parent-child chain), the tip of the last
@@ -249,10 +253,18 @@ impl<'a> FoldService<'a> {
         // If git deletion fails later, stack is already correct and branches can be manually cleaned
         state.save_stack(stack)?;
 
-        // Now delete git branches (safe to fail partially since stack is persisted)
+        // Mark stack as updated so abort knows to restore it
+        if let Ok(mut fold_state) = state.load_fold_state() {
+            fold_state.mark_stack_updated();
+            let _ = state.save_fold_state(&fold_state);
+        }
+
+        // Now delete git branches (best-effort - log errors but continue)
         for branch_name in &branches_folded {
-            if self.repo.branch_exists(branch_name) {
-                self.repo.delete_branch(branch_name)?;
+            if self.repo.branch_exists(branch_name)
+                && let Err(e) = self.repo.delete_branch(branch_name)
+            {
+                eprintln!("Warning: Failed to delete branch '{branch_name}': {e}");
             }
         }
 
@@ -265,10 +277,7 @@ impl<'a> FoldService<'a> {
             target_branch: config.target_branch.clone(),
             total_commits,
             branches_folded,
-            prs_to_close: state
-                .load_fold_state()
-                .map(|s| s.prs_to_close)
-                .unwrap_or_default(),
+            prs_to_close,
         })
     }
 
@@ -279,6 +288,16 @@ impl<'a> FoldService<'a> {
         }
 
         let fold_state = state.load_fold_state()?;
+
+        // Restore stack if it was updated
+        if fold_state.stack_updated
+            && let Some(ref original_json) = fold_state.original_stack_json
+        {
+            let original_stack: rung_core::Stack = serde_json::from_str(original_json)
+                .context("Failed to deserialize original stack")?;
+            state.save_stack(&original_stack)?;
+        }
+
         self.restore_from_backup(state, &fold_state)?;
         state.clear_fold_state()?;
 

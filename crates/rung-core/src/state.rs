@@ -852,6 +852,10 @@ pub struct FoldState {
 
     /// Whether the stack.json has been updated.
     pub stack_updated: bool,
+
+    /// Serialized original stack JSON (for restoration on abort).
+    #[serde(default)]
+    pub original_stack_json: Option<String>,
 }
 
 impl FoldState {
@@ -875,7 +879,13 @@ impl FoldState {
             prs_to_close,
             completed: vec![],
             stack_updated: false,
+            original_stack_json: None,
         }
+    }
+
+    /// Store the original stack JSON for restoration.
+    pub fn set_original_stack(&mut self, stack_json: String) {
+        self.original_stack_json = Some(stack_json);
     }
 
     /// Mark the stack as updated.

@@ -78,7 +78,15 @@ pub fn run(opts: &FoldOptions<'_>) -> Result<()> {
     let fold_config = resolve_fold_config(opts, &state, &analysis, &current_branch)?;
 
     let Some(config) = fold_config else {
-        if !opts.json {
+        if opts.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "success": true,
+                    "message": "No branches selected for folding"
+                }))?
+            );
+        } else {
             output::info("No branches selected for folding");
         }
         return Ok(());
