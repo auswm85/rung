@@ -1,8 +1,8 @@
 class Rung < Formula
   desc "Git workflow tool for managing stacked PRs"
   homepage "https://github.com/auswm85/rung"
-  url "https://github.com/auswm85/rung/archive/refs/tags/v0.6.0.tar.gz"
-  sha256 "ad63781a90c096e99319d3055b4b648f5e1e2b8081cbfaefe4eab5b5c208e28e"
+  url "https://github.com/auswm85/rung/archive/refs/tags/v0.7.0.tar.gz"
+  sha256 "a35336bb8207c342f23a7c17d2a1964062489f34b59843f7bd3b18da59e14b12"
   license "MIT"
 
   depends_on "rust" => :build
