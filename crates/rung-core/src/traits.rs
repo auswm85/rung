@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::Result;
 use crate::config::Config;
 use crate::stack::Stack;
-use crate::state::{RestackState, SplitState, SyncState};
+use crate::state::{FoldState, RestackState, SplitState, SyncState};
 
 /// Trait for state storage operations.
 ///
@@ -92,6 +92,20 @@ pub trait StateStore {
 
     /// Clear split state (called when split completes or aborts).
     fn clear_split_state(&self) -> Result<()>;
+
+    // === Fold State Operations ===
+
+    /// Check if a fold is in progress.
+    fn is_fold_in_progress(&self) -> bool;
+
+    /// Load the current fold state.
+    fn load_fold_state(&self) -> Result<FoldState>;
+
+    /// Save fold state (called during fold operation).
+    fn save_fold_state(&self, state: &FoldState) -> Result<()>;
+
+    /// Clear fold state (called when fold completes or aborts).
+    fn clear_fold_state(&self) -> Result<()>;
 
     // === Backup Operations ===
 

@@ -525,6 +525,18 @@ mod tests {
         fn clear_split_state(&self) -> crate::Result<()> {
             Ok(())
         }
+        fn is_fold_in_progress(&self) -> bool {
+            false
+        }
+        fn load_fold_state(&self) -> crate::Result<crate::state::FoldState> {
+            Err(crate::Error::NoBackupFound)
+        }
+        fn save_fold_state(&self, _state: &crate::state::FoldState) -> crate::Result<()> {
+            Ok(())
+        }
+        fn clear_fold_state(&self) -> crate::Result<()> {
+            Ok(())
+        }
         fn create_backup(&self, _branches: &[(&str, &str)]) -> crate::Result<String> {
             unimplemented!()
         }

@@ -88,6 +88,23 @@ fn main() {
             };
             commands::split::run(&opts)
         }
+        Commands::Fold {
+            branches,
+            into_parent,
+            include_children,
+            dry_run,
+            abort,
+        } => {
+            let opts = commands::fold::FoldOptions {
+                json,
+                branches: branches.iter().map(String::as_str).collect(),
+                into_parent,
+                include_children,
+                dry_run,
+                abort,
+            };
+            commands::fold::run(&opts)
+        }
     };
 
     if let Err(e) = result {
