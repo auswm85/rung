@@ -21,6 +21,7 @@ These options work with most commands:
 | Command                                 | Alias  | Description                           |
 | --------------------------------------- | ------ | ------------------------------------- |
 | [`init`](/commands/init/)               |        | Initialize rung in a repository       |
+| [`adopt`](/commands/adopt/)             | `ad`   | Adopt existing branch into the stack  |
 | [`create`](/commands/create/)           | `c`    | Create a new branch in the stack      |
 | [`status`](/commands/status/)           | `st`   | Display stack tree and PR status      |
 | [`sync`](/commands/sync/)               | `sy`   | Rebase all branches when parents move |
@@ -28,6 +29,7 @@ These options work with most commands:
 | [`merge`](/commands/merge/)             | `m`    | Merge PR and update the stack         |
 | [`restack`](/commands/restack/)         | `re`   | Move branch to different parent       |
 | [`split`](/commands/split/)             | `sp`   | Split branch into multiple branches   |
+| [`fold`](/commands/fold/)               | `fo`   | Combine adjacent branches into one    |
 | [`nxt`](/commands/navigation/)          | `n`    | Navigate to child branch              |
 | [`prv`](/commands/navigation/)          | `p`    | Navigate to parent branch             |
 | [`move`](/commands/navigation/)         | `mv`   | Interactive branch picker             |
@@ -46,6 +48,7 @@ These options work with most commands:
 rung init                            # Initialize rung
 rung create feature/auth             # Create named branch
 rung create -m "feat: add auth"      # Create from commit message
+rung adopt existing-branch           # Bring existing branch into stack
 ```
 
 ### Working with Stacks
@@ -97,6 +100,15 @@ rung split                           # Split current branch interactively
 rung split feat/big-change           # Split specific branch
 rung split --dry-run                 # Preview without changes
 rung split --abort                   # Abort and restore
+```
+
+### Folding Branches
+
+```bash
+rung fold                            # Interactive fold selection
+rung fold --into-parent              # Fold current into parent
+rung fold --include-children         # Fold children into current
+rung fold --dry-run                  # Preview without changes
 ```
 
 ### Recovery
