@@ -45,6 +45,7 @@ export default defineConfig({
             { label: "merge", slug: "commands/merge" },
             { label: "restack", slug: "commands/restack" },
             { label: "split", slug: "commands/split" },
+            { label: "fold", slug: "commands/fold" },
             {
               label: "navigation (nxt, prv, move)",
               slug: "commands/navigation",
