@@ -13,6 +13,8 @@ rung submit
 rung submit --draft
 rung submit --force
 rung submit --title "Custom title"
+rung submit --amend
+rung submit -m "commit message"
 rung submit --dry-run
 ```
 
@@ -22,12 +24,14 @@ rung submit --dry-run
 
 ## Options
 
-| Option                | Description                                                   |
-| --------------------- | ------------------------------------------------------------- |
-| `--draft`             | Create PRs as drafts                                          |
-| `--force`             | Force push even if lease check fails                          |
-| `-t, --title <title>` | Custom PR title for current branch (overrides commit message) |
-| `--dry-run`           | Preview what would happen without pushing or creating PRs     |
+| Option                    | Description                                                        |
+| ------------------------- | ------------------------------------------------------------------ |
+| `--draft`                 | Create PRs as drafts                                               |
+| `--force`                 | Force push even if lease check fails                               |
+| `-t, --title <title>`     | Custom PR title for current branch (overrides commit message)      |
+| `--amend`                 | Amend uncommitted changes to the current commit before push *(v0.8.0+)* |
+| `-m, --message <message>` | Create a new commit with the given message before push *(v0.8.0+)* |
+| `--dry-run`               | Preview what would happen without pushing or creating PRs          |
 
 ## Example
 
@@ -102,6 +106,35 @@ rung submit --force
 
 :::caution
 Force pushing overwrites the remote branch. Only use this when you know your local branch should replace the remote.
+:::
+
+## Handling Uncommitted Changes
+
+*Added in v0.8.0*
+
+If you have uncommitted changes (staged or unstaged), rung will prompt you with options:
+
+```bash
+$ rung submit
+
+? You have uncommitted changes. What would you like to do?
+> Amend to current commit
+  Create new commit
+  Skip (push without committing)
+```
+
+You can skip the prompt with flags:
+
+```bash
+# Amend changes to current commit
+rung submit --amend
+
+# Create new commit with message
+rung submit -m "fix: address review comments"
+```
+
+:::note
+The `--amend` and `-m` flags are mutually exclusive. Use one or the other.
 :::
 
 ## Dry Run

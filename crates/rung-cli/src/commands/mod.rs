@@ -142,6 +142,13 @@ pub enum Commands {
     ///
     /// Pushes all stack branches to the remote and creates or
     /// updates pull requests with stack navigation links.
+    ///
+    /// If there are uncommitted changes, you'll be prompted to choose:
+    /// - Amend to last commit
+    /// - Create a new commit
+    /// - Skip (proceed without committing)
+    ///
+    /// Use --amend or -m "message" to skip the prompt.
     #[command(alias = "sm")]
     Submit {
         /// Create PRs as drafts (won't trigger CI).
@@ -159,6 +166,16 @@ pub enum Commands {
         /// Custom PR title for current branch (overrides auto-generated title).
         #[arg(long, short)]
         title: Option<String>,
+
+        /// Amend staged changes to the last commit before pushing.
+        /// Stages all changes first if working directory is dirty.
+        #[arg(long, conflicts_with = "message")]
+        amend: bool,
+
+        /// Create a new commit with this message before pushing.
+        /// Stages all changes first if working directory is dirty.
+        #[arg(long, short, conflicts_with = "amend")]
+        message: Option<String>,
     },
 
     /// Undo the last sync operation. [alias: un]

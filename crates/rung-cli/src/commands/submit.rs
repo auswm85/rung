@@ -1,6 +1,7 @@
 //! `rung submit` command - Push branches and create/update PRs.
 
 use anyhow::{Context, Result, bail};
+use inquire::{Select, Text};
 use rung_core::{State, stack::Stack, sync};
 use rung_git::{RemoteDivergence, Repository};
 use rung_github::{Auth, GitHubClient};
@@ -73,8 +74,10 @@ pub fn run(
     draft: bool,
     force: bool,
     custom_title: Option<&str>,
+    amend: bool,
+    message: Option<&str>,
 ) -> Result<()> {
-    let (repo, state, mut stack) = setup_submit()?;
+    let (repo, state, mut stack) = setup_submit(json, amend, message)?;
 
     if stack.is_empty() {
         if json {
@@ -91,9 +94,6 @@ pub fn run(
         output::info("No branches in stack - nothing to submit");
         return Ok(());
     }
-
-    // Ensure on branch
-    utils::ensure_on_branch(&repo)?;
 
     let config = SubmitConfig {
         draft,
@@ -193,7 +193,13 @@ fn output_json(output: &SubmitOutput) -> Result<()> {
 }
 
 /// Set up repository, state, and stack for submit.
-fn setup_submit() -> Result<(Repository, State, rung_core::stack::Stack)> {
+///
+/// Handles uncommitted changes based on flags or interactive prompt.
+fn setup_submit(
+    json: bool,
+    amend: bool,
+    message: Option<&str>,
+) -> Result<(Repository, State, rung_core::stack::Stack)> {
     let repo = Repository::open_current().context("Not inside a git repository")?;
     let workdir = repo.workdir().context("Cannot run in bare repository")?;
     let state = State::new(workdir)?;
@@ -202,16 +208,145 @@ fn setup_submit() -> Result<(Repository, State, rung_core::stack::Stack)> {
         bail!("Rung not initialized - run `rung init` first");
     }
 
-    repo.require_clean()?;
+    // Validate branch context BEFORE any history-changing operations
+    utils::ensure_on_branch(&repo)?;
+
+    // Handle uncommitted changes (may amend/commit)
+    handle_uncommitted_changes(&repo, json, amend, message)?;
+
     let stack = state.load_stack()?;
 
     Ok((repo, state, stack))
+}
+
+/// Handle uncommitted changes before submit.
+///
+/// Stages and commits/amends based on flags or interactive prompt.
+fn handle_uncommitted_changes(
+    repo: &Repository,
+    json: bool,
+    amend: bool,
+    message: Option<&str>,
+) -> Result<()> {
+    // Guard: amend and message are mutually exclusive
+    if amend && message.is_some() {
+        bail!("Cannot use both --amend and --message flags together");
+    }
+
+    // If working directory is clean, nothing to do
+    if repo.is_clean()? {
+        return Ok(());
+    }
+
+    // Handle based on flags
+    if amend {
+        if !json {
+            output::info("Staging changes and amending last commit...");
+        }
+        repo.stage_all()?;
+        repo.amend_commit(None)?;
+        if !json {
+            output::success("  Amended last commit");
+        }
+        return Ok(());
+    }
+
+    if let Some(msg) = message {
+        let msg = msg.trim();
+        if msg.is_empty() {
+            bail!("Commit message cannot be empty");
+        }
+        if !json {
+            output::info("Staging changes and creating commit...");
+        }
+        repo.stage_all()?;
+        // Use git CLI for commit to ensure consistency with stage_all
+        create_commit_cli(repo, msg)?;
+        if !json {
+            output::success(&format!("  Created commit: {msg}"));
+        }
+        return Ok(());
+    }
+
+    // JSON mode can't prompt - error out
+    if json {
+        bail!("Uncommitted changes found. Use --amend or -m \"message\" to handle them.");
+    }
+
+    // Interactive prompt
+    prompt_and_handle_uncommitted(repo)
+}
+
+/// Prompt user for how to handle uncommitted changes.
+fn prompt_and_handle_uncommitted(repo: &Repository) -> Result<()> {
+    output::warn("Uncommitted changes found.");
+
+    let options = vec![
+        "Amend to last commit (recommended)",
+        "Create new commit",
+        "Skip (keep changes uncommitted)",
+    ];
+
+    let selection = Select::new("How do you want to handle uncommitted changes?", options)
+        .prompt()
+        .context("Prompt cancelled")?;
+
+    match selection {
+        "Amend to last commit (recommended)" => {
+            output::info("Staging changes and amending last commit...");
+            repo.stage_all()?;
+            repo.amend_commit(None)?;
+            output::success("  Amended last commit");
+        }
+        "Create new commit" => {
+            let commit_message = Text::new("Commit message:")
+                .prompt()
+                .context("Prompt cancelled")?;
+
+            if commit_message.trim().is_empty() {
+                bail!("Commit message cannot be empty");
+            }
+
+            output::info("Staging changes and creating commit...");
+            repo.stage_all()?;
+            // Use git CLI for commit to ensure consistency with stage_all
+            create_commit_cli(repo, &commit_message)?;
+            output::success(&format!("  Created commit: {commit_message}"));
+        }
+        "Skip (keep changes uncommitted)" => {
+            output::info("Skipping commit - proceeding with push only");
+            output::detail("  Note: Uncommitted changes will not be included in the push");
+        }
+        _ => bail!("Invalid selection"),
+    }
+
+    Ok(())
 }
 
 /// Get owner and repo name from remote.
 fn get_remote_info(repo: &Repository) -> Result<(String, String)> {
     let origin_url = repo.origin_url().context("No origin remote configured")?;
     Repository::parse_github_remote(&origin_url).context("Could not parse GitHub remote URL")
+}
+
+/// Create a commit using git CLI.
+///
+/// Uses `git commit -m` for consistency with `stage_all` which also uses CLI.
+fn create_commit_cli(repo: &Repository, message: &str) -> Result<()> {
+    let workdir = repo.workdir().context("Cannot run in bare repository")?;
+
+    let output = std::process::Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(workdir)
+        .output()
+        .context("Failed to execute git commit")?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git commit failed: {stderr}");
+    }
 }
 
 /// Warn if a branch has diverged from its remote and force is not enabled.
@@ -578,5 +713,153 @@ mod test {
         // Should handle fetch errors gracefully and continue with local check
         let result = validate_sync_state(&repo, &stack, "nonexistent-branch", false);
         assert!(result.is_ok(), "Should handle fetch errors gracefully");
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_clean_repo() {
+        let (_temp, repo) = setup_test_repo();
+
+        // Clean repo should return Ok immediately
+        let result = handle_uncommitted_changes(&repo, false, false, None);
+        assert!(result.is_ok(), "Clean repo should succeed without action");
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_amend_flag() {
+        let (temp, repo) = setup_test_repo();
+
+        // Create a branch with a commit
+        create_branch_with_commits(&temp, "feature-amend", "Initial feature");
+
+        // Get original commit
+        let original_commit = repo.branch_commit("feature-amend").unwrap();
+
+        // Modify the tracked file (not create a new untracked file)
+        let file = temp.path().join("feature.txt");
+        fs::write(&file, "Modified content").expect("Failed to write file");
+        assert!(!repo.is_clean().unwrap(), "Repo should be dirty");
+
+        // Handle with amend flag
+        let result = handle_uncommitted_changes(&repo, false, true, None);
+        assert!(result.is_ok(), "Amend should succeed");
+
+        // Verify commit was amended (different OID)
+        let new_commit = repo.branch_commit("feature-amend").unwrap();
+        assert_ne!(original_commit, new_commit, "Commit should be amended");
+
+        // Verify working directory is clean
+        assert!(repo.is_clean().unwrap(), "Repo should be clean after amend");
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_message_flag() {
+        let (temp, repo) = setup_test_repo();
+
+        // Create a branch with a commit
+        create_branch_with_commits(&temp, "feature-msg", "Initial feature");
+
+        // Get original commit
+        let original_commit = repo.branch_commit("feature-msg").unwrap();
+
+        // Modify the tracked file (not create a new untracked file)
+        let file = temp.path().join("feature.txt");
+        fs::write(&file, "Modified content").expect("Failed to write file");
+        assert!(!repo.is_clean().unwrap(), "Repo should be dirty");
+
+        // Handle with message flag
+        let result = handle_uncommitted_changes(&repo, false, false, Some("New commit"));
+        assert!(result.is_ok(), "New commit should succeed");
+
+        // Verify a new commit was created (different OID, new message)
+        let new_commit = repo.branch_commit("feature-msg").unwrap();
+        assert_ne!(original_commit, new_commit, "New commit should be created");
+
+        // Verify commit message
+        let message = repo.branch_commit_message("feature-msg").unwrap();
+        assert!(
+            message.starts_with("New commit"),
+            "Commit message should match"
+        );
+
+        // Verify working directory is clean
+        assert!(
+            repo.is_clean().unwrap(),
+            "Repo should be clean after commit"
+        );
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_json_mode_errors() {
+        let (temp, repo) = setup_test_repo();
+
+        // Modify the README (a tracked file) to create uncommitted changes
+        let file = temp.path().join("README.md");
+        fs::write(&file, "Modified README content").expect("Failed to write file");
+        assert!(!repo.is_clean().unwrap(), "Repo should be dirty");
+
+        // JSON mode without flags should error
+        let result = handle_uncommitted_changes(&repo, true, false, None);
+        assert!(result.is_err(), "JSON mode without flags should error");
+
+        let error_msg = result.unwrap_err().to_string();
+        assert!(
+            error_msg.contains("Uncommitted changes found"),
+            "Error should mention uncommitted changes"
+        );
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_empty_message_errors() {
+        let (temp, repo) = setup_test_repo();
+
+        // Modify a tracked file to create uncommitted changes
+        let file = temp.path().join("README.md");
+        fs::write(&file, "Modified README content").expect("Failed to write file");
+        assert!(!repo.is_clean().unwrap(), "Repo should be dirty");
+
+        // Empty message should error
+        let result = handle_uncommitted_changes(&repo, false, false, Some(""));
+        assert!(result.is_err(), "Empty message should error");
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+
+        // Whitespace-only message should also error
+        let result = handle_uncommitted_changes(&repo, false, false, Some("   "));
+        assert!(result.is_err(), "Whitespace-only message should error");
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_conflicting_flags_errors() {
+        let (_temp, repo) = setup_test_repo();
+
+        // Both amend and message should error (invariant guard)
+        let result = handle_uncommitted_changes(&repo, false, true, Some("message"));
+        assert!(result.is_err(), "Conflicting flags should error");
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot use both --amend and --message")
+        );
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_json_mode_with_amend() {
+        let (temp, repo) = setup_test_repo();
+
+        // Create a branch with a commit
+        create_branch_with_commits(&temp, "feature-json", "Initial feature");
+
+        // Modify the tracked file (not create a new untracked file)
+        let file = temp.path().join("feature.txt");
+        fs::write(&file, "Modified JSON content").expect("Failed to write file");
+        assert!(!repo.is_clean().unwrap(), "Repo should be dirty");
+
+        // JSON mode with amend flag should succeed
+        let result = handle_uncommitted_changes(&repo, true, true, None);
+        assert!(result.is_ok(), "JSON mode with amend should succeed");
+
+        // Verify working directory is clean
+        assert!(repo.is_clean().unwrap(), "Repo should be clean after amend");
     }
 }
