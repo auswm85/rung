@@ -7,6 +7,20 @@ use git2::{BranchType, Oid, RepositoryState, Signature};
 use crate::error::{Error, Result};
 use crate::traits::GitOps;
 
+/// Predicted conflict for a single commit during a rebase operation.
+///
+/// This is used by the conflict prediction system to warn users about
+/// potential conflicts before starting a sync operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictPrediction {
+    /// The commit that would cause conflicts.
+    pub commit: Oid,
+    /// The commit message (first line).
+    pub commit_summary: String,
+    /// Files that would conflict when applying this commit.
+    pub conflicting_files: Vec<String>,
+}
+
 /// Divergence state between a local branch and its tracking remote (upstream, falls back to origin).
 ///
 /// This is distinct from `BranchState::Diverged` which tracks divergence from the
@@ -335,6 +349,8 @@ impl Repository {
     pub fn create_commit(&self, message: &str) -> Result<Oid> {
         let sig = self.signature()?;
         let mut index = self.inner.index()?;
+        // Reload index from disk in case it was modified by external commands (e.g., git add)
+        index.read(false)?;
         let tree_id = index.write_tree()?;
         let tree = self.inner.find_tree(tree_id)?;
 
@@ -565,6 +581,113 @@ impl Repository {
             .filter_map(|s| s.path().map(String::from))
             .collect();
         Ok(conflicts)
+    }
+
+    /// Predict conflicts that would occur when rebasing a branch onto a target.
+    ///
+    /// This simulates the rebase by using `git merge-tree` to check if each
+    /// commit would conflict when applied to the target. Unlike an actual rebase,
+    /// this does not modify any files or refs.
+    ///
+    /// # Arguments
+    /// * `branch` - The branch to check for conflicts
+    /// * `onto` - The target commit to rebase onto
+    ///
+    /// # Returns
+    /// A list of commits that would cause conflicts, along with the conflicting files.
+    /// An empty list means no conflicts are predicted.
+    ///
+    /// # Errors
+    /// Returns error if git operations fail.
+    pub fn predict_rebase_conflicts(
+        &self,
+        branch: &str,
+        onto: Oid,
+    ) -> Result<Vec<ConflictPrediction>> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+        let branch_commit = self.branch_commit(branch)?;
+        let merge_base = self.merge_base(branch_commit, onto)?;
+
+        // Get commits to replay (in reverse order: oldest first)
+        let commits = self.commits_between(merge_base, branch_commit)?;
+
+        if commits.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut predictions = Vec::new();
+
+        // Track the current base for each simulated cherry-pick
+        let mut current_base = onto;
+
+        // Process commits oldest-first (reverse of revwalk order)
+        for commit_oid in commits.iter().rev() {
+            let commit = self.inner.find_commit(*commit_oid)?;
+
+            // Skip merge commits (they have multiple parents)
+            if commit.parent_count() != 1 {
+                continue;
+            }
+
+            let parent_oid = commit.parent_id(0)?;
+
+            // Use git merge-tree to simulate cherry-picking this commit onto current_base
+            // For cherry-pick simulation:
+            // - merge-base: parent of the commit being cherry-picked
+            // - branch1 (ours): current_base (where we're rebasing onto)
+            // - branch2 (theirs): the commit being cherry-picked
+            let output = std::process::Command::new("git")
+                .args([
+                    "merge-tree",
+                    "--write-tree",
+                    &format!("--merge-base={parent_oid}"),
+                    &current_base.to_string(),
+                    &commit_oid.to_string(),
+                ])
+                .current_dir(workdir)
+                .output()
+                .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
+
+            // git merge-tree exits with 0 on success (no conflicts) and non-zero on conflicts
+            if !output.status.success() {
+                // Parse the output for conflict information
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let mut conflicting_files = Vec::new();
+
+                // The output format includes lines like:
+                // CONFLICT (content): Merge conflict in <filename>
+                for line in stdout.lines() {
+                    if let Some(rest) = line.strip_prefix("CONFLICT") {
+                        // Try to extract the filename
+                        if let Some(idx) = rest.find(" in ") {
+                            let filename = rest[idx + 4..].trim().to_string();
+                            if !conflicting_files.contains(&filename) {
+                                conflicting_files.push(filename);
+                            }
+                        }
+                    }
+                }
+
+                // If we couldn't parse specific files, note that there was a conflict
+                if conflicting_files.is_empty() {
+                    conflicting_files.push("<conflict detected>".to_string());
+                }
+
+                let summary = commit.summary().unwrap_or("").to_string();
+
+                predictions.push(ConflictPrediction {
+                    commit: *commit_oid,
+                    commit_summary: summary,
+                    conflicting_files,
+                });
+            }
+
+            // Update base for next commit simulation.
+            // After a conflict, we assume the commit would apply as-is for coverage.
+            current_base = *commit_oid;
+        }
+
+        Ok(predictions)
     }
 
     /// Abort an in-progress rebase.
@@ -953,6 +1076,10 @@ impl GitOps for Repository {
         Self::conflicting_files(self)
     }
 
+    fn predict_rebase_conflicts(&self, branch: &str, onto: Oid) -> Result<Vec<ConflictPrediction>> {
+        Self::predict_rebase_conflicts(self, branch, onto)
+    }
+
     fn rebase_abort(&self) -> Result<()> {
         Self::rebase_abort(self)
     }
@@ -1149,5 +1276,213 @@ mod tests {
 
         // Working directory should be clean
         assert!(repo.is_clean().unwrap());
+    }
+
+    // === Conflict Prediction Tests ===
+
+    /// Helper to create a commit with a specific file content
+    fn create_commit_with_file(
+        temp: &TempDir,
+        repo: &Repository,
+        filename: &str,
+        content: &str,
+        message: &str,
+    ) -> Oid {
+        fs::write(temp.path().join(filename), content).unwrap();
+        repo.stage_all().unwrap();
+        repo.create_commit(message).unwrap()
+    }
+
+    /// Helper to force checkout a branch (handles dirty working directory)
+    fn force_checkout(repo: &Repository, branch_name: &str) {
+        let branch = repo
+            .inner
+            .find_branch(branch_name, BranchType::Local)
+            .unwrap();
+        let reference = branch.get();
+        let object = reference.peel(git2::ObjectType::Commit).unwrap();
+
+        let mut checkout_opts = git2::build::CheckoutBuilder::new();
+        checkout_opts.force();
+
+        repo.inner
+            .checkout_tree(&object, Some(&mut checkout_opts))
+            .unwrap();
+        repo.inner
+            .set_head(&format!("refs/heads/{branch_name}"))
+            .unwrap();
+    }
+
+    #[test]
+    fn test_predict_rebase_conflicts_no_conflicts() {
+        let (temp, repo) = init_test_repo();
+        let main_branch = repo.current_branch().unwrap();
+
+        // Create a file on main
+        create_commit_with_file(&temp, &repo, "file.txt", "main content", "Main commit");
+
+        // Create feature branch
+        repo.create_branch("feature").unwrap();
+        repo.checkout("feature").unwrap();
+
+        // Add a different file on feature
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "feature.txt",
+            "feature content",
+            "Feature commit",
+        );
+
+        // Get main's tip
+        repo.checkout(&main_branch).unwrap();
+        let main_tip = repo.branch_commit(&main_branch).unwrap();
+
+        // Predict conflicts - should be empty (different files)
+        let predictions = repo.predict_rebase_conflicts("feature", main_tip).unwrap();
+        assert!(predictions.is_empty(), "Expected no conflicts");
+    }
+
+    #[test]
+    fn test_predict_rebase_conflicts_with_conflict() {
+        let (temp, repo) = init_test_repo();
+        let main_branch = repo.current_branch().unwrap();
+
+        // Create a file on main
+        create_commit_with_file(&temp, &repo, "shared.txt", "original\n", "Initial shared");
+
+        // Save this commit as the base (where feature will branch from)
+        let base_commit = repo.branch_commit(&main_branch).unwrap();
+
+        // Create feature branch from this point
+        repo.create_branch("feature").unwrap();
+        repo.checkout("feature").unwrap();
+
+        // Modify the file on feature
+        let feature_commit = create_commit_with_file(
+            &temp,
+            &repo,
+            "shared.txt",
+            "feature modification\n",
+            "Feature changes shared",
+        );
+
+        // Go back to main and make a conflicting change
+        // Use force checkout to avoid conflict with working directory
+        force_checkout(&repo, &main_branch);
+
+        let main_tip = create_commit_with_file(
+            &temp,
+            &repo,
+            "shared.txt",
+            "main modification\n",
+            "Main changes shared",
+        );
+
+        // Verify the setup
+        let merge_base = repo.merge_base(feature_commit, main_tip).unwrap();
+        assert_eq!(
+            merge_base, base_commit,
+            "Merge base should be the original shared commit"
+        );
+
+        let commits = repo.commits_between(merge_base, feature_commit).unwrap();
+        assert_eq!(commits.len(), 1, "Should have 1 commit to replay");
+
+        // Predict conflicts - should detect conflict in shared.txt
+        let predictions = repo.predict_rebase_conflicts("feature", main_tip).unwrap();
+        assert!(
+            !predictions.is_empty(),
+            "Expected conflicts, got {predictions:?}"
+        );
+        assert!(
+            predictions[0]
+                .conflicting_files
+                .iter()
+                .any(|f| f == "shared.txt"),
+            "Expected shared.txt to conflict"
+        );
+    }
+
+    #[test]
+    fn test_predict_rebase_conflicts_multiple_commits() {
+        let (temp, repo) = init_test_repo();
+        let main_branch = repo.current_branch().unwrap();
+
+        // Create initial file
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "file.txt",
+            "line 1\nline 2\nline 3\n",
+            "Initial",
+        );
+
+        let base_commit = repo.branch_commit(&main_branch).unwrap();
+
+        // Create feature branch
+        repo.create_branch("feature").unwrap();
+        repo.checkout("feature").unwrap();
+
+        // Make multiple commits on feature
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "file.txt",
+            "line 1 modified\nline 2\nline 3\n",
+            "Commit 1",
+        );
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "other.txt",
+            "other content\n",
+            "Commit 2 - different file",
+        );
+
+        // Go back to main and make conflicting changes
+        // Use force checkout to avoid conflict with working directory
+        force_checkout(&repo, &main_branch);
+        repo.reset_branch(&main_branch, base_commit).unwrap();
+        force_checkout(&repo, &main_branch);
+
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "file.txt",
+            "line 1 from main\nline 2\nline 3\n",
+            "Main modifies line 1",
+        );
+
+        let main_tip = repo.branch_commit(&main_branch).unwrap();
+
+        // Predict conflicts
+        let predictions = repo.predict_rebase_conflicts("feature", main_tip).unwrap();
+
+        // Should have at least one conflict (first commit modifies same line as main)
+        assert!(
+            !predictions.is_empty(),
+            "Expected at least one conflicting commit"
+        );
+    }
+
+    #[test]
+    fn test_predict_rebase_conflicts_already_synced() {
+        let (temp, repo) = init_test_repo();
+        let main_branch = repo.current_branch().unwrap();
+
+        // Create a file on main
+        create_commit_with_file(&temp, &repo, "file.txt", "content", "Main commit");
+
+        // Create feature branch at current HEAD
+        repo.create_branch("feature").unwrap();
+
+        // Feature is already at main's tip, so no commits to rebase
+        let main_tip = repo.branch_commit(&main_branch).unwrap();
+        let predictions = repo.predict_rebase_conflicts("feature", main_tip).unwrap();
+        assert!(
+            predictions.is_empty(),
+            "Already synced should have no predictions"
+        );
     }
 }

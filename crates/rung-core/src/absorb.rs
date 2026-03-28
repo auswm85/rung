@@ -393,6 +393,13 @@ mod tests {
         fn conflicting_files(&self) -> rung_git::Result<Vec<String>> {
             unimplemented!()
         }
+        fn predict_rebase_conflicts(
+            &self,
+            _branch: &str,
+            _onto: Oid,
+        ) -> rung_git::Result<Vec<rung_git::ConflictPrediction>> {
+            unimplemented!()
+        }
         fn rebase_abort(&self) -> rung_git::Result<()> {
             unimplemented!()
         }

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use git2::Oid;
 
-use crate::{BlameResult, Hunk, RemoteDivergence, Result};
+use crate::{BlameResult, ConflictPrediction, Hunk, RemoteDivergence, Result};
 
 /// Trait for git repository operations.
 ///
@@ -105,6 +105,12 @@ pub trait GitOps {
 
     /// Get files with conflicts during a rebase.
     fn conflicting_files(&self) -> Result<Vec<String>>;
+
+    /// Predict conflicts that would occur when rebasing a branch onto a target.
+    ///
+    /// Returns a list of commits that would cause conflicts along with the
+    /// conflicting files. An empty list means no conflicts are predicted.
+    fn predict_rebase_conflicts(&self, branch: &str, onto: Oid) -> Result<Vec<ConflictPrediction>>;
 
     /// Abort a rebase in progress.
     fn rebase_abort(&self) -> Result<()>;

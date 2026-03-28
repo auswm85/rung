@@ -5,6 +5,7 @@
 
 mod execute;
 mod plan;
+mod predict;
 mod reconcile;
 mod types;
 mod undo;
@@ -15,6 +16,7 @@ pub use types::*;
 // Re-export all public functions
 pub use execute::{abort_sync, continue_sync, execute_sync};
 pub use plan::create_sync_plan;
+pub use predict::predict_sync_conflicts;
 pub use reconcile::{reconcile_merged, remove_stale_branches};
 pub use undo::undo_sync;
 

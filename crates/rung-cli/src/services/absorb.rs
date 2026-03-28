@@ -155,6 +155,13 @@ mod tests {
         fn conflicting_files(&self) -> rung_git::Result<Vec<String>> {
             self.inner.conflicting_files()
         }
+        fn predict_rebase_conflicts(
+            &self,
+            branch: &str,
+            onto: Oid,
+        ) -> rung_git::Result<Vec<rung_git::ConflictPrediction>> {
+            self.inner.predict_rebase_conflicts(branch, onto)
+        }
         fn rebase_abort(&self) -> rung_git::Result<()> {
             self.inner.rebase_abort()
         }
