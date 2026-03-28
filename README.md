@@ -200,6 +200,8 @@ rung submit --dry-run                # Preview what would happen without updatin
 rung submit --draft                  # Create PRs as drafts
 rung submit --force                  # Force push (uses --force-with-lease)
 rung submit --title "My PR title"    # Custom title (overrides commit message)
+rung submit --amend                  # Amend uncommitted changes to current commit
+rung submit -m "commit message"      # Create new commit with uncommitted changes
 ```
 
 **Options:**
@@ -207,6 +209,8 @@ rung submit --title "My PR title"    # Custom title (overrides commit message)
 - `--draft` - Create PRs as drafts
 - `--force` - Force push using `--force-with-lease` for safety, even if remote has changes
 - `-t, --title <title>` - Custom PR title for current branch (overrides commit message)
+- `--amend` - Amend staged/unstaged changes to the current commit before pushing *(v0.8.0+)*
+- `-m, --message <message>` - Create a new commit with the given message before pushing *(v0.8.0+)*
 
 ### `rung merge`
 
