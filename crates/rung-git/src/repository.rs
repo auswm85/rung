@@ -378,9 +378,9 @@ impl Repository {
             .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
 
         if output.status.success() {
-            // Return the new HEAD commit
-            let branch = self.current_branch()?;
-            self.branch_commit(&branch)
+            // Return the new HEAD commit directly (works even on detached HEAD)
+            let head = self.inner.head()?;
+            Ok(head.peel_to_commit()?.id())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             Err(Error::Git2(git2::Error::from_str(&stderr)))

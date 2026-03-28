@@ -143,8 +143,12 @@ pub enum Commands {
     /// Pushes all stack branches to the remote and creates or
     /// updates pull requests with stack navigation links.
     ///
-    /// If there are uncommitted changes, you'll be prompted to amend or create
-    /// a new commit. Use --amend or -m to skip the prompt.
+    /// If there are uncommitted changes, you'll be prompted to choose:
+    /// - Amend to last commit
+    /// - Create a new commit
+    /// - Skip (proceed without committing)
+    ///
+    /// Use --amend or -m "message" to skip the prompt.
     #[command(alias = "sm")]
     Submit {
         /// Create PRs as drafts (won't trigger CI).

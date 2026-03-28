@@ -228,6 +228,11 @@ fn handle_uncommitted_changes(
     amend: bool,
     message: Option<&str>,
 ) -> Result<()> {
+    // Guard: amend and message are mutually exclusive
+    if amend && message.is_some() {
+        bail!("Cannot use both --amend and --message flags together");
+    }
+
     // If working directory is clean, nothing to do
     if repo.is_clean()? {
         return Ok(());
@@ -247,6 +252,10 @@ fn handle_uncommitted_changes(
     }
 
     if let Some(msg) = message {
+        let msg = msg.trim();
+        if msg.is_empty() {
+            bail!("Commit message cannot be empty");
+        }
         if !json {
             output::info("Staging changes and creating commit...");
         }
@@ -796,6 +805,41 @@ mod test {
         assert!(
             error_msg.contains("Uncommitted changes found"),
             "Error should mention uncommitted changes"
+        );
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_empty_message_errors() {
+        let (temp, repo) = setup_test_repo();
+
+        // Modify a tracked file to create uncommitted changes
+        let file = temp.path().join("README.md");
+        fs::write(&file, "Modified README content").expect("Failed to write file");
+        assert!(!repo.is_clean().unwrap(), "Repo should be dirty");
+
+        // Empty message should error
+        let result = handle_uncommitted_changes(&repo, false, false, Some(""));
+        assert!(result.is_err(), "Empty message should error");
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+
+        // Whitespace-only message should also error
+        let result = handle_uncommitted_changes(&repo, false, false, Some("   "));
+        assert!(result.is_err(), "Whitespace-only message should error");
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_handle_uncommitted_changes_conflicting_flags_errors() {
+        let (_temp, repo) = setup_test_repo();
+
+        // Both amend and message should error (invariant guard)
+        let result = handle_uncommitted_changes(&repo, false, true, Some("message"));
+        assert!(result.is_err(), "Conflicting flags should error");
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot use both --amend and --message")
         );
     }
 
