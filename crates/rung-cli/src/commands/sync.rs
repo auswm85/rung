@@ -446,24 +446,10 @@ fn execute_sync_plan(
         output::info(&format!("Syncing {} branches...", plan.branches.len()));
     }
 
-    // Clone the plan since execute_sync takes ownership
-    let plan_clone = sync::SyncPlan {
-        branches: plan
-            .branches
-            .iter()
-            .map(|a| sync::SyncAction {
-                branch: a.branch.clone(),
-                old_base: a.old_base.clone(),
-                new_base: a.new_base.clone(),
-                parent_branch: a.parent_branch.clone(),
-            })
-            .collect(),
-    };
-
     if let Some(service) = service {
-        Ok(service.execute_sync(state, plan_clone)?)
+        Ok(service.execute_sync(state, plan.clone())?)
     } else {
-        Ok(sync::execute_sync(repo, state, plan_clone)?)
+        Ok(sync::execute_sync(repo, state, plan.clone())?)
     }
 }
 

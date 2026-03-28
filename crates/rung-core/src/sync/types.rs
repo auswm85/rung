@@ -24,14 +24,14 @@ pub enum SyncResult {
 }
 
 /// Plan for syncing a stack.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncPlan {
     /// Branches to rebase, in order.
     pub branches: Vec<SyncAction>,
 }
 
 /// A single rebase action in the sync plan.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncAction {
     /// Branch to rebase.
     pub branch: String,

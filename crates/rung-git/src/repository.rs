@@ -652,11 +652,20 @@ impl Repository {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let mut lines = stdout.lines();
 
-            // Extract the tree OID from the first line for proper conflict chaining
-            // This tree represents the result of applying this commit (with or without conflicts)
-            let result_tree = lines
-                .next()
-                .and_then(|line| Oid::from_str(line.trim()).ok());
+            // Extract the tree OID from the first line for proper conflict chaining.
+            // This tree represents the result of applying this commit (with or without conflicts).
+            // We must have a valid tree OID to chain subsequent commits correctly.
+            let first_line = lines.next();
+            let result_tree = first_line.and_then(|line| Oid::from_str(line.trim()).ok());
+
+            // Fail early if we can't parse the tree OID - continuing would break conflict chaining
+            let result_tree = result_tree.ok_or_else(|| {
+                Error::Git2(git2::Error::from_str(&format!(
+                    "failed to parse merge-tree output for commit {}: expected tree OID on first line, got: {:?}",
+                    commit_oid,
+                    first_line.unwrap_or("<empty output>")
+                )))
+            })?;
 
             // git merge-tree exits with 0 on success (no conflicts) and non-zero on conflicts
             if !output.status.success() {
@@ -693,8 +702,7 @@ impl Repository {
             // Update base for next commit simulation.
             // Use the synthetic tree from merge-tree output for proper conflict chaining.
             // This simulates applying each commit on top of the previous result.
-            // Fall back to the commit OID if we couldn't parse the tree.
-            current_base = result_tree.unwrap_or(*commit_oid);
+            current_base = result_tree;
         }
 
         Ok(predictions)
