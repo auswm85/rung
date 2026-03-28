@@ -496,6 +496,30 @@ mod tests {
     }
 
     #[test]
+    fn test_sync_plan_skips_branch_with_stale_parent() {
+        let (_temp, rung_repo, git_repo) = init_test_repo();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create only feature-b in git (feature-a is stale/deleted)
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-b", &head, false).unwrap();
+
+        // Stack has feature-a -> feature-b, but feature-a doesn't exist in git
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+
+        // Plan should skip feature-b because its parent (feature-a) doesn't exist
+        // This hits line 52 in plan.rs: continue when parent is a stale stack branch
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        assert!(
+            plan.is_empty(),
+            "Plan should be empty - both branches are effectively stale"
+        );
+    }
+
+    #[test]
     fn test_abort_sync_restores_branches() {
         let (temp, rung_repo, git_repo) = init_test_repo();
         let state = State::new(temp.path()).unwrap();

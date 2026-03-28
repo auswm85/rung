@@ -630,4 +630,18 @@ mod tests {
         let name = BranchName::from_message("feat: add auth\n\nDetailed description here").unwrap();
         assert_eq!(name.as_str(), "feat-add-auth");
     }
+
+    #[test]
+    fn test_into_inner() {
+        let name = BranchName::new("feature/auth").unwrap();
+        let inner: String = name.into_inner();
+        assert_eq!(inner, "feature/auth");
+    }
+
+    #[test]
+    fn test_as_ref() {
+        let name = BranchName::new("feature/auth").unwrap();
+        let s: &str = name.as_ref();
+        assert_eq!(s, "feature/auth");
+    }
 }

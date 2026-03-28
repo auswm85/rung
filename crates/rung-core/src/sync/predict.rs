@@ -357,6 +357,33 @@ mod tests {
     }
 
     #[test]
+    fn test_predict_invalid_commit_oid() {
+        let repo = MockRepo::new();
+        let plan = SyncPlan {
+            branches: vec![SyncAction {
+                branch: "feature".to_string(),
+                old_base: "abc1234".to_string(),
+                new_base: "invalid-not-a-valid-oid".to_string(), // Invalid OID
+                parent_branch: "main".to_string(),
+            }],
+        };
+
+        let result = predict_sync_conflicts(&repo, &plan);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("invalid commit"),
+            "Error should mention invalid commit: {err_str}"
+        );
+        assert!(
+            err_str.contains("feature"),
+            "Error should mention branch name: {err_str}"
+        );
+    }
+
+    #[test]
     fn test_conflicting_files_deduplication() {
         let prediction = BranchConflictPrediction {
             branch: "feature".to_string(),
