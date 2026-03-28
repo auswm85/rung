@@ -648,15 +648,23 @@ impl Repository {
                 .output()
                 .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
 
+            // Parse the output - first line is always the resulting tree OID
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut lines = stdout.lines();
+
+            // Extract the tree OID from the first line for proper conflict chaining
+            // This tree represents the result of applying this commit (with or without conflicts)
+            let result_tree = lines
+                .next()
+                .and_then(|line| Oid::from_str(line.trim()).ok());
+
             // git merge-tree exits with 0 on success (no conflicts) and non-zero on conflicts
             if !output.status.success() {
-                // Parse the output for conflict information
-                let stdout = String::from_utf8_lossy(&output.stdout);
                 let mut conflicting_files = Vec::new();
 
                 // The output format includes lines like:
                 // CONFLICT (content): Merge conflict in <filename>
-                for line in stdout.lines() {
+                for line in lines {
                     if let Some(rest) = line.strip_prefix("CONFLICT") {
                         // Try to extract the filename
                         if let Some(idx) = rest.find(" in ") {
@@ -683,8 +691,10 @@ impl Repository {
             }
 
             // Update base for next commit simulation.
-            // After a conflict, we assume the commit would apply as-is for coverage.
-            current_base = *commit_oid;
+            // Use the synthetic tree from merge-tree output for proper conflict chaining.
+            // This simulates applying each commit on top of the previous result.
+            // Fall back to the commit OID if we couldn't parse the tree.
+            current_base = result_tree.unwrap_or(*commit_oid);
         }
 
         Ok(predictions)

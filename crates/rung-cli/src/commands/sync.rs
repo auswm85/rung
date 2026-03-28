@@ -148,14 +148,16 @@ pub fn run(
     // Determine base branch
     let base_branch = determine_base_branch(base, github_info.as_ref(), &rt)?;
 
-    // Fetch base branch
-    if !json {
-        output::info(&format!("Fetching {base_branch}..."));
-    }
-    if let Err(e) = repo.fetch(&base_branch)
-        && !json
-    {
-        output::warn(&format!("Could not fetch {base_branch}: {e}"));
+    // Fetch base branch (skip for --check to keep it side-effect free)
+    if !check {
+        if !json {
+            output::info(&format!("Fetching {base_branch}..."));
+        }
+        if let Err(e) = repo.fetch(&base_branch)
+            && !json
+        {
+            output::warn(&format!("Could not fetch {base_branch}: {e}"));
+        }
     }
 
     // Create GitHub client (if available)
@@ -293,6 +295,34 @@ fn run_sync_phases(
         _ => None,
     };
 
+    // Handle --check mode early (side-effect free)
+    // Skip reconcile/stale removal phases to keep check purely read-only
+    if check {
+        let stack = state.load_stack()?;
+        if stack.is_empty() {
+            if json {
+                let output = ConflictPredictionOutput {
+                    check: true,
+                    has_conflicts: false,
+                    branches: vec![],
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
+                return Ok(());
+            }
+            output::info("No branches in stack - nothing to check");
+            return Ok(());
+        }
+
+        let plan = if let Some(service) = &service {
+            service.create_sync_plan(&stack, base_branch)?
+        } else {
+            sync::create_sync_plan(repo, &stack, base_branch)?
+        };
+
+        let predictions = predict_sync_conflicts(repo, &plan)?;
+        return print_conflict_predictions(&predictions, json);
+    }
+
     // Phase 1: Detect merged PRs
     let reconcile_result = run_phase_detect_merged(service.as_ref(), state, base_branch, rt, json)?;
 
@@ -312,11 +342,7 @@ fn run_sync_phases(
         sync::create_sync_plan(repo, &stack, base_branch)?
     };
 
-    // Handle --check and --dry-run modes
-    if check {
-        let predictions = predict_sync_conflicts(repo, &plan)?;
-        return print_conflict_predictions(&predictions, json);
-    }
+    // Handle --dry-run mode
     if dry_run {
         return print_dry_run(&plan, &reconcile_result, json, github_auth_unavailable);
     }
@@ -429,6 +455,7 @@ fn execute_sync_plan(
                 branch: a.branch.clone(),
                 old_base: a.old_base.clone(),
                 new_base: a.new_base.clone(),
+                parent_branch: a.parent_branch.clone(),
             })
             .collect(),
     };

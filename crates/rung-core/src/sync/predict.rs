@@ -41,10 +41,6 @@ pub fn predict_sync_conflicts(
             ))
         })?;
 
-        // Get the name of the target (for display purposes)
-        // The target is the parent branch's new position
-        let onto_name = &action.new_base[..7.min(action.new_base.len())];
-
         // Predict conflicts for this branch
         let git_predictions = repo.predict_rebase_conflicts(&action.branch, onto_oid)?;
 
@@ -62,7 +58,7 @@ pub fn predict_sync_conflicts(
 
             predictions.branches.push(BranchConflictPrediction {
                 branch: action.branch.clone(),
-                onto: onto_name.to_string(),
+                onto: action.parent_branch.clone(),
                 conflicts,
             });
         }
@@ -269,6 +265,7 @@ mod tests {
                 branch: "feature".to_string(),
                 old_base: "abc1234".to_string(),
                 new_base: "0000000000000000000000000000000000000000".to_string(),
+                parent_branch: "main".to_string(),
             }],
         };
 
@@ -293,6 +290,7 @@ mod tests {
                 branch: "feature".to_string(),
                 old_base: "abc1234".to_string(),
                 new_base: "0000000000000000000000000000000000000000".to_string(),
+                parent_branch: "main".to_string(),
             }],
         };
 
@@ -300,6 +298,7 @@ mod tests {
         assert!(result.has_conflicts());
         assert_eq!(result.conflict_count(), 1);
         assert_eq!(result.branches[0].branch, "feature");
+        assert_eq!(result.branches[0].onto, "main");
         assert_eq!(result.branches[0].conflicts.len(), 1);
         assert_eq!(result.branches[0].conflicts[0].files, vec!["src/lib.rs"]);
     }
@@ -330,16 +329,19 @@ mod tests {
                     branch: "feature-a".to_string(),
                     old_base: "abc1234".to_string(),
                     new_base: "0000000000000000000000000000000000000000".to_string(),
+                    parent_branch: "main".to_string(),
                 },
                 SyncAction {
                     branch: "feature-b".to_string(),
                     old_base: "def5678".to_string(),
                     new_base: "0000000000000000000000000000000000000000".to_string(),
+                    parent_branch: "main".to_string(),
                 },
                 SyncAction {
                     branch: "feature-c".to_string(), // No conflicts for this one
                     old_base: "ghi9012".to_string(),
                     new_base: "0000000000000000000000000000000000000000".to_string(),
+                    parent_branch: "main".to_string(),
                 },
             ],
         };

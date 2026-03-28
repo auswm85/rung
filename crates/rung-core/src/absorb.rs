@@ -286,6 +286,7 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::path::Path;
+    use std::vec;
 
     // Mock implementation for AbsorbOps
     struct MockRepo {
@@ -398,7 +399,7 @@ mod tests {
             _branch: &str,
             _onto: Oid,
         ) -> rung_git::Result<Vec<rung_git::ConflictPrediction>> {
-            unimplemented!()
+            Ok(vec![])
         }
         fn rebase_abort(&self) -> rung_git::Result<()> {
             unimplemented!()

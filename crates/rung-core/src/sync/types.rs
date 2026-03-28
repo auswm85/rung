@@ -39,6 +39,8 @@ pub struct SyncAction {
     pub old_base: String,
     /// New base commit (parent's new tip).
     pub new_base: String,
+    /// Parent branch name (for display purposes).
+    pub parent_branch: String,
 }
 
 impl SyncPlan {
