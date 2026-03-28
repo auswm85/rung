@@ -641,7 +641,7 @@ fn print_conflict_predictions(predictions: &SyncConflictPrediction, json: bool) 
         );
         for conflict in &branch_prediction.conflicts {
             // Truncate commit hash for display
-            let hash_short = &conflict.commit_hash[..7.min(conflict.commit_hash.len())];
+            let hash_short: String = conflict.commit_hash.chars().take(7).collect();
             println!("    • {} (\"{}\"):", hash_short, conflict.commit_summary);
             for file in &conflict.files {
                 println!("      - {file}");

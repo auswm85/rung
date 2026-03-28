@@ -1495,4 +1495,96 @@ mod tests {
             "Already synced should have no predictions"
         );
     }
+
+    /// Regression test for tree chaining in conflict prediction.
+    ///
+    /// This test verifies that when simulating a rebase with multiple commits,
+    /// we use the synthetic tree OID from each merge-tree output as the base
+    /// for the next commit simulation. Without proper tree chaining, the second
+    /// commit's conflict detection would fail because it wouldn't account for
+    /// the changes from the first commit.
+    #[test]
+    fn test_predict_rebase_conflicts_tree_chaining() {
+        let (temp, repo) = init_test_repo();
+        let main_branch = repo.current_branch().unwrap();
+
+        // Create initial file on main
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "shared.txt",
+            "line 1\nline 2\nline 3\n",
+            "Initial shared file",
+        );
+
+        let base_commit = repo.branch_commit(&main_branch).unwrap();
+
+        // Create feature branch
+        repo.create_branch("feature").unwrap();
+        repo.checkout("feature").unwrap();
+
+        // Commit 1: Add a NEW file (will rebase cleanly - no conflict)
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "feature_only.txt",
+            "feature content\n",
+            "Add feature-only file",
+        );
+
+        // Commit 2: Modify shared.txt line 2 (will conflict with main's changes)
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "shared.txt",
+            "line 1\nline 2 from feature\nline 3\n",
+            "Modify shared line 2",
+        );
+
+        // Go back to main and make conflicting changes to line 2
+        force_checkout(&repo, &main_branch);
+        repo.reset_branch(&main_branch, base_commit).unwrap();
+        force_checkout(&repo, &main_branch);
+
+        create_commit_with_file(
+            &temp,
+            &repo,
+            "shared.txt",
+            "line 1\nline 2 from main\nline 3\n",
+            "Main modifies line 2",
+        );
+
+        let main_tip = repo.branch_commit(&main_branch).unwrap();
+
+        // Predict conflicts
+        let predictions = repo.predict_rebase_conflicts("feature", main_tip).unwrap();
+
+        // Key assertion: Only ONE commit should conflict (the second one that modifies shared.txt)
+        // The first commit adding feature_only.txt should rebase cleanly.
+        // If tree chaining is broken, we might get 0 conflicts (wrong base) or 2 conflicts.
+        assert_eq!(
+            predictions.len(),
+            1,
+            "Expected exactly one conflicting commit (the second one). \
+             Got {} conflicts. This indicates tree chaining may be broken.",
+            predictions.len()
+        );
+
+        // Verify it's the correct commit that conflicts
+        assert!(
+            predictions[0]
+                .commit_summary
+                .contains("Modify shared line 2"),
+            "Expected the second commit to conflict, got: {}",
+            predictions[0].commit_summary
+        );
+
+        // Verify the conflicting file
+        assert!(
+            predictions[0]
+                .conflicting_files
+                .contains(&"shared.txt".to_string()),
+            "Expected shared.txt to be the conflicting file"
+        );
+    }
 }
