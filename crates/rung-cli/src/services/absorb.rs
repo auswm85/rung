@@ -143,6 +143,9 @@ mod tests {
         fn create_commit(&self, message: &str) -> rung_git::Result<Oid> {
             self.inner.create_commit(message)
         }
+        fn amend_commit(&self, new_message: Option<&str>) -> rung_git::Result<Oid> {
+            self.inner.amend_commit(new_message)
+        }
         fn rebase_onto(&self, target: Oid) -> rung_git::Result<()> {
             self.inner.rebase_onto(target)
         }

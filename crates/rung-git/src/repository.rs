@@ -354,6 +354,39 @@ impl Repository {
         Ok(oid)
     }
 
+    /// Amend the last commit with staged changes.
+    ///
+    /// Equivalent to `git commit --amend --no-edit` or
+    /// `git commit --amend -m "message"` if a new message is provided.
+    ///
+    /// # Errors
+    /// Returns error if amend fails or no commits exist.
+    pub fn amend_commit(&self, new_message: Option<&str>) -> Result<Oid> {
+        let workdir = self.workdir().ok_or(Error::NotARepository)?;
+
+        let mut args = vec!["commit", "--amend"];
+
+        match new_message {
+            Some(msg) => args.extend(["-m", msg]),
+            None => args.push("--no-edit"),
+        }
+
+        let output = std::process::Command::new("git")
+            .args(&args)
+            .current_dir(workdir)
+            .output()
+            .map_err(|e| Error::Git2(git2::Error::from_str(&e.to_string())))?;
+
+        if output.status.success() {
+            // Return the new HEAD commit
+            let branch = self.current_branch()?;
+            self.branch_commit(&branch)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(Error::Git2(git2::Error::from_str(&stderr)))
+        }
+    }
+
     // === Commit operations ===
 
     /// Get a commit by its SHA.
@@ -904,6 +937,10 @@ impl GitOps for Repository {
         Self::create_commit(self, message)
     }
 
+    fn amend_commit(&self, new_message: Option<&str>) -> Result<Oid> {
+        Self::amend_commit(self, new_message)
+    }
+
     fn rebase_onto(&self, target: Oid) -> Result<()> {
         Self::rebase_onto(self, target)
     }
@@ -967,6 +1004,11 @@ mod tests {
     fn init_test_repo() -> (TempDir, Repository) {
         let temp = TempDir::new().unwrap();
         let repo = git2::Repository::init(temp.path()).unwrap();
+
+        // Configure git user for CLI operations (required for amend_commit tests in CI)
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "Test").unwrap();
+        config.set_str("user.email", "test@example.com").unwrap();
 
         // Create initial commit with owned signature (avoids borrowing repo)
         let sig = git2::Signature::now("Test", "test@example.com").unwrap();
@@ -1039,5 +1081,73 @@ mod tests {
         assert!(branches.len() >= 3); // main/master + 2 features
         assert!(branches.iter().any(|b| b == "feature/a"));
         assert!(branches.iter().any(|b| b == "feature/b"));
+    }
+
+    #[test]
+    fn test_amend_commit_preserves_message() {
+        let (temp, repo) = init_test_repo();
+
+        // Create and commit a file
+        fs::write(temp.path().join("test.txt"), "initial").unwrap();
+        repo.stage_all().unwrap();
+        repo.create_commit("Original message").unwrap();
+
+        let original_msg = repo
+            .branch_commit_message(&repo.current_branch().unwrap())
+            .unwrap();
+        assert!(original_msg.starts_with("Original message"));
+
+        // Modify file and amend
+        fs::write(temp.path().join("test.txt"), "modified").unwrap();
+        repo.stage_all().unwrap();
+        repo.amend_commit(None).unwrap();
+
+        // Message should be preserved
+        let amended_msg = repo
+            .branch_commit_message(&repo.current_branch().unwrap())
+            .unwrap();
+        assert!(amended_msg.starts_with("Original message"));
+    }
+
+    #[test]
+    fn test_amend_commit_with_new_message() {
+        let (temp, repo) = init_test_repo();
+
+        // Create and commit a file
+        fs::write(temp.path().join("test.txt"), "initial").unwrap();
+        repo.stage_all().unwrap();
+        repo.create_commit("Original message").unwrap();
+
+        // Modify file and amend with new message
+        fs::write(temp.path().join("test.txt"), "modified").unwrap();
+        repo.stage_all().unwrap();
+        repo.amend_commit(Some("Updated message")).unwrap();
+
+        // Message should be updated
+        let amended_msg = repo
+            .branch_commit_message(&repo.current_branch().unwrap())
+            .unwrap();
+        assert!(amended_msg.starts_with("Updated message"));
+    }
+
+    #[test]
+    fn test_amend_commit_includes_staged_changes() {
+        let (temp, repo) = init_test_repo();
+
+        // Create and commit a file
+        fs::write(temp.path().join("test.txt"), "initial").unwrap();
+        repo.stage_all().unwrap();
+        let first_commit = repo.create_commit("First commit").unwrap();
+
+        // Modify file and amend
+        fs::write(temp.path().join("test.txt"), "modified").unwrap();
+        repo.stage_all().unwrap();
+        let amended_commit = repo.amend_commit(None).unwrap();
+
+        // Should create a new commit (different OID)
+        assert_ne!(first_commit, amended_commit);
+
+        // Working directory should be clean
+        assert!(repo.is_clean().unwrap());
     }
 }

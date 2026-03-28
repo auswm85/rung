@@ -92,6 +92,9 @@ pub trait GitOps {
     /// Create a commit with the staged changes.
     fn create_commit(&self, message: &str) -> Result<Oid>;
 
+    /// Amend the last commit with staged changes.
+    fn amend_commit(&self, new_message: Option<&str>) -> Result<Oid>;
+
     // === Rebase Operations ===
 
     /// Rebase the current branch onto a target commit.

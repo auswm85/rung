@@ -381,6 +381,9 @@ mod tests {
         fn create_commit(&self, _message: &str) -> rung_git::Result<Oid> {
             unimplemented!()
         }
+        fn amend_commit(&self, _new_message: Option<&str>) -> rung_git::Result<Oid> {
+            unimplemented!()
+        }
         fn rebase_onto(&self, _target: Oid) -> rung_git::Result<()> {
             unimplemented!()
         }

@@ -190,6 +190,10 @@ impl GitOps for MockGitOps {
         Ok(Oid::zero())
     }
 
+    fn amend_commit(&self, _new_message: Option<&str>) -> GitResult<Oid> {
+        Ok(Oid::zero())
+    }
+
     fn rebase_onto(&self, _target: Oid) -> GitResult<()> {
         if *self.rebase_should_fail.borrow() {
             *self.is_rebasing.borrow_mut() = true;

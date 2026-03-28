@@ -8,6 +8,7 @@ mod services;
 
 use commands::{Cli, Commands};
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     // Respect NO_COLOR environment variable (https://no-color.org/)
     if std::env::var("NO_COLOR").is_ok() {
@@ -43,7 +44,17 @@ fn main() {
             dry_run,
             force,
             title,
-        } => commands::submit::run(json, dry_run, draft, force, title.as_deref()),
+            amend,
+            message,
+        } => commands::submit::run(
+            json,
+            dry_run,
+            draft,
+            force,
+            title.as_deref(),
+            amend,
+            message.as_deref(),
+        ),
         Commands::Undo => commands::undo::run(),
         Commands::Merge { method, no_delete } => commands::merge::run(json, &method, no_delete),
         Commands::Nxt => commands::navigate::run_next(),
