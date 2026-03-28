@@ -95,9 +95,6 @@ pub fn run(
         return Ok(());
     }
 
-    // Ensure on branch
-    utils::ensure_on_branch(&repo)?;
-
     let config = SubmitConfig {
         draft,
         custom_title,
@@ -211,7 +208,10 @@ fn setup_submit(
         bail!("Rung not initialized - run `rung init` first");
     }
 
-    // Handle uncommitted changes before requiring clean state
+    // Validate branch context BEFORE any history-changing operations
+    utils::ensure_on_branch(&repo)?;
+
+    // Handle uncommitted changes (may amend/commit)
     handle_uncommitted_changes(&repo, json, amend, message)?;
 
     let stack = state.load_stack()?;
