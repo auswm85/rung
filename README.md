@@ -168,11 +168,22 @@ Sync the stack by rebasing all branches when the base moves forward.
 
 ```bash
 rung sync                # Sync all branches
+rung sync --check        # Predict conflicts before syncing
 rung sync --dry-run      # Preview what would happen
 rung sync --base develop # Sync against a different base branch
 ```
 
-If conflicts occur:
+Check for conflicts before syncing:
+
+```bash
+$ rung sync --check
+⚠️  Potential conflicts detected:
+
+  feature-a → main
+    • file.rs (abc123: "Add feature")
+```
+
+If conflicts occur during sync:
 
 ```bash
 # Resolve conflicts, then:
@@ -185,6 +196,7 @@ rung sync --abort
 
 **Options:**
 
+- `--check` - Predict conflicts without performing sync *(v0.8.0+)*
 - `--dry-run` - Show what would be done without making changes
 - `--continue` - Continue after resolving conflicts
 - `--abort` - Abort and restore from backup

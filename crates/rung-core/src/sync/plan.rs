@@ -70,6 +70,7 @@ pub fn create_sync_plan(
                 branch: branch.name.to_string(),
                 old_base: merge_base.to_string(),
                 new_base: parent_commit.to_string(),
+                parent_branch: parent_name.to_string(),
             });
 
             // Proactive cascade: mark all descendants as needing rebase

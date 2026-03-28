@@ -121,6 +121,11 @@ pub enum Commands {
         #[arg(long)]
         dry_run: bool,
 
+        /// Predict conflicts without performing sync.
+        /// Shows which branches would have conflicts and which files.
+        #[arg(long)]
+        check: bool,
+
         /// Continue a paused sync after resolving conflicts.
         #[arg(long, name = "continue")]
         continue_: bool,

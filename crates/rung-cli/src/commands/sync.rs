@@ -9,7 +9,9 @@
 
 use anyhow::{Context, Result, bail};
 use rung_core::State;
-use rung_core::sync::{self, ReconcileResult, SyncResult};
+use rung_core::sync::{
+    self, ReconcileResult, SyncConflictPrediction, SyncResult, predict_sync_conflicts,
+};
 use rung_git::Repository;
 use rung_github::{Auth, GitHubClient};
 use serde::Serialize;
@@ -68,11 +70,35 @@ struct DryRunRebase {
     new_base: String,
 }
 
+/// JSON output for conflict prediction.
+#[derive(Debug, Serialize)]
+struct ConflictPredictionOutput {
+    check: bool,
+    has_conflicts: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    branches: Vec<BranchConflictOutput>,
+}
+
+#[derive(Debug, Serialize)]
+struct BranchConflictOutput {
+    branch: String,
+    onto: String,
+    conflicts: Vec<CommitConflictOutput>,
+}
+
+#[derive(Debug, Serialize)]
+struct CommitConflictOutput {
+    commit: String,
+    message: String,
+    files: Vec<String>,
+}
+
 /// Run the sync command.
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn run(
     json: bool,
     dry_run: bool,
+    check: bool,
     continue_: bool,
     abort: bool,
     no_push: bool,
@@ -122,14 +148,16 @@ pub fn run(
     // Determine base branch
     let base_branch = determine_base_branch(base, github_info.as_ref(), &rt)?;
 
-    // Fetch base branch
-    if !json {
-        output::info(&format!("Fetching {base_branch}..."));
-    }
-    if let Err(e) = repo.fetch(&base_branch)
-        && !json
-    {
-        output::warn(&format!("Could not fetch {base_branch}: {e}"));
+    // Fetch base branch (skip for --check to keep it side-effect free)
+    if !check {
+        if !json {
+            output::info(&format!("Fetching {base_branch}..."));
+        }
+        if let Err(e) = repo.fetch(&base_branch)
+            && !json
+        {
+            output::warn(&format!("Could not fetch {base_branch}: {e}"));
+        }
     }
 
     // Create GitHub client (if available)
@@ -155,6 +183,7 @@ pub fn run(
         &rt,
         json,
         dry_run,
+        check,
         no_push,
         github_auth_unavailable,
     )
@@ -251,6 +280,7 @@ fn run_sync_phases(
     rt: &tokio::runtime::Runtime,
     json: bool,
     dry_run: bool,
+    check: bool,
     no_push: bool,
     github_auth_unavailable: bool,
 ) -> Result<()> {
@@ -265,20 +295,108 @@ fn run_sync_phases(
         _ => None,
     };
 
-    // Phase 1: Detect merged PRs (if GitHub available)
-    let reconcile_result = if let Some(service) = &service {
-        if !json {
-            output::info("Checking PRs and validating bases...");
+    // Handle --check mode early (side-effect free)
+    // Skip reconcile/stale removal phases to keep check purely read-only
+    if check {
+        let stack = state.load_stack()?;
+        if stack.is_empty() {
+            if json {
+                let output = ConflictPredictionOutput {
+                    check: true,
+                    has_conflicts: false,
+                    branches: vec![],
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
+                return Ok(());
+            }
+            output::info("No branches in stack - nothing to check");
+            return Ok(());
         }
-        let result = rt.block_on(service.detect_and_reconcile_merged(state, base_branch))?;
-        print_reconcile_results(&result, json);
-        result
+
+        let plan = if let Some(service) = &service {
+            service.create_sync_plan(&stack, base_branch)?
+        } else {
+            sync::create_sync_plan(repo, &stack, base_branch)?
+        };
+
+        let predictions = predict_sync_conflicts(repo, &plan)?;
+        return print_conflict_predictions(&predictions, json);
+    }
+
+    // Phase 1: Detect merged PRs
+    let reconcile_result = run_phase_detect_merged(service.as_ref(), state, base_branch, rt, json)?;
+
+    // Phase 2: Remove stale branches
+    run_phase_remove_stale(repo, service.as_ref(), state, json)?;
+
+    // Load stack and check if empty
+    let stack = state.load_stack()?;
+    if stack.is_empty() {
+        return handle_empty_stack(json, github_auth_unavailable);
+    }
+
+    // Phase 3: Create sync plan
+    let plan = if let Some(service) = &service {
+        service.create_sync_plan(&stack, base_branch)?
     } else {
-        ReconcileResult::default()
+        sync::create_sync_plan(repo, &stack, base_branch)?
     };
 
-    // Phase 2: Remove stale branches (via service if available, else direct)
-    let stale_result = if let Some(service) = &service {
+    // Handle --dry-run mode
+    if dry_run {
+        return print_dry_run(&plan, &reconcile_result, json, github_auth_unavailable);
+    }
+
+    // Execute sync
+    let sync_result = execute_sync_plan(repo, service.as_ref(), state, &plan, json)?;
+
+    // If paused on conflict, return early
+    if let SyncResult::Paused { .. } = &sync_result {
+        return handle_sync_result(sync_result, json, github_auth_unavailable);
+    }
+
+    // Phase 4 & 5: Update PR bases and push
+    run_phase_finalize(
+        service.as_ref(),
+        state,
+        repo,
+        &reconcile_result,
+        rt,
+        json,
+        no_push,
+    )?;
+
+    handle_sync_result(sync_result, json, github_auth_unavailable)
+}
+
+/// Phase 1: Detect merged PRs and reconcile stack.
+fn run_phase_detect_merged(
+    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    state: &State,
+    base_branch: &str,
+    rt: &tokio::runtime::Runtime,
+    json: bool,
+) -> Result<ReconcileResult> {
+    let Some(service) = service else {
+        return Ok(ReconcileResult::default());
+    };
+
+    if !json {
+        output::info("Checking PRs and validating bases...");
+    }
+    let result = rt.block_on(service.detect_and_reconcile_merged(state, base_branch))?;
+    print_reconcile_results(&result, json);
+    Ok(result)
+}
+
+/// Phase 2: Remove stale branches from stack.
+fn run_phase_remove_stale(
+    repo: &Repository,
+    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    state: &State,
+    json: bool,
+) -> Result<()> {
+    let stale_result = if let Some(service) = service {
         service.remove_stale_branches(state)?
     } else {
         sync::remove_stale_branches(repo, state)?
@@ -293,84 +411,99 @@ fn run_sync_phases(
             println!("  → {branch}");
         }
     }
+    Ok(())
+}
 
-    // Load stack after cleanup
-    let stack = state.load_stack()?;
+/// Handle empty stack case.
+fn handle_empty_stack(json: bool, github_auth_unavailable: bool) -> Result<()> {
+    if json {
+        return output_json(&SyncOutput {
+            status: SyncStatus::AlreadySynced,
+            branches_rebased: Some(0),
+            backup_id: None,
+            conflict_branch: None,
+            conflict_files: vec![],
+            github_auth_unavailable,
+        });
+    }
+    output::info("No branches in stack - nothing to sync");
+    Ok(())
+}
 
-    if stack.is_empty() {
-        if json {
-            return output_json(&SyncOutput {
-                status: SyncStatus::AlreadySynced,
-                branches_rebased: Some(0),
-                backup_id: None,
-                conflict_branch: None,
-                conflict_files: vec![],
-                github_auth_unavailable,
-            });
-        }
-        output::info("No branches in stack - nothing to sync");
-        return Ok(());
+/// Execute the sync plan.
+fn execute_sync_plan(
+    repo: &Repository,
+    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    state: &State,
+    plan: &sync::SyncPlan,
+    json: bool,
+) -> Result<SyncResult> {
+    if plan.is_empty() {
+        return Ok(SyncResult::AlreadySynced);
     }
 
-    // Phase 3: Create and execute sync plan (via service if available)
-    let plan = if let Some(service) = &service {
-        service.create_sync_plan(&stack, base_branch)?
+    if !json {
+        output::info(&format!("Syncing {} branches...", plan.branches.len()));
+    }
+
+    if let Some(service) = service {
+        Ok(service.execute_sync(state, plan.clone())?)
     } else {
-        sync::create_sync_plan(repo, &stack, base_branch)?
-    };
-
-    if dry_run {
-        return print_dry_run(&plan, &reconcile_result, json, github_auth_unavailable);
+        Ok(sync::execute_sync(repo, state, plan.clone())?)
     }
+}
 
-    let sync_result = if plan.is_empty() {
-        SyncResult::AlreadySynced
-    } else {
-        if !json {
-            output::info(&format!("Syncing {} branches...", plan.branches.len()));
-        }
-        if let Some(service) = &service {
-            service.execute_sync(state, plan)?
-        } else {
-            sync::execute_sync(repo, state, plan)?
-        }
-    };
-
-    // If paused on conflict, don't proceed
-    if let SyncResult::Paused { .. } = &sync_result {
-        return handle_sync_result(sync_result, json, github_auth_unavailable);
-    }
-
-    // Phase 4: Update GitHub PR bases
-    if let Some(service) = &service
+/// Phase 4 & 5: Update PR bases on GitHub and push branches.
+fn run_phase_finalize(
+    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    state: &State,
+    repo: &Repository,
+    reconcile_result: &ReconcileResult,
+    rt: &tokio::runtime::Runtime,
+    json: bool,
+    no_push: bool,
+) -> Result<()> {
+    // Update PR bases if needed
+    if let Some(service) = service
         && (!reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty())
     {
         if !json {
             output::info("Updating PR base branches on GitHub...");
         }
-        rt.block_on(service.update_pr_bases(&reconcile_result))?;
-        print_pr_updates(&reconcile_result, json);
+        rt.block_on(service.update_pr_bases(reconcile_result))?;
+        print_pr_updates(reconcile_result, json);
     }
 
-    // Phase 5: Push all branches
+    // Push branches
     if !no_push {
-        if let Some(service) = &service {
-            let push_results = service.push_stack_branches(state)?;
-            if !json {
-                let pushed = push_results.iter().filter(|p| p.success).count();
-                for result in push_results.iter().filter(|p| !p.success) {
-                    output::warn(&format!("Could not push {}", result.branch));
-                }
-                if pushed > 0 {
-                    output::success(&format!("Pushed {pushed} branch(es)"));
-                }
-            }
-        } else {
-            push_stack_branches(repo, state, json)?;
-        }
+        push_branches(service, state, repo, json)?;
     }
 
-    handle_sync_result(sync_result, json, github_auth_unavailable)
+    Ok(())
+}
+
+/// Push all stack branches to remote.
+fn push_branches(
+    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    state: &State,
+    repo: &Repository,
+    json: bool,
+) -> Result<()> {
+    if let Some(service) = service {
+        let push_results = service.push_stack_branches(state)?;
+        if !json {
+            let pushed = push_results.iter().filter(|p| p.success).count();
+            for result in push_results.iter().filter(|p| !p.success) {
+                output::warn(&format!("Could not push {}", result.branch));
+            }
+            if pushed > 0 {
+                output::success(&format!("Pushed {pushed} branch(es)"));
+            }
+        }
+    } else {
+        push_stack_branches(repo, state, json)?;
+    }
+    Ok(())
 }
 
 /// Print reconcile results.
@@ -445,6 +578,65 @@ fn print_dry_run(
             println!("    → {} (onto {base_short})", action.branch);
         }
     }
+    Ok(())
+}
+
+/// Print conflict predictions (human-readable or JSON).
+fn print_conflict_predictions(predictions: &SyncConflictPrediction, json: bool) -> Result<()> {
+    if json {
+        let output = ConflictPredictionOutput {
+            check: true,
+            has_conflicts: predictions.has_conflicts(),
+            branches: predictions
+                .branches
+                .iter()
+                .map(|b| BranchConflictOutput {
+                    branch: b.branch.clone(),
+                    onto: b.onto.clone(),
+                    conflicts: b
+                        .conflicts
+                        .iter()
+                        .map(|c| CommitConflictOutput {
+                            commit: c.commit_hash.clone(),
+                            message: c.commit_summary.clone(),
+                            files: c.files.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
+    if !predictions.has_conflicts() {
+        output::success("No conflicts found - sync should be clean");
+        return Ok(());
+    }
+
+    output::warn(&format!(
+        "⚠️  Potential conflicts detected in {} branch(es):",
+        predictions.conflict_count()
+    ));
+    println!();
+
+    for branch_prediction in &predictions.branches {
+        println!(
+            "  {} → {}",
+            branch_prediction.branch, branch_prediction.onto
+        );
+        for conflict in &branch_prediction.conflicts {
+            // Truncate commit hash for display
+            let hash_short: String = conflict.commit_hash.chars().take(7).collect();
+            println!("    • {} (\"{}\"):", hash_short, conflict.commit_summary);
+            for file in &conflict.files {
+                println!("      - {file}");
+            }
+        }
+        println!();
+    }
+
+    output::info("Consider resolving these conflicts before syncing.");
     Ok(())
 }
 

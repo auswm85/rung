@@ -5,6 +5,7 @@
 
 mod execute;
 mod plan;
+mod predict;
 mod reconcile;
 mod types;
 mod undo;
@@ -15,6 +16,7 @@ pub use types::*;
 // Re-export all public functions
 pub use execute::{abort_sync, continue_sync, execute_sync};
 pub use plan::create_sync_plan;
+pub use predict::predict_sync_conflicts;
 pub use reconcile::{reconcile_merged, remove_stale_branches};
 pub use undo::undo_sync;
 
@@ -491,6 +493,30 @@ mod tests {
         // feature-a is at same commit as main, so plan is empty
         // but importantly, it didn't error on the stale feature-b
         assert!(plan.is_empty());
+    }
+
+    #[test]
+    fn test_sync_plan_skips_branch_with_stale_parent() {
+        let (_temp, rung_repo, git_repo) = init_test_repo();
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Create only feature-b in git (feature-a is stale/deleted)
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-b", &head, false).unwrap();
+
+        // Stack has feature-a -> feature-b, but feature-a doesn't exist in git
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+
+        // Plan should skip feature-b because its parent (feature-a) doesn't exist
+        // This hits line 52 in plan.rs: continue when parent is a stale stack branch
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        assert!(
+            plan.is_empty(),
+            "Plan should be empty - both branches are effectively stale"
+        );
     }
 
     #[test]

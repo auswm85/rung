@@ -10,6 +10,7 @@ Sync the stack by rebasing all branches when their parent branches have moved fo
 
 ```bash
 rung sync
+rung sync --check           # Predict conflicts before syncing
 rung sync --dry-run
 rung sync --base develop
 rung sync --force
@@ -26,6 +27,7 @@ rung sync --no-push
 
 | Option                | Description                                                              |
 | --------------------- | ------------------------------------------------------------------------ |
+| `--check`             | Predict conflicts without performing sync *(v0.8.0+)*                    |
 | `--dry-run`           | Show what would be done without making changes                           |
 | `-b, --base <branch>` | Base branch to sync against (default: repository's default branch)       |
 | `--force`             | Proceed even if branches have diverged from remote                       |
@@ -63,6 +65,66 @@ Would sync:
   feat-add-user-api: rebase 2 commits onto feat-add-user-model
   feat-add-user-tests: rebase 1 commit onto feat-add-user-api
 ```
+
+## Conflict Prediction
+
+Before syncing, you can check which branches would have conflicts using `--check`:
+
+```bash
+$ rung sync --check
+⚠️  Potential conflicts detected:
+
+  feat-add-user-api → main
+    • src/api/users.rs (abc1234: "Add user creation")
+
+  feat-add-user-tests → feat-add-user-api
+    • tests/user_test.rs (def5678: "Add user tests")
+    • src/api/users.rs (ghi9012: "Fix user validation")
+```
+
+This simulates the rebase without making any changes, showing you:
+- Which branches would conflict
+- Which files would conflict
+- Which commits cause each conflict
+
+### JSON Output
+
+For tooling integration:
+
+```bash
+$ rung sync --check --json
+```
+
+```json
+{
+  "check": true,
+  "has_conflicts": true,
+  "branches": [
+    {
+      "branch": "feat-add-user-api",
+      "onto": "main",
+      "conflicts": [
+        {
+          "file": "src/api/users.rs",
+          "commit": "abc1234",
+          "message": "Add user creation"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### When No Conflicts
+
+If no conflicts are predicted:
+
+```bash
+$ rung sync --check
+✓ No conflicts found
+```
+
+This is useful for verifying your stack is ready to sync cleanly, especially before a team sync or after a complex merge.
 
 ## Handling Conflicts
 

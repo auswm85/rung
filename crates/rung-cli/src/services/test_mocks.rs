@@ -222,6 +222,15 @@ impl GitOps for MockGitOps {
         }
     }
 
+    fn predict_rebase_conflicts(
+        &self,
+        _branch: &str,
+        _onto: Oid,
+    ) -> GitResult<Vec<rung_git::ConflictPrediction>> {
+        // Return empty by default - no predicted conflicts
+        Ok(vec![])
+    }
+
     fn rebase_abort(&self) -> GitResult<()> {
         *self.is_rebasing.borrow_mut() = false;
         Ok(())

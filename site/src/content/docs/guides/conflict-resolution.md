@@ -5,6 +5,30 @@ description: How to handle rebase conflicts when syncing your stack.
 
 Conflicts happen when changes in your stack overlap with changes in the parent branch. This guide walks you through resolving them.
 
+## Predicting Conflicts
+
+Before syncing, you can check if any conflicts will occur:
+
+```bash
+$ rung sync --check
+⚠️  Potential conflicts detected:
+
+  feat-add-user-api → main
+    • src/api/users.rs (abc1234: "Add user creation")
+```
+
+This tells you which branches and files will conflict, and which commits cause them. You can then:
+- Prepare by reviewing the conflicting files
+- Coordinate with teammates if their changes are involved
+- Choose to resolve issues before syncing (e.g., by rebasing interactively)
+
+If no conflicts are predicted, you'll see:
+
+```bash
+$ rung sync --check
+✓ No conflicts found
+```
+
 ## Understanding Conflicts
 
 When you run `rung sync` and a conflict occurs:

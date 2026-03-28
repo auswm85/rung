@@ -34,11 +34,20 @@ fn main() {
         Commands::Status { fetch } => commands::status::run(json, fetch),
         Commands::Sync {
             dry_run,
+            check,
             continue_,
             abort,
             no_push,
             base,
-        } => commands::sync::run(json, dry_run, continue_, abort, no_push, base.as_deref()),
+        } => commands::sync::run(
+            json,
+            dry_run,
+            check,
+            continue_,
+            abort,
+            no_push,
+            base.as_deref(),
+        ),
         Commands::Submit {
             draft,
             dry_run,

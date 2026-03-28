@@ -24,14 +24,14 @@ pub enum SyncResult {
 }
 
 /// Plan for syncing a stack.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncPlan {
     /// Branches to rebase, in order.
     pub branches: Vec<SyncAction>,
 }
 
 /// A single rebase action in the sync plan.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncAction {
     /// Branch to rebase.
     pub branch: String,
@@ -39,6 +39,8 @@ pub struct SyncAction {
     pub old_base: String,
     /// New base commit (parent's new tip).
     pub new_base: String,
+    /// Parent branch name (for display purposes).
+    pub parent_branch: String,
 }
 
 impl SyncPlan {
@@ -109,4 +111,62 @@ pub struct UndoResult {
     pub branches_restored: usize,
     /// The backup ID that was used.
     pub backup_id: String,
+}
+
+/// Predicted conflicts for a sync operation.
+#[derive(Debug, Default)]
+pub struct SyncConflictPrediction {
+    /// Branches with predicted conflicts.
+    pub branches: Vec<BranchConflictPrediction>,
+}
+
+impl SyncConflictPrediction {
+    /// Check if there are any predicted conflicts.
+    #[must_use]
+    pub const fn has_conflicts(&self) -> bool {
+        !self.branches.is_empty()
+    }
+
+    /// Get total number of branches with conflicts.
+    #[must_use]
+    pub const fn conflict_count(&self) -> usize {
+        self.branches.len()
+    }
+}
+
+/// Predicted conflicts for a single branch.
+#[derive(Debug)]
+pub struct BranchConflictPrediction {
+    /// Branch that would conflict.
+    pub branch: String,
+    /// Target branch it's being rebased onto.
+    pub onto: String,
+    /// Individual commit conflicts.
+    pub conflicts: Vec<CommitConflictPrediction>,
+}
+
+impl BranchConflictPrediction {
+    /// Get all unique conflicting files across all commits.
+    #[must_use]
+    pub fn conflicting_files(&self) -> Vec<&str> {
+        let mut files: Vec<&str> = self
+            .conflicts
+            .iter()
+            .flat_map(|c| c.files.iter().map(String::as_str))
+            .collect();
+        files.sort_unstable();
+        files.dedup();
+        files
+    }
+}
+
+/// Predicted conflict for a single commit.
+#[derive(Debug)]
+pub struct CommitConflictPrediction {
+    /// Commit hash (short form).
+    pub commit_hash: String,
+    /// Commit message summary.
+    pub commit_summary: String,
+    /// Files that would conflict.
+    pub files: Vec<String>,
 }
