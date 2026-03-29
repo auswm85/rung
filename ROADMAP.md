@@ -73,14 +73,13 @@ _Mid-term goals — meaningful features requiring more design work_
 
 ### Stack Manipulation
 
-- [ ] **`rung split`** — Split the current branch into multiple branches, useful when a PR grows too large
+- [x] **`rung split`** ([#97](https://github.com/auswm85/rung/issues/97)) — Split the current branch into multiple branches, useful when a PR grows too large
 
-- [ ] **`rung fold`** — Combine multiple adjacent branches into one, the inverse of split
+- [x] **`rung fold`** ([#98](https://github.com/auswm85/rung/issues/98)) — Combine multiple adjacent branches into one, the inverse of split
 
 ### Sync Improvements
 
-- [ ] **Parallel sync** — Sync independent branches concurrently for faster operations on wide stacks
-- [ ] **Conflict prediction** ([#112](https://github.com/auswm85/rung/issues/112)) — Warn before sync if conflicts are likely based on changed files
+- [x] **Conflict prediction** ([#112](https://github.com/auswm85/rung/issues/112)) — Warn before sync if conflicts are likely based on changed files
 
 ## Future
 
@@ -90,7 +89,7 @@ _Long-term vision — ideas we're excited about but haven't fully designed_
 
 - [ ] **GitLab support** — Extend forge support beyond GitHub
 - [ ] **Bitbucket support** — Enterprise Git hosting integration
-- [ ] **Editor extensions** — VS Code, maybe others for stack visualization
+- [x] **Editor extensions** — VS Code extension for stack visualization (in `vscode-extension/`)
 
 ### Interactive Features
 
