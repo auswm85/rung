@@ -5,29 +5,28 @@ description: How to install rung on macOS, Linux, and Windows.
 
 Choose the installation method that works best for your system.
 
-## Pre-built Binaries (Recommended)
+## Quick Install (Recommended)
 
-Download the latest release for your platform from [GitHub Releases](https://github.com/auswm85/rung/releases).
-
-### macOS (Apple Silicon)
+The fastest way to install rung on macOS or Linux:
 
 ```bash
-curl -fsSL https://github.com/auswm85/rung/releases/latest/download/rung-$(curl -s https://api.github.com/repos/auswm85/rung/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')-aarch64-apple-darwin.tar.gz | tar xz
-sudo mv rung /usr/locxal/bin/
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
 ```
 
-### macOS (Intel)
+This script automatically detects your platform and installs the latest version.
+
+### Options
+
+Install a specific version:
 
 ```bash
-curl -fsSL https://github.com/auswm85/rung/releases/latest/download/rung-$(curl -s https://api.github.com/repos/auswm85/rung/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')-x86_64-apple-darwin.tar.gz | tar xz
-sudo mv rung /usr/local/bin/
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh -s -- --version v0.8.0
 ```
 
-### Linux (x86_64)
+Custom install directory:
 
 ```bash
-curl -fsSL https://github.com/auswm85/rung/releases/latest/download/rung-$(curl -s https://api.github.com/repos/auswm85/rung/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')-x86_64-unknown-linux-gnu.tar.gz | tar xz
-sudo mv rung /usr/local/bin/
+INSTALL_DIR=~/bin curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
 ```
 
 ### Windows

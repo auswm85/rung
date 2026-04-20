@@ -41,6 +41,7 @@ These improvements make Rung more pleasant to use and easier to contribute to:
 - [x] **Interactive navigation** (`rung move`) — TUI picker to jump to any branch in the stack
 - [x] **NO_COLOR support** ([#20](https://github.com/auswm85/rung/issues/20)) — Respect the `NO_COLOR` environment variable for accessibility and scripting
 - [x] **Color-coded PR status** ([#76](https://github.com/auswm85/rung/issues/76)) — Visual distinction between open, merged, and draft PRs in `rung status`
+- [x] **Install script** ([#113](https://github.com/auswm85/rung/issues/113)) — One-line installation via `curl | sh` with platform detection
 
 ### Security & Safety
 

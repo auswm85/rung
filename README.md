@@ -24,29 +24,22 @@ Rung helps you work with dependent branches by:
 
 ## Installation
 
-### Pre-built binaries (recommended)
-
-Download the latest release for your platform from [GitHub Releases](https://github.com/auswm85/rung/releases).
-
-**macOS (Apple Silicon):**
+### Quick install (recommended)
 
 ```bash
-curl -fsSL https://github.com/auswm85/rung/releases/latest/download/rung-$(curl -s https://api.github.com/repos/auswm85/rung/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')-aarch64-apple-darwin.tar.gz | tar xz
-sudo mv rung /usr/local/bin/
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
 ```
 
-**macOS (Intel):**
+Install a specific version:
 
 ```bash
-curl -fsSL https://github.com/auswm85/rung/releases/latest/download/rung-$(curl -s https://api.github.com/repos/auswm85/rung/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')-x86_64-apple-darwin.tar.gz | tar xz
-sudo mv rung /usr/local/bin/
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh -s -- --version v0.8.0
 ```
 
-**Linux (x86_64):**
+Custom install directory:
 
 ```bash
-curl -fsSL https://github.com/auswm85/rung/releases/latest/download/rung-$(curl -s https://api.github.com/repos/auswm85/rung/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')-x86_64-unknown-linux-gnu.tar.gz | tar xz
-sudo mv rung /usr/local/bin/
+INSTALL_DIR=~/bin curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
 ```
 
 **Windows:** Download the `.zip` from [releases](https://github.com/auswm85/rung/releases) and add to your PATH.
