@@ -17,13 +17,13 @@ This script automatically detects your platform and installs the latest version.
 
 ### Options
 
-Install a specific version:
+Install a specific version (uses matching install script from that release):
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh -s -- --version v0.8.0
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/v0.8.0/install.sh | sh
 ```
 
-Custom install directory:
+Custom install directory (defaults to `/usr/local/bin` or `~/.local/bin`):
 
 ```bash
 INSTALL_DIR=~/bin curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh

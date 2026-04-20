@@ -30,13 +30,21 @@ Rung helps you work with dependent branches by:
 curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
 ```
 
-Install a specific version:
+Or review the script before running:
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh -s -- --version v0.8.0
+curl -sSfO https://raw.githubusercontent.com/auswm85/rung/main/install.sh
+less install.sh  # review the script
+sh install.sh
 ```
 
-Custom install directory:
+Install a specific version (uses matching install script from that release):
+
+```bash
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/v0.8.0/install.sh | sh
+```
+
+Custom install directory (defaults to `/usr/local/bin` or `~/.local/bin`):
 
 ```bash
 INSTALL_DIR=~/bin curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
