@@ -38,10 +38,10 @@ less install.sh  # review the script
 sh install.sh
 ```
 
-Install a specific version (uses matching install script from that release):
+Install a specific version:
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/auswm85/rung/v0.8.0/install.sh | sh
+curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh -s -- --version v0.8.0
 ```
 
 Custom install directory (defaults to `/usr/local/bin` or `~/.local/bin`):
