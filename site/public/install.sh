@@ -1,7 +1,6 @@
 #!/bin/sh
 # Rung installer script
 # Usage: curl -sSf https://rungstack.com/install.sh | sh
-#    or: curl -sSf https://rungstack.com/install.sh | sh -s -- --version v0.5.0
 #
 # Environment variables:
 #   INSTALL_DIR - Custom installation directory (default: /usr/local/bin or ~/.local/bin)
