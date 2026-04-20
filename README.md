@@ -27,27 +27,13 @@ Rung helps you work with dependent branches by:
 ### Quick install (recommended)
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
-```
-
-Or review the script before running:
-
-```bash
-curl -sSfO https://raw.githubusercontent.com/auswm85/rung/main/install.sh
-less install.sh  # review the script
-sh install.sh
-```
-
-Install a specific version:
-
-```bash
-curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh -s -- --version v0.8.0
+curl -sSf https://rungstack.com/install.sh | sh
 ```
 
 Custom install directory (defaults to `/usr/local/bin` or `~/.local/bin`):
 
 ```bash
-INSTALL_DIR=~/bin curl -sSf https://raw.githubusercontent.com/auswm85/rung/main/install.sh | sh
+INSTALL_DIR=~/bin curl -sSf https://rungstack.com/install.sh | sh
 ```
 
 **Windows:** Download the `.zip` from [releases](https://github.com/auswm85/rung/releases) and add to your PATH.
