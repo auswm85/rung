@@ -13,9 +13,9 @@ export default defineConfig({
         src: "./src/assets/logo.png",
         replacesTitle: false,
       },
-      social: {
-        github: "https://github.com/auswm85/rung",
-      },
+      social: [
+        { icon: "github", label: "GitHub", href: "https://github.com/auswm85/rung" },
+      ],
       editLink: {
         baseUrl: "https://github.com/auswm85/rung/edit/main/site/",
       },
