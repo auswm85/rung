@@ -1,0 +1,19 @@
+[package]
+name = "rung-forge"
+description = "Forge-agnostic contract for Rung - pull/merge request types and the ForgeApi trait"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords = ["forge", "git", "pull-request", "api"]
+categories = ["development-tools", "api-bindings"]
+
+[dependencies]
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -5,13 +5,13 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT}
 use secrecy::{ExposeSecret, SecretString};
 use serde::de::DeserializeOwned;
 
-use crate::auth::Auth;
-use crate::error::{Error, Result};
-use crate::traits::ForgeApi;
-use crate::types::{
-    CheckRun, CreateComment, CreatePullRequest, IssueComment, MergePullRequest, MergeResult,
-    PullRequest, PullRequestState, UpdateComment, UpdatePullRequest,
+use rung_forge::{
+    CheckRun, CreateComment, CreatePullRequest, ForgeApi, ForgeError as Error, IssueComment,
+    MergePullRequest, MergeResult, PullRequest, PullRequestState, Result, UpdateComment,
+    UpdatePullRequest,
 };
+
+use crate::auth::Auth;
 
 // === Internal API response types (shared across methods) ===
 
@@ -571,13 +571,13 @@ impl GitHubClient {
             .map(|cr| CheckRun {
                 name: cr.name,
                 status: match (cr.status.as_str(), cr.conclusion.as_deref()) {
-                    ("queued", _) => crate::types::CheckStatus::Queued,
-                    ("in_progress", _) => crate::types::CheckStatus::InProgress,
-                    ("completed", Some("success")) => crate::types::CheckStatus::Success,
-                    ("completed", Some("skipped")) => crate::types::CheckStatus::Skipped,
-                    ("completed", Some("cancelled")) => crate::types::CheckStatus::Cancelled,
+                    ("queued", _) => rung_forge::CheckStatus::Queued,
+                    ("in_progress", _) => rung_forge::CheckStatus::InProgress,
+                    ("completed", Some("success")) => rung_forge::CheckStatus::Success,
+                    ("completed", Some("skipped")) => rung_forge::CheckStatus::Skipped,
+                    ("completed", Some("cancelled")) => rung_forge::CheckStatus::Cancelled,
                     // Any other status (failure, timed_out, action_required, etc.) treated as failure
-                    _ => crate::types::CheckStatus::Failure,
+                    _ => rung_forge::CheckStatus::Failure,
                 },
                 details_url: cr.details_url,
             })
@@ -642,7 +642,7 @@ impl GitHubClient {
         owner: &str,
         repo: &str,
         pr_number: u64,
-    ) -> Result<Vec<crate::types::IssueComment>> {
+    ) -> Result<Vec<rung_forge::IssueComment>> {
         self.get(&format!(
             "/repos/{owner}/{repo}/issues/{pr_number}/comments"
         ))
@@ -658,8 +658,8 @@ impl GitHubClient {
         owner: &str,
         repo: &str,
         pr_number: u64,
-        comment: crate::types::CreateComment,
-    ) -> Result<crate::types::IssueComment> {
+        comment: rung_forge::CreateComment,
+    ) -> Result<rung_forge::IssueComment> {
         self.post(
             &format!("/repos/{owner}/{repo}/issues/{pr_number}/comments"),
             &comment,
@@ -676,8 +676,8 @@ impl GitHubClient {
         owner: &str,
         repo: &str,
         comment_id: u64,
-        comment: crate::types::UpdateComment,
-    ) -> Result<crate::types::IssueComment> {
+        comment: rung_forge::UpdateComment,
+    ) -> Result<rung_forge::IssueComment> {
         self.patch(
             &format!("/repos/{owner}/{repo}/issues/comments/{comment_id}"),
             &comment,
@@ -818,7 +818,7 @@ impl ForgeApi for GitHubClient {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::types::{CheckStatus, MergeMethod};
+    use rung_forge::{CheckStatus, MergeMethod};
     use secrecy::SecretString;
     use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};

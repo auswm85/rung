@@ -3,7 +3,7 @@
 //! This module defines the `ForgeApi` trait which abstracts the pull/merge
 //! request operations a forge backend must provide, enabling dependency
 //! injection, testability, and alternative backends. GitHub is currently the
-//! only implementation (see [`crate::GitHubClient`]).
+//! only implementation, provided by the `rung-github` crate.
 
 use std::collections::HashMap;
 
