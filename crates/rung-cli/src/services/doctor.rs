@@ -7,7 +7,9 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 use rung_core::Stack;
-use rung_github::{Auth, GitHubClient, PullRequestState};
+use rung_github::{Auth, ForgeApi, PullRequestState};
+
+use crate::forge::Forge;
 use serde::Serialize;
 
 /// Diagnostic issue severity.
@@ -328,17 +330,8 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
     pub async fn check_github(&self) -> CheckResult {
         let mut result = CheckResult::default();
 
-        // Check auth
-        let auth = Auth::auto();
-        let Ok(client) = GitHubClient::new(&auth) else {
-            result.issues.push(
-                Issue::error("GitHub authentication failed")
-                    .with_suggestion("Set GITHUB_TOKEN or authenticate with `gh auth login`"),
-            );
-            return result;
-        };
-
-        // Get repo info
+        // Resolve the remote first so non-forge remotes are reported before any
+        // forge API call (the forge kind gates which backend we talk to).
         let Ok(origin_url) = self.repo.origin_url() else {
             result
                 .issues
@@ -355,6 +348,16 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             result
                 .issues
                 .push(Issue::warning("Origin is not a GitHub repository"));
+            return result;
+        };
+
+        // Authenticate with the detected forge.
+        let auth = Auth::auto();
+        let Ok(client) = Forge::for_remote(&origin_url, &auth) else {
+            result.issues.push(
+                Issue::error("GitHub authentication failed")
+                    .with_suggestion("Set GITHUB_TOKEN or authenticate with `gh auth login`"),
+            );
             return result;
         };
 

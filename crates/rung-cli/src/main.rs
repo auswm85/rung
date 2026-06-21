@@ -3,6 +3,7 @@
 use clap::Parser;
 
 mod commands;
+mod forge;
 mod output;
 mod services;
 

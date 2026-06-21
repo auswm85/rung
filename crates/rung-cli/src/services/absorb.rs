@@ -7,7 +7,9 @@ use anyhow::{Context, Result};
 use rung_core::StateStore;
 use rung_core::absorb::{self, AbsorbPlan, AbsorbResult};
 use rung_git::AbsorbOps;
-use rung_github::{Auth, GitHubClient};
+use rung_github::{Auth, ForgeApi};
+
+use crate::forge::Forge;
 
 /// Service for absorb operations with trait-based dependencies.
 pub struct AbsorbService<'a, G: AbsorbOps> {
@@ -39,7 +41,7 @@ impl<'a, G: AbsorbOps> AbsorbService<'a, G> {
             ..
         } = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
 
-        let client = GitHubClient::new(&Auth::auto()).context(
+        let client = Forge::for_remote(&origin_url, &Auth::auto()).context(
             "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
         )?;
         client

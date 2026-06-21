@@ -4,7 +4,9 @@ use anyhow::{Context, Result, bail};
 use inquire::{Select, Text};
 use rung_core::{State, stack::Stack, sync};
 use rung_git::{RemoteDivergence, Repository};
-use rung_github::{Auth, GitHubClient};
+use rung_github::Auth;
+
+use crate::forge::Forge;
 use serde::Serialize;
 
 use crate::commands::utils;
@@ -106,8 +108,8 @@ pub fn run(
 
     let (owner, repo_name) = get_remote_info(&repo)?;
 
-    let client = GitHubClient::new(&Auth::auto())
-        .context("Failed to authenticate with GitHub - run `gh auth login` or set GITHUB_TOKEN")?;
+    let origin_url = repo.origin_url().context("No origin remote configured")?;
+    let client = Forge::for_remote(&origin_url, &Auth::auto())?;
     let rt = tokio::runtime::Runtime::new()?;
 
     let service = SubmitService::new(&repo, &client, owner.clone(), repo_name.clone());
