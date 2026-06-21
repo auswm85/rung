@@ -30,6 +30,14 @@ pub enum ForgeError {
     #[error("pull request not found: #{0}")]
     PrNotFound(u64),
 
+    /// A git remote URL could not be parsed as a known forge remote.
+    ///
+    /// The offending URL is retained for matching/diagnostics but deliberately
+    /// not rendered in the message: HTTPS remotes can embed credentials
+    /// (`https://user:token@host/...`), which must not leak into output or logs.
+    #[error("could not parse forge remote URL")]
+    InvalidRemoteUrl(String),
+
     /// API error with status code.
     #[error("forge API error ({status}): {message}")]
     ApiError {

@@ -28,6 +28,7 @@ vendored-openssl = ["rung-core/vendored-openssl", "rung-git/vendored-openssl"]
 
 [dependencies]
 rung-core = { workspace = true }
+rung-forge = { workspace = true }
 rung-git = { workspace = true }
 rung-github = { workspace = true }
 

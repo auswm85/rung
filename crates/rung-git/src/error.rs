@@ -38,10 +38,6 @@ pub enum Error {
     #[error("remote not found: {0}")]
     RemoteNotFound(String),
 
-    /// Invalid remote URL.
-    #[error("invalid remote URL: {0}")]
-    InvalidRemoteUrl(String),
-
     /// Push failed.
     #[error("push failed: {0}")]
     PushFailed(String),

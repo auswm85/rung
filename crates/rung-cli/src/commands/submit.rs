@@ -327,7 +327,8 @@ fn prompt_and_handle_uncommitted(repo: &Repository) -> Result<()> {
 /// Get owner and repo name from remote.
 fn get_remote_info(repo: &Repository) -> Result<(String, String)> {
     let origin_url = repo.origin_url().context("No origin remote configured")?;
-    Repository::parse_github_remote(&origin_url).context("Could not parse GitHub remote URL")
+    let info = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
+    Ok((info.owner, info.repo))
 }
 
 /// Create a commit using git CLI.
