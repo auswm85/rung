@@ -16,7 +16,7 @@ use crate::{BlameResult, ConflictPrediction, Hunk, RemoteDivergence, Result};
 /// - Mock implementations for testing
 /// - Alternative implementations (e.g., dry-run mode)
 ///
-/// Note: Unlike `GitHubApi`, git operations are synchronous since
+/// Note: Unlike `ForgeApi`, git operations are synchronous since
 /// git2 is a synchronous library.
 #[allow(clippy::missing_errors_doc)]
 pub trait GitOps {

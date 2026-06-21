@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 
 use crate::auth::Auth;
 use crate::error::{Error, Result};
-use crate::traits::GitHubApi;
+use crate::traits::ForgeApi;
 use crate::types::{
     CheckRun, CreateComment, CreatePullRequest, IssueComment, MergePullRequest, MergeResult,
     PullRequest, PullRequestState, UpdateComment, UpdatePullRequest,
@@ -713,7 +713,7 @@ fn build_graphql_pr_query(numbers: &[u64]) -> String {
 
 // === Trait Implementation ===
 
-impl GitHubApi for GitHubClient {
+impl ForgeApi for GitHubClient {
     async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest> {
         self.get_pr(owner, repo, number).await
     }
