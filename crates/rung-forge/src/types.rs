@@ -1,8 +1,8 @@
-//! GitHub API types.
+//! Forge-agnostic pull/merge request and CI types.
 
 use serde::{Deserialize, Serialize};
 
-/// A GitHub Pull Request.
+/// A pull request (GitHub) / merge request (GitLab).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {
     /// PR number.

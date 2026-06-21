@@ -9,7 +9,7 @@ use std::process::Command;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 
-use crate::error::{Error, Result};
+use rung_forge::{ForgeError as Error, Result};
 
 /// Authentication method for GitHub API.
 #[derive(Debug, Clone)]

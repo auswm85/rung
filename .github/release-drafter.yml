@@ -9,6 +9,9 @@ categories:
     labels:
       - "bug"
       - "fix"
+  - title: "♻️ Refactoring"
+    labels:
+      - "refactor"
   - title: "🧹 Maintenance"
     labels:
       - "chore"
@@ -55,6 +58,9 @@ autolabeler:
   - label: "documentation"
     title:
       - "/^docs/i"
+  - label: "refactor"
+    title:
+      - "/^refactor/i"
   - label: "test"
     title:
       - "/^test/i"

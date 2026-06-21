@@ -106,7 +106,8 @@ pub fn run(
 
     let (owner, repo_name) = get_remote_info(&repo)?;
 
-    let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
+    let client = GitHubClient::new(&Auth::auto())
+        .context("Failed to authenticate with GitHub - run `gh auth login` or set GITHUB_TOKEN")?;
     let rt = tokio::runtime::Runtime::new()?;
 
     let service = SubmitService::new(&repo, &client, owner.clone(), repo_name.clone());

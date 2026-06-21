@@ -12,6 +12,7 @@ rust-version = "1.88"
 [workspace.dependencies]
 # Internal crates
 rung-core = { version = "0.8.0", path = "crates/rung-core" }
+rung-forge = { version = "0.8.0", path = "crates/rung-forge" }
 rung-git = { version = "0.8.0", path = "crates/rung-git" }
 rung-github = { version = "0.8.0", path = "crates/rung-github" }
 
@@ -78,6 +79,11 @@ publish = false  # CI handles crates.io publishing
 file = "Cargo.toml"
 search = 'rung-core = \{ version = "[^"]*"'
 replace = 'rung-core = { version = "{{version}}"'
+
+[[workspace.metadata.release.pre-release-replacements]]
+file = "Cargo.toml"
+search = 'rung-forge = \{ version = "[^"]*"'
+replace = 'rung-forge = { version = "{{version}}"'
 
 [[workspace.metadata.release.pre-release-replacements]]
 file = "Cargo.toml"

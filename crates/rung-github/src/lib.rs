@@ -5,8 +5,9 @@
 //!
 //! # Architecture
 //!
-//! The crate provides both a concrete [`GitHubClient`] implementation and
-//! a [`ForgeApi`] trait for dependency injection and testing.
+//! This crate provides the concrete [`GitHubClient`], which implements the
+//! [`ForgeApi`] trait defined in the `rung-forge` contract crate. The forge
+//! types and trait are re-exported here for convenience.
 //!
 //! # Security
 //!
@@ -15,17 +16,15 @@
 
 mod auth;
 mod client;
-mod error;
-mod traits;
-mod types;
 
 pub use auth::Auth;
 pub use client::GitHubClient;
-pub use error::{Error, Result};
-pub use traits::ForgeApi;
 // Re-export SecretString for constructing Auth::Token
 pub use secrecy::SecretString;
-pub use types::{
-    CheckRun, CheckStatus, CreateComment, CreatePullRequest, IssueComment, MergeMethod,
-    MergePullRequest, MergeResult, PullRequest, PullRequestState, UpdateComment, UpdatePullRequest,
+// Re-export the forge contract so existing `rung_github::{...}` paths keep working.
+// `ForgeError` is re-exported as `Error` for backward compatibility.
+pub use rung_forge::{
+    CheckRun, CheckStatus, CreateComment, CreatePullRequest, ForgeApi, ForgeError as Error,
+    IssueComment, MergeMethod, MergePullRequest, MergeResult, PullRequest, PullRequestState,
+    Result, UpdateComment, UpdatePullRequest,
 };

@@ -122,7 +122,8 @@ fn fetch_pr_statuses(
     let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
         .context("Could not parse GitHub remote URL")?;
 
-    let client = GitHubClient::new(&Auth::auto()).context("Failed to authenticate with GitHub")?;
+    let client = GitHubClient::new(&Auth::auto())
+        .context("Failed to authenticate with GitHub - run `gh auth login` or set GITHUB_TOKEN")?;
     let rt = tokio::runtime::Runtime::new()?;
 
     if !json {
