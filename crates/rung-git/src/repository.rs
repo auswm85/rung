@@ -850,37 +850,6 @@ impl Repository {
         name.strip_prefix("refs/remotes/origin/").map(String::from)
     }
 
-    /// Parse owner and repo name from a GitHub URL.
-    ///
-    /// Supports both HTTPS and SSH URLs:
-    /// - `https://github.com/owner/repo.git`
-    /// - `git@github.com:owner/repo.git`
-    ///
-    /// # Errors
-    /// Returns error if URL cannot be parsed.
-    pub fn parse_github_remote(url: &str) -> Result<(String, String)> {
-        // SSH format: git@github.com:owner/repo.git
-        if let Some(rest) = url.strip_prefix("git@github.com:") {
-            let path = rest.strip_suffix(".git").unwrap_or(rest);
-            if let Some((owner, repo)) = path.split_once('/') {
-                return Ok((owner.to_string(), repo.to_string()));
-            }
-        }
-
-        // HTTPS format: https://github.com/owner/repo.git
-        if let Some(rest) = url
-            .strip_prefix("https://github.com/")
-            .or_else(|| url.strip_prefix("http://github.com/"))
-        {
-            let path = rest.strip_suffix(".git").unwrap_or(rest);
-            if let Some((owner, repo)) = path.split_once('/') {
-                return Ok((owner.to_string(), repo.to_string()));
-            }
-        }
-
-        Err(Error::InvalidRemoteUrl(url.to_string()))
-    }
-
     /// Push a branch to the remote.
     ///
     /// # Errors

@@ -66,7 +66,11 @@ fn setup_merge_context(repo: &Repository, state: &State) -> Result<(MergeContext
     let stack_parent_branch = branch.parent.as_ref().map(ToString::to_string);
 
     let origin_url = repo.origin_url()?;
-    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)?;
+    let rung_forge::RemoteInfo {
+        owner,
+        repo: repo_name,
+        ..
+    } = rung_forge::parse_remote(&origin_url)?;
 
     let descendants =
         MergeService::<Repository, GitHubClient>::collect_descendants(&stack, &current_branch);

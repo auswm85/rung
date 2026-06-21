@@ -7,7 +7,6 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 use rung_core::Stack;
-use rung_git::Repository;
 use rung_github::{Auth, GitHubClient, PullRequestState};
 use serde::Serialize;
 
@@ -347,7 +346,12 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             return result;
         };
 
-        let Ok((owner, repo_name)) = Repository::parse_github_remote(&origin_url) else {
+        let Ok(rung_forge::RemoteInfo {
+            owner,
+            repo: repo_name,
+            ..
+        }) = rung_forge::parse_remote(&origin_url)
+        else {
             result
                 .issues
                 .push(Issue::warning("Origin is not a GitHub repository"));

@@ -119,8 +119,11 @@ fn fetch_pr_statuses(
     }
 
     let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let (owner, repo_name) = Repository::parse_github_remote(&origin_url)
-        .context("Could not parse GitHub remote URL")?;
+    let rung_forge::RemoteInfo {
+        owner,
+        repo: repo_name,
+        ..
+    } = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
 
     let client = GitHubClient::new(&Auth::auto())
         .context("Failed to authenticate with GitHub - run `gh auth login` or set GITHUB_TOKEN")?;

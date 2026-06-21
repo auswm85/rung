@@ -140,7 +140,8 @@ pub fn run(
     let github_info = repo
         .origin_url()
         .ok()
-        .and_then(|url| Repository::parse_github_remote(&url).ok());
+        .and_then(|url| rung_forge::parse_remote(&url).ok())
+        .map(|info| (info.owner, info.repo));
 
     // Create runtime once for all async operations
     let rt = tokio::runtime::Runtime::new()?;
@@ -200,7 +201,7 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
         let has_github_remote = repo
             .origin_url()
             .ok()
-            .and_then(|url| Repository::parse_github_remote(&url).ok())
+            .and_then(|url| rung_forge::parse_remote(&url).ok())
             .is_some();
         let github_auth_unavailable =
             has_github_remote && GitHubClient::new(&Auth::auto()).is_err();
@@ -240,7 +241,7 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
     let has_github_remote = repo
         .origin_url()
         .ok()
-        .and_then(|url| Repository::parse_github_remote(&url).ok())
+        .and_then(|url| rung_forge::parse_remote(&url).ok())
         .is_some();
     let github_auth_unavailable = has_github_remote && GitHubClient::new(&Auth::auto()).is_err();
 
