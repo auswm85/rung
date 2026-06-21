@@ -13,8 +13,10 @@ use rung_core::sync::{
     self, ReconcileResult, SyncConflictPrediction, SyncResult, predict_sync_conflicts,
 };
 use rung_git::Repository;
-use rung_github::{Auth, GitHubClient};
+use rung_github::{Auth, ForgeApi};
 use serde::Serialize;
+
+use crate::forge::Forge;
 
 use crate::commands::utils;
 use crate::output;
@@ -33,7 +35,7 @@ struct SyncOutput {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     conflict_files: Vec<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    github_auth_unavailable: bool,
+    forge_auth_unavailable: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,7 +56,7 @@ struct DryRunOutput {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     branches_to_rebase: Vec<DryRunRebase>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    github_auth_unavailable: bool,
+    forge_auth_unavailable: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,18 +138,18 @@ pub fn run(
 
     repo.require_clean()?;
 
-    // Try to get GitHub remote info (optional - needed for PR operations)
-    let github_info = repo
-        .origin_url()
-        .ok()
-        .and_then(|url| rung_forge::parse_remote(&url).ok())
+    // Try to get the forge remote info (optional - needed for PR operations)
+    let origin_url = repo.origin_url().ok();
+    let forge_info = origin_url
+        .as_deref()
+        .and_then(|url| rung_forge::parse_remote(url).ok())
         .map(|info| (info.owner, info.repo));
 
     // Create runtime once for all async operations
     let rt = tokio::runtime::Runtime::new()?;
 
     // Determine base branch
-    let base_branch = determine_base_branch(base, github_info.as_ref(), &rt)?;
+    let base_branch = determine_base_branch(base, origin_url.as_deref(), &rt)?;
 
     // Fetch base branch (skip for --check to keep it side-effect free)
     if !check {
@@ -161,33 +163,44 @@ pub fn run(
         }
     }
 
-    // Create GitHub client (if available)
-    let mut github_auth_unavailable = false;
-    let client = github_info.as_ref().and_then(|_| {
-        GitHubClient::new(&Auth::auto())
+    // Create the forge client (if available)
+    let mut forge_auth_unavailable = false;
+    let client = match (forge_info.as_ref(), origin_url.as_deref()) {
+        (Some(_), Some(url)) => Forge::for_remote(url, &Auth::auto())
             .map_err(|_| {
-                github_auth_unavailable = true;
+                forge_auth_unavailable = true;
                 if !json {
                     output::warn("GitHub auth unavailable - skipping merge detection");
                 }
             })
-            .ok()
-    });
+            .ok(),
+        _ => None,
+    };
 
     // Run the main sync phases
     run_sync_phases(
         &repo,
         &state,
         &base_branch,
-        github_info.as_ref(),
+        forge_info.as_ref(),
         client.as_ref(),
         &rt,
         json,
         dry_run,
         check,
         no_push,
-        github_auth_unavailable,
+        forge_auth_unavailable,
     )
+}
+
+/// Whether a forge remote exists but its auth is unavailable.
+///
+/// Used to annotate `--json` output: `true` only when there is a recognized
+/// forge remote but a client for it cannot be constructed (auth failure).
+fn forge_auth_unavailable(repo: &Repository) -> bool {
+    repo.origin_url().ok().as_deref().is_some_and(|url| {
+        rung_forge::parse_remote(url).is_ok() && Forge::for_remote(url, &Auth::auto()).is_err()
+    })
 }
 
 /// Handle --abort flag.
@@ -197,22 +210,13 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
     }
     sync::abort_sync(repo, state)?;
     if json {
-        // Compute github_auth_unavailable consistently with handle_continue
-        let has_github_remote = repo
-            .origin_url()
-            .ok()
-            .and_then(|url| rung_forge::parse_remote(&url).ok())
-            .is_some();
-        let github_auth_unavailable =
-            has_github_remote && GitHubClient::new(&Auth::auto()).is_err();
-
         return output_json(&SyncOutput {
             status: SyncStatus::Aborted,
             branches_rebased: None,
             backup_id: None,
             conflict_branch: None,
             conflict_files: vec![],
-            github_auth_unavailable,
+            forge_auth_unavailable: forge_auth_unavailable(repo),
         });
     }
     output::success("Sync aborted - branches restored from backup");
@@ -236,37 +240,33 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
         push_stack_branches(repo, state, json)?;
     }
 
-    // Check GitHub auth availability for accurate JSON output
-    // Only flag as unavailable if there's a GitHub remote but auth fails
-    let has_github_remote = repo
-        .origin_url()
-        .ok()
-        .and_then(|url| rung_forge::parse_remote(&url).ok())
-        .is_some();
-    let github_auth_unavailable = has_github_remote && GitHubClient::new(&Auth::auto()).is_err();
-
-    handle_sync_result(result, json, github_auth_unavailable)
+    handle_sync_result(result, json, forge_auth_unavailable(repo))
 }
 
-/// Determine base branch from --base flag or GitHub API.
+/// Determine base branch from --base flag or the forge API.
 fn determine_base_branch(
     base: Option<&str>,
-    github_info: Option<&(String, String)>,
+    origin_url: Option<&str>,
     rt: &tokio::runtime::Runtime,
 ) -> Result<String> {
     if let Some(b) = base {
         return Ok(b.to_string());
     }
 
-    let (owner, repo_name) = github_info.ok_or_else(|| {
+    let url = origin_url.ok_or_else(|| {
         anyhow::anyhow!(
-            "Could not detect GitHub remote (no origin or non-GitHub URL). Use --base <branch> to specify manually."
+            "Could not detect forge remote (no origin or unsupported URL). Use --base <branch> to specify manually."
         )
     })?;
-    let client = GitHubClient::new(&Auth::auto()).context(
-        "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
+    let rung_forge::RemoteInfo { owner, repo, .. } = rung_forge::parse_remote(url).map_err(|_| {
+        anyhow::anyhow!(
+            "Could not detect forge remote (unsupported URL). Use --base <branch> to specify manually."
+        )
+    })?;
+    let client = Forge::for_remote(url, &Auth::auto()).context(
+        "Forge auth required to detect default branch. Use --base <branch> to specify manually.",
     )?;
-    rt.block_on(client.get_default_branch(owner, repo_name))
+    rt.block_on(client.get_default_branch(&owner, &repo))
         .context("Could not fetch default branch. Use --base <branch> to specify manually.")
 }
 
@@ -276,17 +276,17 @@ fn run_sync_phases(
     repo: &Repository,
     state: &State,
     base_branch: &str,
-    github_info: Option<&(String, String)>,
-    client: Option<&GitHubClient>,
+    forge_info: Option<&(String, String)>,
+    client: Option<&Forge>,
     rt: &tokio::runtime::Runtime,
     json: bool,
     dry_run: bool,
     check: bool,
     no_push: bool,
-    github_auth_unavailable: bool,
+    forge_auth_unavailable: bool,
 ) -> Result<()> {
     // Create SyncService once if GitHub is available
-    let service = match (client, github_info) {
+    let service = match (client, forge_info) {
         (Some(client), Some((owner, repo_name))) => Some(SyncService::new(
             repo,
             client,
@@ -333,7 +333,7 @@ fn run_sync_phases(
     // Load stack and check if empty
     let stack = state.load_stack()?;
     if stack.is_empty() {
-        return handle_empty_stack(json, github_auth_unavailable);
+        return handle_empty_stack(json, forge_auth_unavailable);
     }
 
     // Phase 3: Create sync plan
@@ -345,7 +345,7 @@ fn run_sync_phases(
 
     // Handle --dry-run mode
     if dry_run {
-        return print_dry_run(&plan, &reconcile_result, json, github_auth_unavailable);
+        return print_dry_run(&plan, &reconcile_result, json, forge_auth_unavailable);
     }
 
     // Execute sync
@@ -353,7 +353,7 @@ fn run_sync_phases(
 
     // If paused on conflict, return early
     if let SyncResult::Paused { .. } = &sync_result {
-        return handle_sync_result(sync_result, json, github_auth_unavailable);
+        return handle_sync_result(sync_result, json, forge_auth_unavailable);
     }
 
     // Phase 4 & 5: Update PR bases and push
@@ -367,12 +367,12 @@ fn run_sync_phases(
         no_push,
     )?;
 
-    handle_sync_result(sync_result, json, github_auth_unavailable)
+    handle_sync_result(sync_result, json, forge_auth_unavailable)
 }
 
 /// Phase 1: Detect merged PRs and reconcile stack.
 fn run_phase_detect_merged(
-    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    service: Option<&SyncService<'_, Repository, Forge>>,
     state: &State,
     base_branch: &str,
     rt: &tokio::runtime::Runtime,
@@ -393,7 +393,7 @@ fn run_phase_detect_merged(
 /// Phase 2: Remove stale branches from stack.
 fn run_phase_remove_stale(
     repo: &Repository,
-    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    service: Option<&SyncService<'_, Repository, Forge>>,
     state: &State,
     json: bool,
 ) -> Result<()> {
@@ -416,7 +416,7 @@ fn run_phase_remove_stale(
 }
 
 /// Handle empty stack case.
-fn handle_empty_stack(json: bool, github_auth_unavailable: bool) -> Result<()> {
+fn handle_empty_stack(json: bool, forge_auth_unavailable: bool) -> Result<()> {
     if json {
         return output_json(&SyncOutput {
             status: SyncStatus::AlreadySynced,
@@ -424,7 +424,7 @@ fn handle_empty_stack(json: bool, github_auth_unavailable: bool) -> Result<()> {
             backup_id: None,
             conflict_branch: None,
             conflict_files: vec![],
-            github_auth_unavailable,
+            forge_auth_unavailable,
         });
     }
     output::info("No branches in stack - nothing to sync");
@@ -434,7 +434,7 @@ fn handle_empty_stack(json: bool, github_auth_unavailable: bool) -> Result<()> {
 /// Execute the sync plan.
 fn execute_sync_plan(
     repo: &Repository,
-    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    service: Option<&SyncService<'_, Repository, Forge>>,
     state: &State,
     plan: &sync::SyncPlan,
     json: bool,
@@ -456,7 +456,7 @@ fn execute_sync_plan(
 
 /// Phase 4 & 5: Update PR bases on GitHub and push branches.
 fn run_phase_finalize(
-    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    service: Option<&SyncService<'_, Repository, Forge>>,
     state: &State,
     repo: &Repository,
     reconcile_result: &ReconcileResult,
@@ -485,7 +485,7 @@ fn run_phase_finalize(
 
 /// Push all stack branches to remote.
 fn push_branches(
-    service: Option<&SyncService<'_, Repository, GitHubClient>>,
+    service: Option<&SyncService<'_, Repository, Forge>>,
     state: &State,
     repo: &Repository,
     json: bool,
@@ -540,7 +540,7 @@ fn print_dry_run(
     plan: &rung_core::sync::SyncPlan,
     reconcile_result: &ReconcileResult,
     json: bool,
-    github_auth_unavailable: bool,
+    forge_auth_unavailable: bool,
 ) -> Result<()> {
     if json {
         let output = DryRunOutput {
@@ -562,7 +562,7 @@ fn print_dry_run(
                     new_base: action.new_base.clone(),
                 })
                 .collect(),
-            github_auth_unavailable,
+            forge_auth_unavailable,
         };
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
@@ -694,7 +694,7 @@ fn push_stack_branches(repo: &Repository, state: &State, json: bool) -> Result<(
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn handle_sync_result(result: SyncResult, json: bool, github_auth_unavailable: bool) -> Result<()> {
+fn handle_sync_result(result: SyncResult, json: bool, forge_auth_unavailable: bool) -> Result<()> {
     match result {
         SyncResult::AlreadySynced => {
             if json {
@@ -704,7 +704,7 @@ fn handle_sync_result(result: SyncResult, json: bool, github_auth_unavailable: b
                     backup_id: None,
                     conflict_branch: None,
                     conflict_files: vec![],
-                    github_auth_unavailable,
+                    forge_auth_unavailable,
                 });
             }
             output::success("Stack is already up-to-date");
@@ -720,7 +720,7 @@ fn handle_sync_result(result: SyncResult, json: bool, github_auth_unavailable: b
                     backup_id: Some(backup_id),
                     conflict_branch: None,
                     conflict_files: vec![],
-                    github_auth_unavailable,
+                    forge_auth_unavailable,
                 });
             }
             // Use char-safe truncation for backup_id display
@@ -741,7 +741,7 @@ fn handle_sync_result(result: SyncResult, json: bool, github_auth_unavailable: b
                     backup_id: Some(backup_id),
                     conflict_branch: Some(at_branch),
                     conflict_files,
-                    github_auth_unavailable,
+                    forge_auth_unavailable,
                 });
             }
             output::warn(&format!("Conflict in branch '{at_branch}'"));

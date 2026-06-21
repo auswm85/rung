@@ -6,7 +6,9 @@ use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_core::stack::Stack;
 use rung_git::{Oid, Repository};
-use rung_github::{Auth, GitHubClient, MergeMethod};
+use rung_github::{Auth, MergeMethod};
+
+use crate::forge::Forge;
 use serde::Serialize;
 
 use crate::commands::utils;
@@ -73,7 +75,7 @@ fn setup_merge_context(repo: &Repository, state: &State) -> Result<(MergeContext
     } = rung_forge::parse_remote(&origin_url)?;
 
     let descendants =
-        MergeService::<Repository, GitHubClient>::collect_descendants(&stack, &current_branch);
+        MergeService::<Repository, Forge>::collect_descendants(&stack, &current_branch);
 
     // Capture old commits before any rebasing (needed for --onto)
     let mut old_commits: HashMap<String, Oid> = HashMap::new();
@@ -195,7 +197,8 @@ async fn execute_merge(
     json: bool,
 ) -> Result<(String, usize)> {
     let auth = Auth::auto();
-    let client = GitHubClient::new(&auth)?;
+    let origin_url = repo.origin_url()?;
+    let client = Forge::for_remote(&origin_url, &auth)?;
     let service = MergeService::new(repo, &client, ctx.owner.clone(), ctx.repo_name.clone());
 
     // Step 1: Validate PR is mergeable
@@ -291,7 +294,7 @@ fn print_child_relinks(stack: &Stack, ctx: &MergeContext, parent_branch: &str, j
 /// Rollback PR base changes on merge failure.
 #[allow(clippy::future_not_send)]
 async fn rollback_on_failure(
-    service: &MergeService<'_, Repository, GitHubClient>,
+    service: &MergeService<'_, Repository, Forge>,
     shifted_prs: &[(u64, String)],
     json: bool,
 ) {
@@ -323,7 +326,7 @@ async fn rollback_on_failure(
 /// Returns the count of successfully rebased descendants.
 #[allow(clippy::future_not_send)]
 async fn rebase_descendants_after_merge(
-    service: &MergeService<'_, Repository, GitHubClient>,
+    service: &MergeService<'_, Repository, Forge>,
     state: &State,
     stack: &Stack,
     ctx: &MergeContext,
@@ -384,7 +387,7 @@ async fn rebase_descendants_after_merge(
 /// Delete remote branch after merge.
 #[allow(clippy::future_not_send)]
 async fn delete_remote_branch(
-    service: &MergeService<'_, Repository, GitHubClient>,
+    service: &MergeService<'_, Repository, Forge>,
     branch: &str,
     json: bool,
 ) {
@@ -407,7 +410,7 @@ async fn delete_remote_branch(
 async fn update_stack_comments_after_merge(
     repo: &Repository,
     state: &State,
-    client: &GitHubClient,
+    client: &Forge,
     ctx: &MergeContext,
     json: bool,
 ) {

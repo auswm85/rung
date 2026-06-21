@@ -6,7 +6,9 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use rung_core::State;
 use rung_git::Repository;
-use rung_github::{Auth, GitHubClient, PullRequestState};
+use rung_github::{Auth, ForgeApi, PullRequestState};
+
+use crate::forge::Forge;
 use serde::Serialize;
 
 use crate::output::{self, PrStatus};
@@ -125,8 +127,7 @@ fn fetch_pr_statuses(
         ..
     } = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
 
-    let client = GitHubClient::new(&Auth::auto())
-        .context("Failed to authenticate with GitHub - run `gh auth login` or set GITHUB_TOKEN")?;
+    let client = Forge::for_remote(&origin_url, &Auth::auto())?;
     let rt = tokio::runtime::Runtime::new()?;
 
     if !json {
