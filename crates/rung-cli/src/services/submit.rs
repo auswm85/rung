@@ -9,7 +9,7 @@ use std::fmt::Write;
 use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
 use rung_git::GitOps;
-use rung_github::{CreateComment, CreatePullRequest, GitHubApi, UpdateComment, UpdatePullRequest};
+use rung_github::{CreateComment, CreatePullRequest, ForgeApi, UpdateComment, UpdatePullRequest};
 use serde::Serialize;
 
 /// A planned action for a single branch.
@@ -110,7 +110,7 @@ pub struct SubmitConfig<'a> {
 pub struct SubmitService<'a, G, H>
 where
     G: GitOps,
-    H: GitHubApi,
+    H: ForgeApi,
 {
     git: &'a G,
     github: &'a H,
@@ -122,7 +122,7 @@ where
 impl<'a, G, H> SubmitService<'a, G, H>
 where
     G: GitOps,
-    H: GitHubApi,
+    H: ForgeApi,
 {
     /// Create a new submit service.
     pub const fn new(git: &'a G, github: &'a H, owner: String, repo: String) -> Self {
@@ -1067,7 +1067,7 @@ mod tests {
         use rung_core::stack::{Stack, StackBranch};
         use rung_git::Oid;
 
-        // Mock GitHubApi for submit testing
+        // Mock ForgeApi for submit testing
         struct MockGitHubClient {
             find_pr_result: Option<rung_github::PullRequest>,
         }
@@ -1086,7 +1086,7 @@ mod tests {
             }
         }
 
-        impl rung_github::GitHubApi for MockGitHubClient {
+        impl rung_github::ForgeApi for MockGitHubClient {
             fn get_pr(
                 &self,
                 _owner: &str,

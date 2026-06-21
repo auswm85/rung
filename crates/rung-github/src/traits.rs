@@ -1,7 +1,9 @@
-//! Trait abstractions for GitHub API operations.
+//! Trait abstractions for forge (code-hosting) API operations.
 //!
-//! This module defines the `GitHubApi` trait which abstracts GitHub API operations,
-//! enabling dependency injection and testability.
+//! This module defines the `ForgeApi` trait which abstracts the pull/merge
+//! request operations a forge backend must provide, enabling dependency
+//! injection, testability, and alternative backends. GitHub is currently the
+//! only implementation (see [`crate::GitHubClient`]).
 
 use std::collections::HashMap;
 
@@ -10,16 +12,16 @@ use crate::{
     PullRequest, Result, UpdateComment, UpdatePullRequest,
 };
 
-/// Trait for GitHub API operations.
+/// Trait for forge (code-hosting) API operations.
 ///
-/// This trait abstracts GitHub API calls, allowing for:
+/// This trait abstracts a forge backend's pull/merge request operations, allowing for:
 /// - Dependency injection in commands/services
 /// - Mock implementations for testing
-/// - Alternative implementations (e.g., offline mode, caching)
+/// - Alternative backends (e.g. GitLab, Bitbucket) and modes (offline, caching)
 ///
 /// All methods take `owner` and `repo` as parameters to support
 /// operations across different repositories.
-pub trait GitHubApi: Send + Sync {
+pub trait ForgeApi: Send + Sync {
     // === PR Operations ===
 
     /// Get a pull request by number.

@@ -6,7 +6,7 @@
 //! # Architecture
 //!
 //! The crate provides both a concrete [`GitHubClient`] implementation and
-//! a [`GitHubApi`] trait for dependency injection and testing.
+//! a [`ForgeApi`] trait for dependency injection and testing.
 //!
 //! # Security
 //!
@@ -22,7 +22,7 @@ mod types;
 pub use auth::Auth;
 pub use client::GitHubClient;
 pub use error::{Error, Result};
-pub use traits::GitHubApi;
+pub use traits::ForgeApi;
 // Re-export SecretString for constructing Auth::Token
 pub use secrecy::SecretString;
 pub use types::{

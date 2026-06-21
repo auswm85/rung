@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
 use rung_core::{BranchName, StateStore};
 use rung_git::{GitOps, Oid};
-use rung_github::{GitHubApi, MergeMethod, MergePullRequest, UpdatePullRequest};
+use rung_github::{ForgeApi, MergeMethod, MergePullRequest, UpdatePullRequest};
 
 /// Information about a descendant branch that was processed.
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct DescendantResult {
 }
 
 /// Service for merge operations with trait-based dependencies.
-pub struct MergeService<'a, G: GitOps, H: GitHubApi> {
+pub struct MergeService<'a, G: GitOps, H: ForgeApi> {
     repo: &'a G,
     client: &'a H,
     owner: String,
@@ -31,7 +31,7 @@ pub struct MergeService<'a, G: GitOps, H: GitHubApi> {
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a, G: GitOps, H: GitHubApi> MergeService<'a, G, H> {
+impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
     /// Create a new merge service.
     #[must_use]
     pub const fn new(repo: &'a G, client: &'a H, owner: String, repo_name: String) -> Self {
@@ -694,7 +694,7 @@ mod tests {
         use rung_git::Oid;
         use std::sync::atomic::{AtomicBool, Ordering};
 
-        // Mock GitHubApi for merge testing
+        // Mock ForgeApi for merge testing
         struct MockGitHubClient {
             pr_mergeable: Option<bool>,
             merge_should_fail: bool,
@@ -740,7 +740,7 @@ mod tests {
             }
         }
 
-        impl rung_github::GitHubApi for MockGitHubClient {
+        impl rung_github::ForgeApi for MockGitHubClient {
             fn get_pr(
                 &self,
                 _owner: &str,

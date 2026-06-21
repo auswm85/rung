@@ -12,13 +12,13 @@ use rung_core::sync::{
     self, ExternalMergeInfo, ReconcileResult, ReparentedBranch, StaleBranches, SyncPlan, SyncResult,
 };
 use rung_git::GitOps;
-use rung_github::{GitHubApi, PullRequestState, UpdatePullRequest};
+use rung_github::{ForgeApi, PullRequestState, UpdatePullRequest};
 
 /// Threshold for switching from individual REST calls to batched GraphQL query.
 const BATCH_THRESHOLD: usize = 5;
 
 /// Service for sync operations with trait-based dependencies.
-pub struct SyncService<'a, G: GitOps, H: GitHubApi> {
+pub struct SyncService<'a, G: GitOps, H: ForgeApi> {
     repo: &'a G,
     client: &'a H,
     owner: String,
@@ -26,7 +26,7 @@ pub struct SyncService<'a, G: GitOps, H: GitHubApi> {
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a, G: GitOps, H: GitHubApi> SyncService<'a, G, H> {
+impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
     /// Create a new sync service.
     #[must_use]
     pub const fn new(repo: &'a G, client: &'a H, owner: String, repo_name: String) -> Self {
@@ -649,10 +649,10 @@ mod tests {
         use rung_core::stack::{Stack, StackBranch};
         use rung_git::Oid;
 
-        // Mock GitHubApi for testing
+        // Mock ForgeApi for testing
         struct MockGitHubClient;
 
-        impl rung_github::GitHubApi for MockGitHubClient {
+        impl rung_github::ForgeApi for MockGitHubClient {
             fn get_pr(
                 &self,
                 _owner: &str,
@@ -926,7 +926,7 @@ mod tests {
             }
         }
 
-        impl rung_github::GitHubApi for ConfigurableMockGitHubClient {
+        impl rung_github::ForgeApi for ConfigurableMockGitHubClient {
             fn get_pr(
                 &self,
                 _owner: &str,
