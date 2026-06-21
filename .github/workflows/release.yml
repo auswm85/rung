@@ -28,7 +28,7 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
@@ -106,7 +106,7 @@ jobs:
           Compress-Archive -Path ${{ matrix.artifact }} -DestinationPath ../../../rung-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip
 
       - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: rung-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
 
