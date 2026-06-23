@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_core::stack::Stack;
 use rung_git::{Oid, Repository};
-use rung_github::{Auth, MergeMethod};
+use rung_github::{Auth, MergeMethod, RepoId};
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -31,8 +31,7 @@ struct MergeContext {
     current_branch: String,
     pr_number: u64,
     stack_parent_branch: Option<String>,
-    owner: String,
-    repo_name: String,
+    repo_id: RepoId,
     descendants: Vec<String>,
     old_commits: HashMap<String, Oid>,
 }
@@ -68,11 +67,7 @@ fn setup_merge_context(repo: &Repository, state: &State) -> Result<(MergeContext
     let stack_parent_branch = branch.parent.as_ref().map(ToString::to_string);
 
     let origin_url = repo.origin_url()?;
-    let rung_forge::RemoteInfo {
-        owner,
-        repo: repo_name,
-        ..
-    } = rung_forge::parse_remote(&origin_url)?;
+    let rung_forge::RemoteInfo { repo: repo_id, .. } = rung_forge::parse_remote(&origin_url)?;
 
     let descendants =
         MergeService::<Repository, Forge>::collect_descendants(&stack, &current_branch);
@@ -89,8 +84,7 @@ fn setup_merge_context(repo: &Repository, state: &State) -> Result<(MergeContext
             current_branch,
             pr_number,
             stack_parent_branch,
-            owner,
-            repo_name,
+            repo_id,
             descendants,
             old_commits,
         },
@@ -199,7 +193,7 @@ async fn execute_merge(
     let auth = Auth::auto();
     let origin_url = repo.origin_url()?;
     let client = Forge::for_remote(&origin_url, &auth)?;
-    let service = MergeService::new(repo, &client, ctx.owner.clone(), ctx.repo_name.clone());
+    let service = MergeService::new(repo, &client, ctx.repo_id.clone());
 
     // Step 1: Validate PR is mergeable
     let pr = service.validate_mergeable(ctx.pr_number).await?;
@@ -436,7 +430,7 @@ async fn update_stack_comments_after_merge(
         }
     };
 
-    let submit_service = SubmitService::new(repo, client, ctx.owner.clone(), ctx.repo_name.clone());
+    let submit_service = SubmitService::new(repo, client, ctx.repo_id.clone());
 
     if let Err(e) = submit_service
         .update_stack_comments(&stack, &default_branch)

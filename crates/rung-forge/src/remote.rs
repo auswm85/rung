@@ -5,7 +5,7 @@
 //! logic in the contract crate means `rung-git` stays forge-agnostic and new
 //! backends extend detection in one place.
 
-use crate::{ForgeError, Result};
+use crate::{ForgeError, RepoId, Result};
 
 /// A supported code-hosting forge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,10 +36,8 @@ impl ForgeKind {
 pub struct RemoteInfo {
     /// The forge hosting the repository.
     pub kind: ForgeKind,
-    /// Repository owner (user or organization).
-    pub owner: String,
-    /// Repository name.
-    pub repo: String,
+    /// Forge-neutral identifier for the repository/project.
+    pub repo: RepoId,
 }
 
 /// Parse a git remote URL into its forge, owner, and repository.
@@ -72,6 +70,8 @@ fn parse_github(url: &str) -> Result<RemoteInfo> {
         let path = path.strip_suffix(".git").unwrap_or(path);
         // Require exactly `owner/repo` — reject extra path segments so a
         // malformed remote fails here rather than later as a bad API repo name.
+        // The guard proves `path` is exactly two non-empty segments, so it is
+        // already the canonical `owner/repo` slug; use it as-is.
         let mut parts = path.split('/');
         if let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next())
             && !owner.is_empty()
@@ -79,8 +79,7 @@ fn parse_github(url: &str) -> Result<RemoteInfo> {
         {
             return Ok(RemoteInfo {
                 kind: ForgeKind::GitHub,
-                owner: owner.to_string(),
-                repo: repo.to_string(),
+                repo: RepoId::new(path),
             });
         }
     }
@@ -120,23 +119,20 @@ mod tests {
     fn test_parse_https_with_git_suffix() {
         let info = parse_remote("https://github.com/octocat/hello-world.git").unwrap();
         assert_eq!(info.kind, ForgeKind::GitHub);
-        assert_eq!(info.owner, "octocat");
-        assert_eq!(info.repo, "hello-world");
+        assert_eq!(info.repo.path(), "octocat/hello-world");
     }
 
     #[test]
     fn test_parse_https_without_git_suffix() {
         let info = parse_remote("https://github.com/octocat/hello-world").unwrap();
-        assert_eq!(info.owner, "octocat");
-        assert_eq!(info.repo, "hello-world");
+        assert_eq!(info.repo.path(), "octocat/hello-world");
     }
 
     #[test]
     fn test_parse_ssh() {
         let info = parse_remote("git@github.com:octocat/hello-world.git").unwrap();
         assert_eq!(info.kind, ForgeKind::GitHub);
-        assert_eq!(info.owner, "octocat");
-        assert_eq!(info.repo, "hello-world");
+        assert_eq!(info.repo.path(), "octocat/hello-world");
     }
 
     #[test]
@@ -161,12 +157,11 @@ mod tests {
     #[test]
     fn test_parse_trailing_slash_is_trimmed() {
         let info = parse_remote("https://github.com/octocat/hello-world/").unwrap();
-        assert_eq!(info.owner, "octocat");
-        assert_eq!(info.repo, "hello-world");
+        assert_eq!(info.repo.path(), "octocat/hello-world");
 
         // Trailing slash after the `.git` suffix is also tolerated.
         let info = parse_remote("https://github.com/octocat/hello-world.git/").unwrap();
-        assert_eq!(info.repo, "hello-world");
+        assert_eq!(info.repo.path(), "octocat/hello-world");
     }
 
     #[test]

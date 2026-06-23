@@ -121,11 +121,8 @@ fn fetch_pr_statuses(
     }
 
     let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let rung_forge::RemoteInfo {
-        owner,
-        repo: repo_name,
-        ..
-    } = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
+    let rung_forge::RemoteInfo { repo: repo_id, .. } =
+        rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
 
     let client = Forge::for_remote(&origin_url, &Auth::auto())?;
     let rt = tokio::runtime::Runtime::new()?;
@@ -137,7 +134,7 @@ fn fetch_pr_statuses(
             pr_numbers.len(),
         ));
     }
-    *pr_cache = rt.block_on(client.get_prs_batch(&owner, &repo_name, &pr_numbers))?;
+    *pr_cache = rt.block_on(client.get_prs_batch(&repo_id, &pr_numbers))?;
     Ok(())
 }
 

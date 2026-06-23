@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, anyhow};
 use rung_forge::{
     CheckRun, CreateComment, CreatePullRequest, ForgeApi, ForgeKind, IssueComment,
-    MergePullRequest, MergeResult, PullRequest, Result as ForgeResult, UpdateComment,
+    MergePullRequest, MergeResult, PullRequest, RepoId, Result as ForgeResult, UpdateComment,
     UpdatePullRequest,
 };
 use rung_github::{Auth, GitHubClient};
@@ -43,125 +43,111 @@ impl Forge {
     }
 }
 
+// `GitHubClient` has inherent `(owner, repo, …)` methods that shadow the
+// trait's `(&RepoId, …)` methods under normal method-call resolution, so each
+// arm dispatches through `ForgeApi` explicitly to reach the trait impl.
 impl ForgeApi for Forge {
-    async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> ForgeResult<PullRequest> {
+    async fn get_pr(&self, repo: &RepoId, number: u64) -> ForgeResult<PullRequest> {
         match self {
-            Self::GitHub(c) => c.get_pr(owner, repo, number).await,
+            Self::GitHub(c) => ForgeApi::get_pr(c, repo, number).await,
         }
     }
 
     async fn get_prs_batch(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         numbers: &[u64],
     ) -> ForgeResult<HashMap<u64, PullRequest>> {
         match self {
-            Self::GitHub(c) => c.get_prs_batch(owner, repo, numbers).await,
+            Self::GitHub(c) => ForgeApi::get_prs_batch(c, repo, numbers).await,
         }
     }
 
     async fn find_pr_for_branch(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         branch: &str,
     ) -> ForgeResult<Option<PullRequest>> {
         match self {
-            Self::GitHub(c) => c.find_pr_for_branch(owner, repo, branch).await,
+            Self::GitHub(c) => ForgeApi::find_pr_for_branch(c, repo, branch).await,
         }
     }
 
-    async fn create_pr(
-        &self,
-        owner: &str,
-        repo: &str,
-        pr: CreatePullRequest,
-    ) -> ForgeResult<PullRequest> {
+    async fn create_pr(&self, repo: &RepoId, pr: CreatePullRequest) -> ForgeResult<PullRequest> {
         match self {
-            Self::GitHub(c) => c.create_pr(owner, repo, pr).await,
+            Self::GitHub(c) => ForgeApi::create_pr(c, repo, pr).await,
         }
     }
 
     async fn update_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
         update: UpdatePullRequest,
     ) -> ForgeResult<PullRequest> {
         match self {
-            Self::GitHub(c) => c.update_pr(owner, repo, number, update).await,
+            Self::GitHub(c) => ForgeApi::update_pr(c, repo, number, update).await,
         }
     }
 
-    async fn get_check_runs(
-        &self,
-        owner: &str,
-        repo: &str,
-        commit_sha: &str,
-    ) -> ForgeResult<Vec<CheckRun>> {
+    async fn get_check_runs(&self, repo: &RepoId, commit_sha: &str) -> ForgeResult<Vec<CheckRun>> {
         match self {
-            Self::GitHub(c) => c.get_check_runs(owner, repo, commit_sha).await,
+            Self::GitHub(c) => ForgeApi::get_check_runs(c, repo, commit_sha).await,
         }
     }
 
     async fn merge_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
         merge: MergePullRequest,
     ) -> ForgeResult<MergeResult> {
         match self {
-            Self::GitHub(c) => c.merge_pr(owner, repo, number, merge).await,
+            Self::GitHub(c) => ForgeApi::merge_pr(c, repo, number, merge).await,
         }
     }
 
-    async fn delete_ref(&self, owner: &str, repo: &str, ref_name: &str) -> ForgeResult<()> {
+    async fn delete_ref(&self, repo: &RepoId, ref_name: &str) -> ForgeResult<()> {
         match self {
-            Self::GitHub(c) => c.delete_ref(owner, repo, ref_name).await,
+            Self::GitHub(c) => ForgeApi::delete_ref(c, repo, ref_name).await,
         }
     }
 
-    async fn get_default_branch(&self, owner: &str, repo: &str) -> ForgeResult<String> {
+    async fn get_default_branch(&self, repo: &RepoId) -> ForgeResult<String> {
         match self {
-            Self::GitHub(c) => c.get_default_branch(owner, repo).await,
+            Self::GitHub(c) => ForgeApi::get_default_branch(c, repo).await,
         }
     }
 
     async fn list_pr_comments(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         pr_number: u64,
     ) -> ForgeResult<Vec<IssueComment>> {
         match self {
-            Self::GitHub(c) => c.list_pr_comments(owner, repo, pr_number).await,
+            Self::GitHub(c) => ForgeApi::list_pr_comments(c, repo, pr_number).await,
         }
     }
 
     async fn create_pr_comment(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         pr_number: u64,
         comment: CreateComment,
     ) -> ForgeResult<IssueComment> {
         match self {
-            Self::GitHub(c) => c.create_pr_comment(owner, repo, pr_number, comment).await,
+            Self::GitHub(c) => ForgeApi::create_pr_comment(c, repo, pr_number, comment).await,
         }
     }
 
     async fn update_pr_comment(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         comment_id: u64,
         comment: UpdateComment,
     ) -> ForgeResult<IssueComment> {
         match self {
-            Self::GitHub(c) => c.update_pr_comment(owner, repo, comment_id, comment).await,
+            Self::GitHub(c) => ForgeApi::update_pr_comment(c, repo, comment_id, comment).await,
         }
     }
 }
