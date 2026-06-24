@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::{
     CheckRun, CreateComment, CreatePullRequest, IssueComment, MergePullRequest, MergeResult,
-    PullRequest, Result, UpdateComment, UpdatePullRequest,
+    PullRequest, RepoId, Result, UpdateComment, UpdatePullRequest,
 };
 
 /// Trait for forge (code-hosting) API operations.
@@ -19,16 +19,15 @@ use crate::{
 /// - Mock implementations for testing
 /// - Alternative backends (e.g. GitLab, Bitbucket) and modes (offline, caching)
 ///
-/// All methods take `owner` and `repo` as parameters to support
-/// operations across different repositories.
+/// All methods take a forge-neutral [`RepoId`] identifying the target
+/// repository/project, so call sites stay backend-agnostic.
 pub trait ForgeApi: Send + Sync {
     // === PR Operations ===
 
     /// Get a pull request by number.
     fn get_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
     ) -> impl std::future::Future<Output = Result<PullRequest>> + Send;
 
@@ -37,8 +36,7 @@ pub trait ForgeApi: Send + Sync {
     /// Returns a map of PR number to PR data. Missing PRs are omitted.
     fn get_prs_batch(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         numbers: &[u64],
     ) -> impl std::future::Future<Output = Result<HashMap<u64, PullRequest>>> + Send;
 
@@ -47,24 +45,21 @@ pub trait ForgeApi: Send + Sync {
     /// Returns `None` if no open PR exists for the branch.
     fn find_pr_for_branch(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         branch: &str,
     ) -> impl std::future::Future<Output = Result<Option<PullRequest>>> + Send;
 
     /// Create a pull request.
     fn create_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         pr: CreatePullRequest,
     ) -> impl std::future::Future<Output = Result<PullRequest>> + Send;
 
     /// Update a pull request.
     fn update_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
         update: UpdatePullRequest,
     ) -> impl std::future::Future<Output = Result<PullRequest>> + Send;
@@ -74,8 +69,7 @@ pub trait ForgeApi: Send + Sync {
     /// Get check runs for a commit.
     fn get_check_runs(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         commit_sha: &str,
     ) -> impl std::future::Future<Output = Result<Vec<CheckRun>>> + Send;
 
@@ -84,8 +78,7 @@ pub trait ForgeApi: Send + Sync {
     /// Merge a pull request.
     fn merge_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
         merge: MergePullRequest,
     ) -> impl std::future::Future<Output = Result<MergeResult>> + Send;
@@ -95,8 +88,7 @@ pub trait ForgeApi: Send + Sync {
     /// Delete a git reference (branch).
     fn delete_ref(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         ref_name: &str,
     ) -> impl std::future::Future<Output = Result<()>> + Send;
 
@@ -105,8 +97,7 @@ pub trait ForgeApi: Send + Sync {
     /// Get the repository's default branch name.
     fn get_default_branch(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
     ) -> impl std::future::Future<Output = Result<String>> + Send;
 
     // === Comment Operations ===
@@ -114,16 +105,14 @@ pub trait ForgeApi: Send + Sync {
     /// List comments on a pull request.
     fn list_pr_comments(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         pr_number: u64,
     ) -> impl std::future::Future<Output = Result<Vec<IssueComment>>> + Send;
 
     /// Create a comment on a pull request.
     fn create_pr_comment(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         pr_number: u64,
         comment: CreateComment,
     ) -> impl std::future::Future<Output = Result<IssueComment>> + Send;
@@ -131,8 +120,7 @@ pub trait ForgeApi: Send + Sync {
     /// Update a comment on a pull request.
     fn update_pr_comment(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         comment_id: u64,
         comment: UpdateComment,
     ) -> impl std::future::Future<Output = Result<IssueComment>> + Send;

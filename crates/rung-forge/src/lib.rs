@@ -10,11 +10,13 @@
 
 mod error;
 mod remote;
+mod repo_id;
 mod traits;
 mod types;
 
 pub use error::{ForgeError, Result};
 pub use remote::{ForgeKind, RemoteInfo, parse_remote};
+pub use repo_id::RepoId;
 pub use traits::ForgeApi;
 pub use types::{
     CheckRun, CheckStatus, CreateComment, CreatePullRequest, IssueComment, MergeMethod,

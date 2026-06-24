@@ -26,5 +26,5 @@ pub use secrecy::SecretString;
 pub use rung_forge::{
     CheckRun, CheckStatus, CreateComment, CreatePullRequest, ForgeApi, ForgeError as Error,
     IssueComment, MergeMethod, MergePullRequest, MergeResult, PullRequest, PullRequestState,
-    Result, UpdateComment, UpdatePullRequest,
+    RepoId, Result, UpdateComment, UpdatePullRequest,
 };

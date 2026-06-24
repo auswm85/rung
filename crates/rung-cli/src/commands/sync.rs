@@ -13,7 +13,7 @@ use rung_core::sync::{
     self, ReconcileResult, SyncConflictPrediction, SyncResult, predict_sync_conflicts,
 };
 use rung_git::Repository;
-use rung_github::{Auth, ForgeApi};
+use rung_github::{Auth, ForgeApi, RepoId};
 use serde::Serialize;
 
 use crate::forge::Forge;
@@ -143,7 +143,7 @@ pub fn run(
     let forge_info = origin_url
         .as_deref()
         .and_then(|url| rung_forge::parse_remote(url).ok())
-        .map(|info| (info.owner, info.repo));
+        .map(|info| info.repo);
 
     // Create runtime once for all async operations
     let rt = tokio::runtime::Runtime::new()?;
@@ -258,15 +258,16 @@ fn determine_base_branch(
             "Could not detect forge remote (no origin or unsupported URL). Use --base <branch> to specify manually."
         )
     })?;
-    let rung_forge::RemoteInfo { owner, repo, .. } = rung_forge::parse_remote(url).map_err(|_| {
-        anyhow::anyhow!(
-            "Could not detect forge remote (unsupported URL). Use --base <branch> to specify manually."
-        )
-    })?;
+    let rung_forge::RemoteInfo { repo: repo_id, .. } =
+        rung_forge::parse_remote(url).map_err(|_| {
+            anyhow::anyhow!(
+                "Could not detect forge remote (unsupported URL). Use --base <branch> to specify manually."
+            )
+        })?;
     let client = Forge::for_remote(url, &Auth::auto()).context(
         "Forge auth required to detect default branch. Use --base <branch> to specify manually.",
     )?;
-    rt.block_on(client.get_default_branch(&owner, &repo))
+    rt.block_on(client.get_default_branch(&repo_id))
         .context("Could not fetch default branch. Use --base <branch> to specify manually.")
 }
 
@@ -276,7 +277,7 @@ fn run_sync_phases(
     repo: &Repository,
     state: &State,
     base_branch: &str,
-    forge_info: Option<&(String, String)>,
+    forge_info: Option<&RepoId>,
     client: Option<&Forge>,
     rt: &tokio::runtime::Runtime,
     json: bool,
@@ -287,12 +288,7 @@ fn run_sync_phases(
 ) -> Result<()> {
     // Create SyncService once if GitHub is available
     let service = match (client, forge_info) {
-        (Some(client), Some((owner, repo_name))) => Some(SyncService::new(
-            repo,
-            client,
-            owner.clone(),
-            repo_name.clone(),
-        )),
+        (Some(client), Some(repo_id)) => Some(SyncService::new(repo, client, repo_id.clone())),
         _ => None,
     };
 

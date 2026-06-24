@@ -9,7 +9,9 @@ use std::fmt::Write;
 use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
 use rung_git::GitOps;
-use rung_github::{CreateComment, CreatePullRequest, ForgeApi, UpdateComment, UpdatePullRequest};
+use rung_github::{
+    CreateComment, CreatePullRequest, ForgeApi, RepoId, UpdateComment, UpdatePullRequest,
+};
 use serde::Serialize;
 
 /// A planned action for a single branch.
@@ -114,8 +116,7 @@ where
 {
     git: &'a G,
     github: &'a H,
-    owner: String,
-    repo: String,
+    repo: RepoId,
 }
 
 #[allow(clippy::future_not_send)] // Git operations are sync; futures don't need to be Send
@@ -125,13 +126,8 @@ where
     H: ForgeApi,
 {
     /// Create a new submit service.
-    pub const fn new(git: &'a G, github: &'a H, owner: String, repo: String) -> Self {
-        Self {
-            git,
-            github,
-            owner,
-            repo,
-        }
+    pub const fn new(git: &'a G, github: &'a H, repo: RepoId) -> Self {
+        Self { git, github, repo }
     }
 
     /// Create a submit plan by analyzing the stack and checking existing PRs.
@@ -163,10 +159,7 @@ where
 
             // Check if PR already exists
             if let Some(pr_number) = branch.pr {
-                let pr_url = format!(
-                    "https://github.com/{}/{}/pull/{pr_number}",
-                    self.owner, self.repo
-                );
+                let pr_url = format!("https://github.com/{}/pull/{pr_number}", self.repo);
                 actions.push(PlannedBranchAction::Update {
                     branch: branch_name.to_string(),
                     pr_number,
@@ -176,7 +169,7 @@ where
             } else {
                 let existing = self
                     .github
-                    .find_pr_for_branch(&self.owner, &self.repo, branch_name)
+                    .find_pr_for_branch(&self.repo, branch_name)
                     .await
                     .context("Failed to check for existing PR")?;
 
@@ -243,7 +236,7 @@ where
                         base: Some(base.clone()),
                     };
                     self.github
-                        .update_pr(&self.owner, &self.repo, *pr_number, update)
+                        .update_pr(&self.repo, *pr_number, update)
                         .await
                         .with_context(|| format!("Failed to update PR #{pr_number}"))?;
 
@@ -277,7 +270,7 @@ where
                     // Check if PR was created between planning and execution
                     let existing = self
                         .github
-                        .find_pr_for_branch(&self.owner, &self.repo, branch)
+                        .find_pr_for_branch(&self.repo, branch)
                         .await
                         .context("Failed to check for existing PR")?;
 
@@ -289,7 +282,7 @@ where
                             base: Some(base.clone()),
                         };
                         self.github
-                            .update_pr(&self.owner, &self.repo, pr.number, update)
+                            .update_pr(&self.repo, pr.number, update)
                             .await
                             .with_context(|| format!("Failed to update PR #{}", pr.number))?;
 
@@ -305,7 +298,7 @@ where
                         };
                         let pr = self
                             .github
-                            .create_pr(&self.owner, &self.repo, create)
+                            .create_pr(&self.repo, create)
                             .await
                             .with_context(|| format!("Failed to create PR for {branch}"))?;
 
@@ -351,7 +344,7 @@ where
             // Find existing rung comment
             let comments = self
                 .github
-                .list_pr_comments(&self.owner, &self.repo, pr_number)
+                .list_pr_comments(&self.repo, pr_number)
                 .await
                 .with_context(|| format!("Failed to list comments on PR #{pr_number}"))?;
 
@@ -364,13 +357,13 @@ where
             if let Some(comment) = existing_comment {
                 let update = UpdateComment { body: comment_body };
                 self.github
-                    .update_pr_comment(&self.owner, &self.repo, comment.id, update)
+                    .update_pr_comment(&self.repo, comment.id, update)
                     .await
                     .with_context(|| format!("Failed to update comment on PR #{pr_number}"))?;
             } else {
                 let create = CreateComment { body: comment_body };
                 self.github
-                    .create_pr_comment(&self.owner, &self.repo, pr_number, create)
+                    .create_pr_comment(&self.repo, pr_number, create)
                     .await
                     .with_context(|| format!("Failed to create comment on PR #{pr_number}"))?;
             }
@@ -1089,8 +1082,7 @@ mod tests {
         impl rung_github::ForgeApi for MockGitHubClient {
             fn get_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -1099,8 +1091,7 @@ mod tests {
 
             fn get_prs_batch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _numbers: &[u64],
             ) -> impl std::future::Future<
                 Output = rung_github::Result<
@@ -1112,8 +1103,7 @@ mod tests {
 
             fn find_pr_for_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _branch: &str,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Option<rung_github::PullRequest>>,
@@ -1124,8 +1114,7 @@ mod tests {
 
             fn create_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 params: rung_github::CreatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -1147,8 +1136,7 @@ mod tests {
 
             fn update_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
                 _params: rung_github::UpdatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
@@ -1171,8 +1159,7 @@ mod tests {
 
             fn get_check_runs(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _commit_sha: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
             {
@@ -1181,8 +1168,7 @@ mod tests {
 
             fn merge_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _number: u64,
                 _params: rung_github::MergePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
@@ -1198,8 +1184,7 @@ mod tests {
 
             fn delete_ref(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _ref_name: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
                 async { Ok(()) }
@@ -1207,16 +1192,14 @@ mod tests {
 
             fn get_default_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
             ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
                 async { Ok("main".to_string()) }
             }
 
             fn list_pr_comments(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Vec<rung_github::IssueComment>>,
@@ -1226,8 +1209,7 @@ mod tests {
 
             fn create_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
                 _comment: rung_github::CreateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -1242,8 +1224,7 @@ mod tests {
 
             fn update_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _comment_id: u64,
                 _comment: rung_github::UpdateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -1263,8 +1244,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
             let stack = Stack::default();
             let config = SubmitConfig {
                 draft: false,
@@ -1285,8 +1265,7 @@ mod tests {
                 .with_branch("feature/a", oid);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
@@ -1311,8 +1290,7 @@ mod tests {
                 .with_branch("feature/a", oid);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
@@ -1339,8 +1317,7 @@ mod tests {
                 .with_branch("feature/a", oid);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
@@ -1368,8 +1345,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("feature/test", oid);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             // MockGitOps returns "Test commit message" for branch_commit_message
             let (title, body) = service.get_pr_title_and_body("feature/test");
@@ -1382,8 +1358,7 @@ mod tests {
             let git = MockGitOps::new();
             let github = MockGitHubClient::new();
 
-            let _service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let _service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
             // Service is created successfully
         }
 
@@ -1396,8 +1371,7 @@ mod tests {
                 .with_push_result("feature/a", true);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());
@@ -1432,8 +1406,7 @@ mod tests {
                 .with_push_result("feature/a", true);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
@@ -1468,8 +1441,7 @@ mod tests {
                 .with_push_result("feature/b", true);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             let mut branch_a = StackBranch::try_new("feature/a", None::<&str>).unwrap();
@@ -1514,8 +1486,7 @@ mod tests {
                 .with_push_result("feature/a", true);
             let github = MockGitHubClient::new();
 
-            let service =
-                SubmitService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut stack = Stack::default();
             stack.add_branch(StackBranch::try_new("feature/a", None::<&str>).unwrap());

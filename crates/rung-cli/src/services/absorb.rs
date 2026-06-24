@@ -35,17 +35,14 @@ impl<'a, G: AbsorbOps> AbsorbService<'a, G> {
             .repo
             .origin_url()
             .context("No origin remote configured")?;
-        let rung_forge::RemoteInfo {
-            owner,
-            repo: repo_name,
-            ..
-        } = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
+        let rung_forge::RemoteInfo { repo: repo_id, .. } =
+            rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
 
         let client = Forge::for_remote(&origin_url, &Auth::auto()).context(
             "GitHub auth required to detect default branch. Use --base <branch> to specify manually.",
         )?;
         client
-            .get_default_branch(&owner, &repo_name)
+            .get_default_branch(&repo_id)
             .await
             .context("Could not fetch default branch. Use --base <branch> to specify manually.")
     }

@@ -339,11 +339,8 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             return result;
         };
 
-        let Ok(rung_forge::RemoteInfo {
-            owner,
-            repo: repo_name,
-            ..
-        }) = rung_forge::parse_remote(&origin_url)
+        let Ok(rung_forge::RemoteInfo { repo: repo_id, .. }) =
+            rung_forge::parse_remote(&origin_url)
         else {
             result
                 .issues
@@ -368,7 +365,7 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             };
 
             // Check if PR is still open
-            match client.get_pr(&owner, &repo_name, pr_number).await {
+            match client.get_pr(&repo_id, pr_number).await {
                 Ok(pr) => {
                     let state_str = match pr.state {
                         PullRequestState::Open => continue,

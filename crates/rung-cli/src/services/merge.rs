@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
 use rung_core::{BranchName, StateStore};
 use rung_git::{GitOps, Oid};
-use rung_github::{ForgeApi, MergeMethod, MergePullRequest, UpdatePullRequest};
+use rung_github::{ForgeApi, MergeMethod, MergePullRequest, RepoId, UpdatePullRequest};
 
 /// Information about a descendant branch that was processed.
 #[derive(Debug, Clone)]
@@ -26,20 +26,18 @@ pub struct DescendantResult {
 pub struct MergeService<'a, G: GitOps, H: ForgeApi> {
     repo: &'a G,
     client: &'a H,
-    owner: String,
-    repo_name: String,
+    repo_id: RepoId,
 }
 
 #[allow(clippy::future_not_send)]
 impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
     /// Create a new merge service.
     #[must_use]
-    pub const fn new(repo: &'a G, client: &'a H, owner: String, repo_name: String) -> Self {
+    pub const fn new(repo: &'a G, client: &'a H, repo_id: RepoId) -> Self {
         Self {
             repo,
             client,
-            owner,
-            repo_name,
+            repo_id,
         }
     }
 
@@ -55,7 +53,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
         loop {
             let pr = self
                 .client
-                .get_pr(&self.owner, &self.repo_name, pr_number)
+                .get_pr(&self.repo_id, pr_number)
                 .await
                 .context("Failed to fetch PR status")?;
 
@@ -116,7 +114,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
                 };
                 if let Err(e) = self
                     .client
-                    .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
+                    .update_pr(&self.repo_id, child_pr_num, update)
                     .await
                 {
                     // Best-effort rollback of already-shifted PRs
@@ -148,7 +146,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
             };
             if let Err(e) = self
                 .client
-                .update_pr(&self.owner, &self.repo_name, *child_pr_num, rollback)
+                .update_pr(&self.repo_id, *child_pr_num, rollback)
                 .await
             {
                 failures.push((*child_pr_num, e.to_string()));
@@ -166,7 +164,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
         };
 
         self.client
-            .merge_pr(&self.owner, &self.repo_name, pr_number, merge_request)
+            .merge_pr(&self.repo_id, pr_number, merge_request)
             .await
             .context("Failed to merge PR")?;
 
@@ -324,7 +322,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
                 };
                 match self
                     .client
-                    .update_pr(&self.owner, &self.repo_name, child_pr_num, update)
+                    .update_pr(&self.repo_id, child_pr_num, update)
                     .await
                 {
                     Ok(_) => (true, None),
@@ -348,7 +346,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
     /// Delete the remote branch after merge.
     pub async fn delete_remote_branch(&self, branch: &str) -> Result<()> {
         self.client
-            .delete_ref(&self.owner, &self.repo_name, branch)
+            .delete_ref(&self.repo_id, branch)
             .await
             .context("Failed to delete remote branch")
     }
@@ -743,8 +741,7 @@ mod tests {
         impl rung_github::ForgeApi for MockGitHubClient {
             fn get_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -771,8 +768,7 @@ mod tests {
 
             fn get_prs_batch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _numbers: &[u64],
             ) -> impl std::future::Future<
                 Output = rung_github::Result<
@@ -784,8 +780,7 @@ mod tests {
 
             fn find_pr_for_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _branch: &str,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Option<rung_github::PullRequest>>,
@@ -795,8 +790,7 @@ mod tests {
 
             fn create_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _params: rung_github::CreatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -805,8 +799,7 @@ mod tests {
 
             fn update_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
                 _params: rung_github::UpdatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
@@ -837,8 +830,7 @@ mod tests {
 
             fn get_check_runs(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _commit_sha: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
             {
@@ -847,8 +839,7 @@ mod tests {
 
             fn merge_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _number: u64,
                 _params: rung_github::MergePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
@@ -872,8 +863,7 @@ mod tests {
 
             fn delete_ref(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _branch: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
                 let should_fail = self.delete_should_fail;
@@ -891,16 +881,14 @@ mod tests {
 
             fn get_default_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
             ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
                 async { Ok("main".to_string()) }
             }
 
             fn list_pr_comments(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Vec<rung_github::IssueComment>>,
@@ -910,8 +898,7 @@ mod tests {
 
             fn create_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
                 _comment: rung_github::CreateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -926,8 +913,7 @@ mod tests {
 
             fn update_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _comment_id: u64,
                 _comment: rung_github::UpdateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -947,11 +933,10 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             // Service should be created successfully
-            assert_eq!(service.owner, "owner");
-            assert_eq!(service.repo_name, "repo");
+            assert_eq!(service.repo_id.path(), "owner/repo");
         }
 
         #[tokio::test]
@@ -960,7 +945,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.validate_mergeable(123).await;
             assert!(result.is_ok());
@@ -975,7 +960,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new().with_unmergeable_pr();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.validate_mergeable(123).await;
             assert!(result.is_err());
@@ -990,7 +975,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new().with_unknown_mergeable();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.validate_mergeable(123).await;
             assert!(result.is_err());
@@ -1005,7 +990,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.merge_pr(123, MergeMethod::Squash).await;
             assert!(result.is_ok());
@@ -1017,7 +1002,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new().with_merge_failure();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.merge_pr(123, MergeMethod::Squash).await;
             assert!(result.is_err());
@@ -1029,7 +1014,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.delete_remote_branch("feature").await;
             assert!(result.is_ok());
@@ -1041,7 +1026,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new().with_delete_failure();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let result = service.delete_remote_branch("feature").await;
             assert!(result.is_err());
@@ -1064,7 +1049,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack);
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let children_count = service
                 .update_stack_after_merge(&state, "feature/parent", "main")
@@ -1097,7 +1082,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack);
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let children_count = service
                 .update_stack_after_merge(&state, "feature/only", "main")
@@ -1126,7 +1111,7 @@ mod tests {
             child_branch.pr = Some(20);
             stack.add_branch(child_branch);
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let descendants = vec!["feature/child".to_string()];
             let result = service
@@ -1146,7 +1131,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let shifted_prs = vec![(20, "feature/parent".to_string())];
 
@@ -1164,7 +1149,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new().with_update_pr_failure();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let shifted_prs = vec![
                 (20, "feature/parent".to_string()),
@@ -1185,7 +1170,7 @@ mod tests {
             let git = MockGitOps::new().with_branch("main", oid);
             let github = MockGitHubClient::new();
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             // Empty list should return no failures
             let failures = service.rollback_pr_bases(&[]).await;
@@ -1215,7 +1200,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack.clone());
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut old_commits = HashMap::new();
             old_commits.insert("feature/parent".to_string(), oid);
@@ -1257,7 +1242,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack.clone());
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut old_commits = HashMap::new();
             old_commits.insert("feature/parent".to_string(), oid);
@@ -1301,7 +1286,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack.clone());
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut old_commits = HashMap::new();
             old_commits.insert("feature/parent".to_string(), oid);
@@ -1355,7 +1340,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack.clone());
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut old_commits = HashMap::new();
             old_commits.insert("feature/parent".to_string(), oid);
@@ -1420,7 +1405,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack.clone());
 
-            let service = MergeService::new(&git, &github, "owner".to_string(), "repo".to_string());
+            let service = MergeService::new(&git, &github, RepoId::new("owner/repo"));
 
             let mut old_commits = HashMap::new();
             old_commits.insert("feature/parent".to_string(), oid);

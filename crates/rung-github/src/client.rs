@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 
 use rung_forge::{
     CheckRun, CreateComment, CreatePullRequest, ForgeApi, ForgeError as Error, IssueComment,
-    MergePullRequest, MergeResult, PullRequest, PullRequestState, Result, UpdateComment,
+    MergePullRequest, MergeResult, PullRequest, PullRequestState, RepoId, Result, UpdateComment,
     UpdatePullRequest,
 };
 
@@ -713,103 +713,103 @@ fn build_graphql_pr_query(numbers: &[u64]) -> String {
 
 // === Trait Implementation ===
 
+/// Split a forge-neutral [`RepoId`] into GitHub's `(owner, repo)` pair.
+///
+/// GitHub repositories are always exactly `owner/repo`; [`parse_remote`]
+/// guarantees that shape, so a single `/` split is sufficient.
+///
+/// [`parse_remote`]: rung_forge::parse_remote
+fn github_parts(repo: &RepoId) -> Result<(&str, &str)> {
+    repo.path()
+        .split_once('/')
+        .filter(|(owner, name)| !owner.is_empty() && !name.is_empty() && !name.contains('/'))
+        .ok_or_else(|| Error::InvalidRemoteUrl(repo.path().to_string()))
+}
+
 impl ForgeApi for GitHubClient {
-    async fn get_pr(&self, owner: &str, repo: &str, number: u64) -> Result<PullRequest> {
-        self.get_pr(owner, repo, number).await
+    async fn get_pr(&self, repo: &RepoId, number: u64) -> Result<PullRequest> {
+        let (owner, name) = github_parts(repo)?;
+        self.get_pr(owner, name, number).await
     }
 
     async fn get_prs_batch(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         numbers: &[u64],
     ) -> Result<std::collections::HashMap<u64, PullRequest>> {
-        self.get_prs_batch(owner, repo, numbers).await
+        let (owner, name) = github_parts(repo)?;
+        self.get_prs_batch(owner, name, numbers).await
     }
 
-    async fn find_pr_for_branch(
-        &self,
-        owner: &str,
-        repo: &str,
-        branch: &str,
-    ) -> Result<Option<PullRequest>> {
-        self.find_pr_for_branch(owner, repo, branch).await
+    async fn find_pr_for_branch(&self, repo: &RepoId, branch: &str) -> Result<Option<PullRequest>> {
+        let (owner, name) = github_parts(repo)?;
+        self.find_pr_for_branch(owner, name, branch).await
     }
 
-    async fn create_pr(
-        &self,
-        owner: &str,
-        repo: &str,
-        pr: CreatePullRequest,
-    ) -> Result<PullRequest> {
-        self.create_pr(owner, repo, pr).await
+    async fn create_pr(&self, repo: &RepoId, pr: CreatePullRequest) -> Result<PullRequest> {
+        let (owner, name) = github_parts(repo)?;
+        self.create_pr(owner, name, pr).await
     }
 
     async fn update_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
         update: UpdatePullRequest,
     ) -> Result<PullRequest> {
-        self.update_pr(owner, repo, number, update).await
+        let (owner, name) = github_parts(repo)?;
+        self.update_pr(owner, name, number, update).await
     }
 
-    async fn get_check_runs(
-        &self,
-        owner: &str,
-        repo: &str,
-        commit_sha: &str,
-    ) -> Result<Vec<CheckRun>> {
-        self.get_check_runs(owner, repo, commit_sha).await
+    async fn get_check_runs(&self, repo: &RepoId, commit_sha: &str) -> Result<Vec<CheckRun>> {
+        let (owner, name) = github_parts(repo)?;
+        self.get_check_runs(owner, name, commit_sha).await
     }
 
     async fn merge_pr(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         number: u64,
         merge: MergePullRequest,
     ) -> Result<MergeResult> {
-        self.merge_pr(owner, repo, number, merge).await
+        let (owner, name) = github_parts(repo)?;
+        self.merge_pr(owner, name, number, merge).await
     }
 
-    async fn delete_ref(&self, owner: &str, repo: &str, ref_name: &str) -> Result<()> {
-        self.delete_ref(owner, repo, ref_name).await
+    async fn delete_ref(&self, repo: &RepoId, ref_name: &str) -> Result<()> {
+        let (owner, name) = github_parts(repo)?;
+        self.delete_ref(owner, name, ref_name).await
     }
 
-    async fn get_default_branch(&self, owner: &str, repo: &str) -> Result<String> {
-        self.get_default_branch(owner, repo).await
+    async fn get_default_branch(&self, repo: &RepoId) -> Result<String> {
+        let (owner, name) = github_parts(repo)?;
+        self.get_default_branch(owner, name).await
     }
 
-    async fn list_pr_comments(
-        &self,
-        owner: &str,
-        repo: &str,
-        pr_number: u64,
-    ) -> Result<Vec<IssueComment>> {
-        self.list_pr_comments(owner, repo, pr_number).await
+    async fn list_pr_comments(&self, repo: &RepoId, pr_number: u64) -> Result<Vec<IssueComment>> {
+        let (owner, name) = github_parts(repo)?;
+        self.list_pr_comments(owner, name, pr_number).await
     }
 
     async fn create_pr_comment(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         pr_number: u64,
         comment: CreateComment,
     ) -> Result<IssueComment> {
-        self.create_pr_comment(owner, repo, pr_number, comment)
+        let (owner, name) = github_parts(repo)?;
+        self.create_pr_comment(owner, name, pr_number, comment)
             .await
     }
 
     async fn update_pr_comment(
         &self,
-        owner: &str,
-        repo: &str,
+        repo: &RepoId,
         comment_id: u64,
         comment: UpdateComment,
     ) -> Result<IssueComment> {
-        self.update_pr_comment(owner, repo, comment_id, comment)
+        let (owner, name) = github_parts(repo)?;
+        self.update_pr_comment(owner, name, comment_id, comment)
             .await
     }
 }
@@ -822,6 +822,30 @@ mod tests {
     use secrecy::SecretString;
     use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn test_github_parts_splits_owner_repo() {
+        let repo = RepoId::new("octocat/hello-world");
+        let (owner, name) = github_parts(&repo).unwrap();
+        assert_eq!(owner, "octocat");
+        assert_eq!(name, "hello-world");
+    }
+
+    #[test]
+    fn test_github_parts_rejects_nested_path() {
+        // GitHub repos are exactly `owner/repo`; a nested GitLab-style path is invalid here.
+        assert!(matches!(
+            github_parts(&RepoId::new("group/subgroup/project")),
+            Err(Error::InvalidRemoteUrl(_))
+        ));
+    }
+
+    #[test]
+    fn test_github_parts_rejects_missing_separator() {
+        assert!(github_parts(&RepoId::new("justone")).is_err());
+        assert!(github_parts(&RepoId::new("owner/")).is_err());
+        assert!(github_parts(&RepoId::new("/repo")).is_err());
+    }
 
     /// Create a test client pointing to the mock server.
     fn test_client(base_url: &str) -> GitHubClient {
@@ -868,6 +892,30 @@ mod tests {
         assert_eq!(pr.title, "PR #123");
         assert_eq!(pr.state, PullRequestState::Open);
         assert_eq!(pr.head_branch, "feature-branch");
+        assert_eq!(pr.base_branch, "main");
+    }
+
+    #[tokio::test]
+    async fn test_forge_api_get_pr_splits_repo_id_to_url() {
+        // Exercises the `ForgeApi` adapter end-to-end: a `RepoId` must be split
+        // into `owner`/`repo` and reach the same wire URL as the inherent call.
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/repos/owner/repo/pulls/123"))
+            .and(header("authorization", "Bearer test-token"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(pr_response_json(123, "open", false)),
+            )
+            .mount(&mock_server)
+            .await;
+
+        let client = test_client(&mock_server.uri());
+        let pr = ForgeApi::get_pr(&client, &RepoId::new("owner/repo"), 123)
+            .await
+            .unwrap();
+
+        assert_eq!(pr.number, 123);
         assert_eq!(pr.base_branch, "main");
     }
 

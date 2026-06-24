@@ -12,7 +12,7 @@ use rung_core::sync::{
     self, ExternalMergeInfo, ReconcileResult, ReparentedBranch, StaleBranches, SyncPlan, SyncResult,
 };
 use rung_git::GitOps;
-use rung_github::{ForgeApi, PullRequestState, UpdatePullRequest};
+use rung_github::{ForgeApi, PullRequestState, RepoId, UpdatePullRequest};
 
 /// Threshold for switching from individual REST calls to batched GraphQL query.
 const BATCH_THRESHOLD: usize = 5;
@@ -21,20 +21,18 @@ const BATCH_THRESHOLD: usize = 5;
 pub struct SyncService<'a, G: GitOps, H: ForgeApi> {
     repo: &'a G,
     client: &'a H,
-    owner: String,
-    repo_name: String,
+    repo_id: RepoId,
 }
 
 #[allow(clippy::future_not_send)]
 impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
     /// Create a new sync service.
     #[must_use]
-    pub const fn new(repo: &'a G, client: &'a H, owner: String, repo_name: String) -> Self {
+    pub const fn new(repo: &'a G, client: &'a H, repo_id: RepoId) -> Self {
         Self {
             repo,
             client,
-            owner,
-            repo_name,
+            repo_id,
         }
     }
 
@@ -79,11 +77,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
         if branches_with_prs.len() > BATCH_THRESHOLD {
             let pr_numbers: Vec<u64> = branches_with_prs.iter().map(|(_, _, pr)| *pr).collect();
 
-            match self
-                .client
-                .get_prs_batch(&self.owner, &self.repo_name, &pr_numbers)
-                .await
-            {
+            match self.client.get_prs_batch(&self.repo_id, &pr_numbers).await {
                 Ok(pr_map) => {
                     for (branch_name, stack_parent, pr_number) in &branches_with_prs {
                         if let Some(pr) = pr_map.get(pr_number) {
@@ -145,11 +139,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
         ghost_parents: &mut Vec<ReparentedBranch>,
     ) {
         for (branch_name, stack_parent, pr_number) in branches_with_prs {
-            match self
-                .client
-                .get_pr(&self.owner, &self.repo_name, *pr_number)
-                .await
-            {
+            match self.client.get_pr(&self.repo_id, *pr_number).await {
                 Ok(pr) => {
                     Self::process_pr_result(
                         &pr,
@@ -261,11 +251,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
         let pr_numbers: Vec<u64> = updates_needed.iter().map(|(pr, _, _)| *pr).collect();
 
         let current_states: HashMap<u64, String> = if pr_numbers.len() > BATCH_THRESHOLD {
-            match self
-                .client
-                .get_prs_batch(&self.owner, &self.repo_name, &pr_numbers)
-                .await
-            {
+            match self.client.get_prs_batch(&self.repo_id, &pr_numbers).await {
                 Ok(prs) => prs
                     .into_iter()
                     .map(|(num, pr)| (num, pr.base_branch))
@@ -293,7 +279,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
 
             if let Err(e) = self
                 .client
-                .update_pr(&self.owner, &self.repo_name, pr_number, update)
+                .update_pr(&self.repo_id, pr_number, update)
                 .await
             {
                 eprintln!("Warning: Failed to update PR #{pr_number} base to '{new_base}': {e}");
@@ -307,11 +293,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
     async fn fetch_current_bases(&self, pr_numbers: &[u64]) -> HashMap<u64, String> {
         let mut result = HashMap::new();
         for &pr_number in pr_numbers {
-            if let Ok(pr) = self
-                .client
-                .get_pr(&self.owner, &self.repo_name, pr_number)
-                .await
-            {
+            if let Ok(pr) = self.client.get_pr(&self.repo_id, pr_number).await {
                 result.insert(pr_number, pr.base_branch);
             }
         }
@@ -655,8 +637,7 @@ mod tests {
         impl rung_github::ForgeApi for MockGitHubClient {
             fn get_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -665,8 +646,7 @@ mod tests {
 
             fn get_prs_batch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _numbers: &[u64],
             ) -> impl std::future::Future<
                 Output = rung_github::Result<
@@ -678,8 +658,7 @@ mod tests {
 
             fn find_pr_for_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _branch: &str,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Option<rung_github::PullRequest>>,
@@ -689,8 +668,7 @@ mod tests {
 
             fn create_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _params: rung_github::CreatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -699,8 +677,7 @@ mod tests {
 
             fn update_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
                 _params: rung_github::UpdatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
@@ -710,8 +687,7 @@ mod tests {
 
             fn get_check_runs(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _commit_sha: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
             {
@@ -720,8 +696,7 @@ mod tests {
 
             fn merge_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _number: u64,
                 _params: rung_github::MergePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
@@ -737,8 +712,7 @@ mod tests {
 
             fn delete_ref(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _ref_name: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
                 async { Ok(()) }
@@ -746,16 +720,14 @@ mod tests {
 
             fn get_default_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
             ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
                 async { Ok("main".to_string()) }
             }
 
             fn list_pr_comments(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Vec<rung_github::IssueComment>>,
@@ -765,8 +737,7 @@ mod tests {
 
             fn create_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
                 _comment: rung_github::CreateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -781,8 +752,7 @@ mod tests {
 
             fn update_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _comment_id: u64,
                 _comment: rung_github::UpdateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -802,7 +772,7 @@ mod tests {
             let state = MockStateStore::new();
             let client = MockGitHubClient;
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
             let result = service.push_stack_branches(&state).unwrap();
 
             assert!(result.is_empty());
@@ -822,7 +792,7 @@ mod tests {
             let state = MockStateStore::new().with_stack(stack);
             let client = MockGitHubClient;
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
             let result = service.push_stack_branches(&state).unwrap();
 
             assert_eq!(result.len(), 2);
@@ -844,7 +814,7 @@ mod tests {
             let state = MockStateStore::new().with_stack(stack);
             let client = MockGitHubClient;
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
             let result = service.push_stack_branches(&state).unwrap();
 
             assert_eq!(result.len(), 2);
@@ -865,7 +835,7 @@ mod tests {
             let state = MockStateStore::new().with_stack(stack);
             let client = MockGitHubClient;
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
             let result = service.push_stack_branches(&state).unwrap();
 
             // Only feature/a should be pushed (feature/b doesn't exist in git)
@@ -878,7 +848,7 @@ mod tests {
             let git = MockGitOps::new();
             let client = MockGitHubClient;
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
             let result = service.fetch_base("main");
 
             assert!(result.is_ok());
@@ -889,12 +859,7 @@ mod tests {
             let git = MockGitOps::new();
             let client = MockGitHubClient;
 
-            let service = SyncService::new(
-                &git,
-                &client,
-                "test-owner".to_string(),
-                "test-repo".to_string(),
-            );
+            let service = SyncService::new(&git, &client, RepoId::new("test-owner/test-repo"));
 
             // Service is created successfully - we can't access private fields
             // but we can verify it doesn't panic
@@ -929,8 +894,7 @@ mod tests {
         impl rung_github::ForgeApi for ConfigurableMockGitHubClient {
             fn get_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -962,8 +926,7 @@ mod tests {
 
             fn get_prs_batch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 numbers: &[u64],
             ) -> impl std::future::Future<
                 Output = rung_github::Result<
@@ -1003,8 +966,7 @@ mod tests {
 
             fn find_pr_for_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _branch: &str,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Option<rung_github::PullRequest>>,
@@ -1014,8 +976,7 @@ mod tests {
 
             fn create_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _params: rung_github::CreatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
@@ -1024,8 +985,7 @@ mod tests {
 
             fn update_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 number: u64,
                 _params: rung_github::UpdatePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
@@ -1048,8 +1008,7 @@ mod tests {
 
             fn get_check_runs(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _commit_sha: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<Vec<rung_github::CheckRun>>> + Send
             {
@@ -1058,8 +1017,7 @@ mod tests {
 
             fn merge_pr(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _number: u64,
                 _params: rung_github::MergePullRequest,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::MergeResult>> + Send
@@ -1075,8 +1033,7 @@ mod tests {
 
             fn delete_ref(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _ref_name: &str,
             ) -> impl std::future::Future<Output = rung_github::Result<()>> + Send {
                 async { Ok(()) }
@@ -1084,16 +1041,14 @@ mod tests {
 
             fn get_default_branch(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
             ) -> impl std::future::Future<Output = rung_github::Result<String>> + Send {
                 async { Ok("main".to_string()) }
             }
 
             fn list_pr_comments(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
             ) -> impl std::future::Future<
                 Output = rung_github::Result<Vec<rung_github::IssueComment>>,
@@ -1103,8 +1058,7 @@ mod tests {
 
             fn create_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _pr_number: u64,
                 _comment: rung_github::CreateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -1119,8 +1073,7 @@ mod tests {
 
             fn update_pr_comment(
                 &self,
-                _owner: &str,
-                _repo: &str,
+                _repo: &rung_github::RepoId,
                 _comment_id: u64,
                 _comment: rung_github::UpdateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send
@@ -1140,7 +1093,7 @@ mod tests {
             let client = ConfigurableMockGitHubClient::new();
             let state = MockStateStore::new();
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
 
             let result = service.detect_and_reconcile_merged(&state, "main").await;
             assert!(result.is_ok());
@@ -1163,7 +1116,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack);
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
 
             let result = service.detect_and_reconcile_merged(&state, "main").await;
             assert!(result.is_ok());
@@ -1188,7 +1141,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack);
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
 
             let result = service.detect_and_reconcile_merged(&state, "main").await;
             assert!(result.is_ok());
@@ -1212,7 +1165,7 @@ mod tests {
 
             let state = MockStateStore::new().with_stack(stack);
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
 
             let result = service.detect_and_reconcile_merged(&state, "main").await;
             assert!(result.is_ok());
@@ -1230,7 +1183,7 @@ mod tests {
             let git = MockGitOps::new();
             let client = ConfigurableMockGitHubClient::new();
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
 
             let empty_result = rung_core::sync::ReconcileResult::default();
             let result = service.update_pr_bases(&empty_result).await;
@@ -1242,7 +1195,7 @@ mod tests {
             let git = MockGitOps::new();
             let client = ConfigurableMockGitHubClient::new().with_pr_base(10, "old-parent");
 
-            let service = SyncService::new(&git, &client, "owner".to_string(), "repo".to_string());
+            let service = SyncService::new(&git, &client, RepoId::new("owner/repo"));
 
             let reconcile_result = rung_core::sync::ReconcileResult {
                 merged: vec![],

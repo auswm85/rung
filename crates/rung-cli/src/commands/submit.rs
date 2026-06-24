@@ -106,13 +106,13 @@ pub fn run(
             .context("Failed to load default branch from config")?,
     };
 
-    let (owner, repo_name) = get_remote_info(&repo)?;
+    let repo_id = get_remote_info(&repo)?;
 
     let origin_url = repo.origin_url().context("No origin remote configured")?;
     let client = Forge::for_remote(&origin_url, &Auth::auto())?;
     let rt = tokio::runtime::Runtime::new()?;
 
-    let service = SubmitService::new(&repo, &client, owner.clone(), repo_name.clone());
+    let service = SubmitService::new(&repo, &client, repo_id.clone());
 
     // Phase 0: Sync Protection
     if !force {
@@ -129,7 +129,7 @@ pub fn run(
 
     // Phase 2: Execute the plan (mutations only)
     if !json {
-        output::info(&format!("Submitting to {owner}/{repo_name}..."));
+        output::info(&format!("Submitting to {repo_id}..."));
     }
 
     // Warn about diverged branches before pushing
@@ -326,11 +326,11 @@ fn prompt_and_handle_uncommitted(repo: &Repository) -> Result<()> {
     Ok(())
 }
 
-/// Get owner and repo name from remote.
-fn get_remote_info(repo: &Repository) -> Result<(String, String)> {
+/// Get the forge-neutral repository identifier from the origin remote.
+fn get_remote_info(repo: &Repository) -> Result<rung_forge::RepoId> {
     let origin_url = repo.origin_url().context("No origin remote configured")?;
     let info = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
-    Ok((info.owner, info.repo))
+    Ok(info.repo)
 }
 
 /// Create a commit using git CLI.
