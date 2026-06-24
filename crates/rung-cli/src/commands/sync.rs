@@ -170,7 +170,11 @@ pub fn run(
             .map_err(|_| {
                 forge_auth_unavailable = true;
                 if !json {
-                    output::warn("GitHub auth unavailable - skipping merge detection");
+                    let forge_name = rung_forge::ForgeKind::detect(url)
+                        .map_or("Forge", |kind| kind.display_name());
+                    output::warn(&format!(
+                        "{forge_name} auth unavailable - skipping merge detection"
+                    ));
                 }
             })
             .ok(),
