@@ -15,6 +15,41 @@ pub enum ForgeKind {
 }
 
 impl ForgeKind {
+    /// Every forge backend rung supports.
+    ///
+    /// Used to build user-facing "supported forges" hints in errors where no
+    /// specific forge was detected (see [`ForgeKind::supported_label`]).
+    pub const ALL: &'static [Self] = &[Self::GitHub];
+
+    /// Human-readable name of the forge, for user-facing messages.
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::GitHub => "GitHub",
+        }
+    }
+
+    /// Hint describing how to authenticate with this forge, for error messages.
+    #[must_use]
+    pub const fn auth_hint(self) -> &'static str {
+        match self {
+            Self::GitHub => "run `gh auth login` or set GITHUB_TOKEN",
+        }
+    }
+
+    /// Comma-separated display names of every supported forge (e.g. `"GitHub"`).
+    ///
+    /// For "unrecognized remote" errors, where there is no detected forge to
+    /// name but listing the supported ones guides the user.
+    #[must_use]
+    pub fn supported_label() -> String {
+        Self::ALL
+            .iter()
+            .map(|kind| kind.display_name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     /// Detect the forge that hosts a git remote URL.
     ///
     /// Recognizes both HTTPS and SSH forms. Returns `None` if the host is not
@@ -91,6 +126,30 @@ fn parse_github(url: &str) -> Result<RemoteInfo> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_display_name() {
+        assert_eq!(ForgeKind::GitHub.display_name(), "GitHub");
+    }
+
+    #[test]
+    fn test_auth_hint_mentions_credentials() {
+        let hint = ForgeKind::GitHub.auth_hint();
+        assert!(hint.contains("gh auth login"));
+        assert!(hint.contains("GITHUB_TOKEN"));
+    }
+
+    #[test]
+    fn test_supported_label_lists_all_kinds() {
+        let label = ForgeKind::supported_label();
+        for kind in ForgeKind::ALL {
+            assert!(
+                label.contains(kind.display_name()),
+                "supported_label {label:?} omits {}",
+                kind.display_name()
+            );
+        }
+    }
 
     #[test]
     fn test_detect_github_https() {

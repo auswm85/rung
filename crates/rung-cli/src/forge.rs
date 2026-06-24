@@ -30,14 +30,19 @@ impl Forge {
     /// authentication for the detected forge fails.
     pub fn for_remote(remote_url: &str, auth: &Auth) -> Result<Self> {
         match ForgeKind::detect(remote_url) {
-            Some(ForgeKind::GitHub) => {
-                let client = GitHubClient::new(auth).context(
-                    "Failed to authenticate with GitHub - run `gh auth login` or set GITHUB_TOKEN",
-                )?;
+            Some(kind @ ForgeKind::GitHub) => {
+                let client = GitHubClient::new(auth).with_context(|| {
+                    format!(
+                        "Failed to authenticate with {} - {}",
+                        kind.display_name(),
+                        kind.auth_hint()
+                    )
+                })?;
                 Ok(Self::GitHub(client))
             }
             None => Err(anyhow!(
-                "unsupported forge: remote is not a recognized GitHub repository"
+                "unsupported forge: remote is not a recognized forge repository (supported: {})",
+                ForgeKind::supported_label()
             )),
         }
     }

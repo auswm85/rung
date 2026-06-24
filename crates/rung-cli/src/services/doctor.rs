@@ -339,12 +339,15 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             return result;
         };
 
-        let Ok(rung_forge::RemoteInfo { repo: repo_id, .. }) =
-            rung_forge::parse_remote(&origin_url)
+        let Ok(rung_forge::RemoteInfo {
+            repo: repo_id,
+            kind,
+        }) = rung_forge::parse_remote(&origin_url)
         else {
-            result
-                .issues
-                .push(Issue::warning("Origin is not a GitHub repository"));
+            result.issues.push(Issue::warning(format!(
+                "Origin is not a recognized repository (supported: {})",
+                rung_forge::ForgeKind::supported_label()
+            )));
             return result;
         };
 
@@ -352,8 +355,8 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         let auth = Auth::auto();
         let Ok(client) = Forge::for_remote(&origin_url, &auth) else {
             result.issues.push(
-                Issue::error("GitHub authentication failed")
-                    .with_suggestion("Set GITHUB_TOKEN or authenticate with `gh auth login`"),
+                Issue::error(format!("{} authentication failed", kind.display_name()))
+                    .with_suggestion(kind.auth_hint()),
             );
             return result;
         };
