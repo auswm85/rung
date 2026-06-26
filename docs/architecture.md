@@ -38,8 +38,8 @@ Rung is a two-component system:
 │  └───────┬─────────────────────────────────────┬───────────┘   │
 │          │                                     │                │
 │  ┌───────▼───────┐                   ┌────────▼────────┐       │
-│  │   rung-git    │                   │   rung-github   │       │
-│  │  git2-rs ops  │                   │   PR API calls  │       │
+│  │   rung-git    │                   │   rung-forge    │       │
+│  │  git2-rs ops  │                   │  ForgeApi+impls │       │
 │  └───────────────┘                   └─────────────────┘       │
 └─────────────────────────────────────────────────────────────────┘
                             │
@@ -49,6 +49,10 @@ Rung is a two-component system:
 │       .git/rung/ (stack.json | config.toml | refs/)             │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+`rung-forge` defines the forge-neutral `ForgeApi` contract; `rung-github` (and
+the in-progress `rung-gitlab`) implement it. The CLI selects a backend from the
+detected git remote.
 
 ---
 
@@ -78,13 +82,28 @@ rung/
 │   │   │   └── notes.rs          # Git Notes integration
 │   │   └── Cargo.toml
 │   │
-│   ├── rung-github/              # GitHub API
+│   ├── rung-forge/              # Forge-neutral contract
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── client.rs         # HTTP client
-│   │   │   ├── pr.rs             # PR CRUD
-│   │   │   ├── checks.rs         # CI status
-│   │   │   └── auth.rs           # gh CLI / OAuth
+│   │   │   ├── traits.rs         # ForgeApi trait
+│   │   │   ├── types.rs          # PR/comment/check domain types
+│   │   │   ├── repo_id.rs        # Forge-neutral RepoId
+│   │   │   ├── remote.rs         # ForgeKind remote detection
+│   │   │   └── error.rs          # Neutral error types
+│   │   └── Cargo.toml
+│   │
+│   ├── rung-github/              # GitHub backend
+│   │   ├── src/
+│   │   │   ├── lib.rs
+│   │   │   ├── client.rs         # HTTP client + ForgeApi impl
+│   │   │   └── auth.rs           # gh CLI / GITHUB_TOKEN
+│   │   └── Cargo.toml
+│   │
+│   ├── rung-gitlab/              # GitLab backend (in progress)
+│   │   ├── src/
+│   │   │   ├── lib.rs
+│   │   │   ├── client.rs         # HTTP client + ForgeApi (stubbed, #170)
+│   │   │   └── auth.rs           # glab CLI / GITLAB_TOKEN
 │   │   └── Cargo.toml
 │   │
 │   └── rung-cli/                 # CLI application
@@ -111,11 +130,17 @@ rung/
 ```
 rung-cli
     ├── rung-core
-    │   ├── rung-git
-    │   └── rung-github
+    │   └── rung-git
+    ├── rung-git
+    ├── rung-forge              # ForgeApi trait, RepoId, ForgeKind detection
+    ├── rung-github             # GitHub backend
+    │   └── rung-forge
     └── clap (CLI parsing)
          tokio (async runtime)
          serde_json (output)
+
+rung-gitlab                     # GitLab backend (implements rung-forge); CLI wiring pending (#171)
+    └── rung-forge
 ```
 
 ---
@@ -474,17 +499,17 @@ class LadderTreeProvider implements vscode.TreeDataProvider<BranchNode> {
       case "synced":
         return new vscode.ThemeIcon(
           "check",
-          new vscode.ThemeColor("charts.green")
+          new vscode.ThemeColor("charts.green"),
         );
       case "diverged":
         return new vscode.ThemeIcon(
           "warning",
-          new vscode.ThemeColor("charts.yellow")
+          new vscode.ThemeColor("charts.yellow"),
         );
       case "conflict":
         return new vscode.ThemeIcon(
           "error",
-          new vscode.ThemeColor("charts.red")
+          new vscode.ThemeColor("charts.red"),
         );
       default:
         return new vscode.ThemeIcon("git-branch");
@@ -729,24 +754,20 @@ tests/
 ### 9.2 Key Test Scenarios
 
 1. **Linear Stack Sync**
-
    - Create 3-branch stack
    - Add commit to base
    - Sync: verify all branches rebased
 
 2. **Mid-Stack Conflict**
-
    - Create conflicting changes
    - Sync: verify pause at conflict
    - Resolve, continue: verify completion
 
 3. **Undo After Partial Sync**
-
    - Sync with conflict at branch 2/3
    - Undo: verify all branches restored
 
 4. **Branch Rename Detection**
-
    - Rename branch via `git branch -m`
    - Verify rung detects via reflog
    - Update metadata automatically
@@ -804,7 +825,7 @@ pub enum RungError {
 
 ### Phase 2 Features (Not in MVP)
 
-1. **GitLab Support**: Abstract `rung-github` to `rung-forge` with GitLab impl
+1. **GitLab Support**: The `rung-forge` contract and `rung-gitlab` backend (auth + client scaffold) exist; remaining work is the `ForgeApi` implementation (#170) and CLI wiring (#171)
 2. **Multi-Root Stacks**: Allow branch to depend on multiple parents
 3. **Auto-Sync**: Watch for upstream changes, notify user
 4. **Team Collaboration**: Shared stacks across team members
