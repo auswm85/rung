@@ -15,6 +15,7 @@ rung-core = { version = "0.9.0", path = "crates/rung-core" }
 rung-forge = { version = "0.9.0", path = "crates/rung-forge" }
 rung-git = { version = "0.9.0", path = "crates/rung-git" }
 rung-github = { version = "0.9.0", path = "crates/rung-github" }
+rung-gitlab = { version = "0.9.0", path = "crates/rung-gitlab" }
 
 # Git operations
 git2 = "0.19"
@@ -94,3 +95,8 @@ replace = 'rung-git = { version = "{{version}}"'
 file = "Cargo.toml"
 search = 'rung-github = \{ version = "[^"]*"'
 replace = 'rung-github = { version = "{{version}}"'
+
+[[workspace.metadata.release.pre-release-replacements]]
+file = "Cargo.toml"
+search = 'rung-gitlab = \{ version = "[^"]*"'
+replace = 'rung-gitlab = { version = "{{version}}"'

@@ -141,6 +141,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+      - name: Publish rung-gitlab
+        run: cargo publish -p rung-gitlab
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
       - name: Publish rung-cli
         run: cargo publish -p rung-cli
         env:
