@@ -448,7 +448,9 @@ crates/
   rung-cli/      # Command-line interface
   rung-core/     # Core logic (stack, sync, state)
   rung-git/      # Git operations wrapper
-  rung-github/   # GitHub API client
+  rung-forge/    # Forge-neutral contract (ForgeApi trait, remote detection)
+  rung-github/   # GitHub backend
+  rung-gitlab/   # GitLab backend (in progress)
 ```
 
 ## Development
