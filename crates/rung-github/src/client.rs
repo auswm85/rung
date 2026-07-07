@@ -805,9 +805,12 @@ impl ForgeApi for GitHubClient {
     async fn update_pr_comment(
         &self,
         repo: &RepoId,
+        _pr_number: u64,
         comment_id: u64,
         comment: UpdateComment,
     ) -> Result<IssueComment> {
+        // GitHub updates a comment by id alone (`/issues/comments/:id`), so the
+        // PR number the forge-neutral contract carries (for GitLab) is unused.
         let (owner, name) = github_parts(repo)?;
         self.update_pr_comment(owner, name, comment_id, comment)
             .await
