@@ -13,6 +13,7 @@ categories = ["development-tools", "api-bindings"]
 [dependencies]
 rung-forge = { workspace = true }
 reqwest = { workspace = true }
+percent-encoding = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
