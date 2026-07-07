@@ -170,11 +170,16 @@ pub fn run(
             .map_err(|_| {
                 forge_auth_unavailable = true;
                 if !json {
-                    let forge_name = rung_forge::ForgeKind::detect(url)
-                        .map_or("Forge", |kind| kind.display_name());
-                    output::warn(&format!(
-                        "{forge_name} auth unavailable - skipping merge detection"
-                    ));
+                    let kind = rung_forge::ForgeKind::detect(url);
+                    // GitLab parses but isn't wired into the CLI yet (#171);
+                    // say so rather than implying an auth problem.
+                    let reason = if kind == Some(rung_forge::ForgeKind::GitLab) {
+                        "not yet supported by the CLI"
+                    } else {
+                        "auth unavailable"
+                    };
+                    let forge_name = kind.map_or("Forge", |kind| kind.display_name());
+                    output::warn(&format!("{forge_name} {reason} - skipping merge detection"));
                 }
             })
             .ok(),

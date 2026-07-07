@@ -12,6 +12,8 @@ use crate::{ForgeError, RepoId, Result};
 pub enum ForgeKind {
     /// github.com (and GitHub-style remotes).
     GitHub,
+    /// gitlab.com (and GitLab-style remotes).
+    GitLab,
 }
 
 impl ForgeKind {
@@ -19,13 +21,14 @@ impl ForgeKind {
     ///
     /// Used to build user-facing "supported forges" hints in errors where no
     /// specific forge was detected (see [`ForgeKind::supported_label`]).
-    pub const ALL: &'static [Self] = &[Self::GitHub];
+    pub const ALL: &'static [Self] = &[Self::GitHub, Self::GitLab];
 
     /// Human-readable name of the forge, for user-facing messages.
     #[must_use]
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::GitHub => "GitHub",
+            Self::GitLab => "GitLab",
         }
     }
 
@@ -34,6 +37,7 @@ impl ForgeKind {
     pub const fn auth_hint(self) -> &'static str {
         match self {
             Self::GitHub => "run `gh auth login` or set GITHUB_TOKEN",
+            Self::GitLab => "run `glab auth login` or set GITLAB_TOKEN",
         }
     }
 
@@ -62,6 +66,12 @@ impl ForgeKind {
         {
             return Some(Self::GitHub);
         }
+        if url.starts_with("git@gitlab.com:")
+            || url.starts_with("https://gitlab.com/")
+            || url.starts_with("http://gitlab.com/")
+        {
+            return Some(Self::GitLab);
+        }
         None
     }
 }
@@ -80,25 +90,30 @@ pub struct RemoteInfo {
 /// Supports both HTTPS and SSH URLs:
 /// - `https://github.com/owner/repo.git`
 /// - `git@github.com:owner/repo.git`
+/// - `https://gitlab.com/owner/repo.git`
+/// - `git@gitlab.com:owner/repo.git`
 ///
 /// # Errors
 /// Returns [`ForgeError::InvalidRemoteUrl`] if the URL is not a recognized
 /// forge remote or the owner/repo path cannot be extracted.
 pub fn parse_remote(url: &str) -> Result<RemoteInfo> {
     match ForgeKind::detect(url) {
-        Some(ForgeKind::GitHub) => parse_github(url),
+        Some(kind @ ForgeKind::GitHub) => parse_host(url, kind, "github.com"),
+        Some(kind @ ForgeKind::GitLab) => parse_host(url, kind, "gitlab.com"),
         None => Err(ForgeError::InvalidRemoteUrl(url.to_string())),
     }
 }
 
-/// Extract `(owner, repo)` from a github.com remote in either SSH or HTTPS form.
-fn parse_github(url: &str) -> Result<RemoteInfo> {
-    // SSH format: git@github.com:owner/repo.git
-    let path = url.strip_prefix("git@github.com:").or_else(|| {
-        // HTTPS format: https://github.com/owner/repo.git
-        url.strip_prefix("https://github.com/")
-            .or_else(|| url.strip_prefix("http://github.com/"))
-    });
+/// Extract `(owner, repo)` from a `host` remote in either SSH or HTTPS form.
+fn parse_host(url: &str, kind: ForgeKind, host: &str) -> Result<RemoteInfo> {
+    // SSH format: git@<host>:owner/repo.git
+    let path = url
+        .strip_prefix(&format!("git@{host}:"))
+        .or_else(|| {
+            // HTTPS format: https://<host>/owner/repo.git
+            url.strip_prefix(&format!("https://{host}/"))
+        })
+        .or_else(|| url.strip_prefix(&format!("http://{host}/")));
 
     if let Some(path) = path {
         let path = path.trim_end_matches('/');
@@ -113,7 +128,7 @@ fn parse_github(url: &str) -> Result<RemoteInfo> {
             && !repo.is_empty()
         {
             return Ok(RemoteInfo {
-                kind: ForgeKind::GitHub,
+                kind,
                 repo: RepoId::new(path),
             });
         }
@@ -130,6 +145,7 @@ mod tests {
     #[test]
     fn test_display_name() {
         assert_eq!(ForgeKind::GitHub.display_name(), "GitHub");
+        assert_eq!(ForgeKind::GitLab.display_name(), "GitLab");
     }
 
     #[test]
@@ -137,6 +153,10 @@ mod tests {
         let hint = ForgeKind::GitHub.auth_hint();
         assert!(hint.contains("gh auth login"));
         assert!(hint.contains("GITHUB_TOKEN"));
+
+        let hint = ForgeKind::GitLab.auth_hint();
+        assert!(hint.contains("glab auth login"));
+        assert!(hint.contains("GITLAB_TOKEN"));
     }
 
     #[test]
@@ -168,8 +188,27 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_gitlab_https() {
+        assert_eq!(
+            ForgeKind::detect("https://gitlab.com/owner/repo.git"),
+            Some(ForgeKind::GitLab)
+        );
+    }
+
+    #[test]
+    fn test_detect_gitlab_ssh() {
+        assert_eq!(
+            ForgeKind::detect("git@gitlab.com:owner/repo.git"),
+            Some(ForgeKind::GitLab)
+        );
+    }
+
+    #[test]
     fn test_detect_unknown_host() {
-        assert_eq!(ForgeKind::detect("https://gitlab.com/owner/repo.git"), None);
+        assert_eq!(
+            ForgeKind::detect("https://bitbucket.org/owner/repo.git"),
+            None
+        );
         assert_eq!(ForgeKind::detect("git@bitbucket.org:owner/repo.git"), None);
         assert_eq!(ForgeKind::detect("not a url"), None);
     }
@@ -195,8 +234,22 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_gitlab_https() {
+        let info = parse_remote("https://gitlab.com/octocat/hello-world.git").unwrap();
+        assert_eq!(info.kind, ForgeKind::GitLab);
+        assert_eq!(info.repo.path(), "octocat/hello-world");
+    }
+
+    #[test]
+    fn test_parse_gitlab_ssh() {
+        let info = parse_remote("git@gitlab.com:octocat/hello-world.git").unwrap();
+        assert_eq!(info.kind, ForgeKind::GitLab);
+        assert_eq!(info.repo.path(), "octocat/hello-world");
+    }
+
+    #[test]
     fn test_parse_unknown_forge_errors() {
-        let err = parse_remote("https://gitlab.com/owner/repo.git").unwrap_err();
+        let err = parse_remote("https://bitbucket.org/owner/repo.git").unwrap_err();
         assert!(matches!(err, ForgeError::InvalidRemoteUrl(_)));
     }
 
