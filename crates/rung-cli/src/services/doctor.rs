@@ -351,6 +351,16 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             return result;
         };
 
+        // GitLab remotes parse successfully but the backend is not yet wired
+        // into the CLI (#171); report that rather than a misleading auth error.
+        if kind == rung_forge::ForgeKind::GitLab {
+            result.issues.push(Issue::warning(format!(
+                "{} remotes are not yet supported by the CLI",
+                kind.display_name()
+            )));
+            return result;
+        }
+
         // Authenticate with the detected forge.
         let auth = Auth::auto();
         let Ok(client) = Forge::for_remote(&origin_url, &auth) else {

@@ -40,6 +40,11 @@ impl Forge {
                 })?;
                 Ok(Self::GitHub(client))
             }
+            // GitLab remotes are recognized by `ForgeKind::detect`, but the
+            // GitLab backend is not yet wired into the CLI (#171).
+            Some(ForgeKind::GitLab) => {
+                Err(anyhow!("GitLab support is not yet available in the CLI"))
+            }
             None => Err(anyhow!(
                 "unsupported forge: remote is not a recognized forge repository (supported: {})",
                 ForgeKind::supported_label()
