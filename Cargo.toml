@@ -35,6 +35,9 @@ toml = "0.8"
 # HTTP client (rustls for cross-platform builds)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# URL-encoding for GitLab project paths (group/subgroup/project -> group%2F...)
+percent-encoding = "2"
+
 # Error handling
 thiserror = "2"
 anyhow = "1"
