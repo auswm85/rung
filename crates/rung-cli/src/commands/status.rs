@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use rung_core::State;
 use rung_git::Repository;
-use rung_github::{Auth, ForgeApi, PullRequestState};
+use rung_github::{ForgeApi, PullRequestState};
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -124,7 +124,7 @@ fn fetch_pr_statuses(
     let rung_forge::RemoteInfo { repo: repo_id, .. } =
         rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
 
-    let client = Forge::for_remote(&origin_url, &Auth::auto())?;
+    let client = Forge::for_remote(&origin_url)?;
     let rt = tokio::runtime::Runtime::new()?;
 
     if !json {

@@ -118,15 +118,18 @@ fn parse_host(url: &str, kind: ForgeKind, host: &str) -> Result<RemoteInfo> {
     if let Some(path) = path {
         let path = path.trim_end_matches('/');
         let path = path.strip_suffix(".git").unwrap_or(path);
-        // Require exactly `owner/repo` — reject extra path segments so a
-        // malformed remote fails here rather than later as a bad API repo name.
-        // The guard proves `path` is exactly two non-empty segments, so it is
-        // already the canonical `owner/repo` slug; use it as-is.
-        let mut parts = path.split('/');
-        if let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next())
-            && !owner.is_empty()
-            && !repo.is_empty()
-        {
+        // GitHub repositories are always `owner/repo`, so reject extra segments
+        // as malformed. GitLab projects live under nested namespaces
+        // (`group/subgroup/project`), so accept two or more segments there. In
+        // both cases every segment must be non-empty; the validated path is the
+        // canonical slug, used as-is.
+        let segments: Vec<&str> = path.split('/').collect();
+        let segments_ok = segments.iter().all(|s| !s.is_empty())
+            && match kind {
+                ForgeKind::GitHub => segments.len() == 2,
+                ForgeKind::GitLab => segments.len() >= 2,
+            };
+        if segments_ok {
             return Ok(RemoteInfo {
                 kind,
                 repo: RepoId::new(path),
@@ -245,6 +248,31 @@ mod tests {
         let info = parse_remote("git@gitlab.com:octocat/hello-world.git").unwrap();
         assert_eq!(info.kind, ForgeKind::GitLab);
         assert_eq!(info.repo.path(), "octocat/hello-world");
+    }
+
+    #[test]
+    fn test_parse_gitlab_nested_namespace_https() {
+        // GitLab projects can live under nested namespaces; the whole path is
+        // retained as the repo identity (the client URL-encodes it).
+        let info = parse_remote("https://gitlab.com/group/subgroup/project.git").unwrap();
+        assert_eq!(info.kind, ForgeKind::GitLab);
+        assert_eq!(info.repo.path(), "group/subgroup/project");
+    }
+
+    #[test]
+    fn test_parse_gitlab_nested_namespace_ssh() {
+        let info = parse_remote("git@gitlab.com:group/subgroup/project.git").unwrap();
+        assert_eq!(info.kind, ForgeKind::GitLab);
+        assert_eq!(info.repo.path(), "group/subgroup/project");
+    }
+
+    #[test]
+    fn test_parse_github_rejects_nested_namespace() {
+        // GitHub has no nested namespaces; extra segments stay an error.
+        assert!(matches!(
+            parse_remote("git@github.com:group/subgroup/project.git").unwrap_err(),
+            ForgeError::InvalidRemoteUrl(_)
+        ));
     }
 
     #[test]

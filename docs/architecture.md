@@ -135,12 +135,11 @@ rung-cli
     ├── rung-forge              # ForgeApi trait, RepoId, ForgeKind detection
     ├── rung-github             # GitHub backend
     │   └── rung-forge
+    ├── rung-gitlab             # GitLab backend (implements rung-forge)
+    │   └── rung-forge
     └── clap (CLI parsing)
          tokio (async runtime)
          serde_json (output)
-
-rung-gitlab                     # GitLab backend (implements rung-forge); CLI wiring pending (#171)
-    └── rung-forge
 ```
 
 ---
@@ -825,7 +824,7 @@ pub enum RungError {
 
 ### Phase 2 Features (Not in MVP)
 
-1. **GitLab Support**: The `rung-forge` contract and `rung-gitlab` backend (auth + client scaffold) exist; remaining work is the `ForgeApi` implementation (#170) and CLI wiring (#171)
+1. **GitLab Support**: The `rung-forge` contract, the `rung-gitlab` backend (full `ForgeApi` over GitLab REST v4), and CLI dispatch via the `Forge` factory are all in place; remaining work is self-hosted instance host configuration (#172)
 2. **Multi-Root Stacks**: Allow branch to depend on multiple parents
 3. **Auto-Sync**: Watch for upstream changes, notify user
 4. **Team Collaboration**: Shared stacks across team members

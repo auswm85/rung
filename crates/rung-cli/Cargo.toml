@@ -31,6 +31,7 @@ rung-core = { workspace = true }
 rung-forge = { workspace = true }
 rung-git = { workspace = true }
 rung-github = { workspace = true }
+rung-gitlab = { workspace = true }
 
 chrono = { workspace = true }
 clap = { workspace = true }
