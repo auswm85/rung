@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_core::stack::Stack;
 use rung_git::{Oid, Repository};
-use rung_github::{Auth, MergeMethod, RepoId};
+use rung_github::{MergeMethod, RepoId};
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -190,9 +190,8 @@ async fn execute_merge(
     no_delete: bool,
     json: bool,
 ) -> Result<(String, usize)> {
-    let auth = Auth::auto();
     let origin_url = repo.origin_url()?;
-    let client = Forge::for_remote(&origin_url, &auth)?;
+    let client = Forge::for_remote(&origin_url)?;
     let service = MergeService::new(repo, &client, ctx.repo_id.clone());
 
     // Step 1: Validate PR is mergeable

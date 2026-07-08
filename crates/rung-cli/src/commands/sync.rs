@@ -13,7 +13,7 @@ use rung_core::sync::{
     self, ReconcileResult, SyncConflictPrediction, SyncResult, predict_sync_conflicts,
 };
 use rung_git::Repository;
-use rung_github::{Auth, ForgeApi, RepoId};
+use rung_github::{ForgeApi, RepoId};
 use serde::Serialize;
 
 use crate::forge::Forge;
@@ -166,20 +166,15 @@ pub fn run(
     // Create the forge client (if available)
     let mut forge_auth_unavailable = false;
     let client = match (forge_info.as_ref(), origin_url.as_deref()) {
-        (Some(_), Some(url)) => Forge::for_remote(url, &Auth::auto())
+        (Some(_), Some(url)) => Forge::for_remote(url)
             .map_err(|_| {
                 forge_auth_unavailable = true;
                 if !json {
-                    let kind = rung_forge::ForgeKind::detect(url);
-                    // GitLab parses but isn't wired into the CLI yet (#171);
-                    // say so rather than implying an auth problem.
-                    let reason = if kind == Some(rung_forge::ForgeKind::GitLab) {
-                        "not yet supported by the CLI"
-                    } else {
-                        "auth unavailable"
-                    };
-                    let forge_name = kind.map_or("Forge", |kind| kind.display_name());
-                    output::warn(&format!("{forge_name} {reason} - skipping merge detection"));
+                    let forge_name = rung_forge::ForgeKind::detect(url)
+                        .map_or("Forge", |kind| kind.display_name());
+                    output::warn(&format!(
+                        "{forge_name} auth unavailable - skipping merge detection"
+                    ));
                 }
             })
             .ok(),
@@ -207,9 +202,10 @@ pub fn run(
 /// Used to annotate `--json` output: `true` only when there is a recognized
 /// forge remote but a client for it cannot be constructed (auth failure).
 fn forge_auth_unavailable(repo: &Repository) -> bool {
-    repo.origin_url().ok().as_deref().is_some_and(|url| {
-        rung_forge::parse_remote(url).is_ok() && Forge::for_remote(url, &Auth::auto()).is_err()
-    })
+    repo.origin_url()
+        .ok()
+        .as_deref()
+        .is_some_and(|url| rung_forge::parse_remote(url).is_ok() && Forge::for_remote(url).is_err())
 }
 
 /// Handle --abort flag.
@@ -273,7 +269,7 @@ fn determine_base_branch(
                 "Could not detect forge remote (unsupported URL). Use --base <branch> to specify manually."
             )
         })?;
-    let client = Forge::for_remote(url, &Auth::auto()).context(
+    let client = Forge::for_remote(url).context(
         "Forge auth required to detect default branch. Use --base <branch> to specify manually.",
     )?;
     rt.block_on(client.get_default_branch(&repo_id))

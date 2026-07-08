@@ -4,7 +4,6 @@ use anyhow::{Context, Result, bail};
 use inquire::{Select, Text};
 use rung_core::{State, stack::Stack, sync};
 use rung_git::{RemoteDivergence, Repository};
-use rung_github::Auth;
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -109,7 +108,7 @@ pub fn run(
     let repo_id = get_remote_info(&repo)?;
 
     let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let client = Forge::for_remote(&origin_url, &Auth::auto())?;
+    let client = Forge::for_remote(&origin_url)?;
     let rt = tokio::runtime::Runtime::new()?;
 
     let service = SubmitService::new(&repo, &client, repo_id.clone());
