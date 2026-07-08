@@ -153,11 +153,14 @@ impl ForgeApi for Forge {
     async fn update_pr_comment(
         &self,
         repo: &RepoId,
+        pr_number: u64,
         comment_id: u64,
         comment: UpdateComment,
     ) -> ForgeResult<IssueComment> {
         match self {
-            Self::GitHub(c) => ForgeApi::update_pr_comment(c, repo, comment_id, comment).await,
+            Self::GitHub(c) => {
+                ForgeApi::update_pr_comment(c, repo, pr_number, comment_id, comment).await
+            }
         }
     }
 }

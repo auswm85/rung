@@ -914,6 +914,7 @@ mod tests {
             fn update_pr_comment(
                 &self,
                 _repo: &rung_github::RepoId,
+                _pr_number: u64,
                 _comment_id: u64,
                 _comment: rung_github::UpdateComment,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::IssueComment>> + Send

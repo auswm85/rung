@@ -118,9 +118,14 @@ pub trait ForgeApi: Send + Sync {
     ) -> impl std::future::Future<Output = Result<IssueComment>> + Send;
 
     /// Update a comment on a pull request.
+    ///
+    /// `pr_number` identifies the pull/merge request the comment belongs to.
+    /// GitHub addresses comments by id alone and ignores it, but GitLab scopes
+    /// note updates to the merge request, so the contract carries it for both.
     fn update_pr_comment(
         &self,
         repo: &RepoId,
+        pr_number: u64,
         comment_id: u64,
         comment: UpdateComment,
     ) -> impl std::future::Future<Output = Result<IssueComment>> + Send;

@@ -214,6 +214,7 @@ impl ForgeApi for GitLabClient {
     async fn update_pr_comment(
         &self,
         _repo: &RepoId,
+        _pr_number: u64,
         _comment_id: u64,
         _comment: UpdateComment,
     ) -> Result<IssueComment> {
