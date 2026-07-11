@@ -40,9 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Lint on the MSRV toolchain (not floating stable) so clippy/rustfmt
+      # behavior is tied to the compiler version the project commits to
+      # support. This keeps lint results deterministic: a newer stable clippy
+      # cannot introduce lints that break CI without an MSRV bump.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.88"
           components: rustfmt, clippy
 
       - name: Cache cargo registry
