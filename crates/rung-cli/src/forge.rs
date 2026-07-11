@@ -18,17 +18,29 @@ use rung_forge::{
 use rung_github::{Auth as GitHubAuth, GitHubClient};
 use rung_gitlab::{Auth as GitLabAuth, GitLabClient};
 
+/// The configured self-hosted GitLab API base URL, normalized to include a
+/// scheme.
+///
+/// A scheme-less value (`gitlab.example.com/api/v4`) is treated as `https` so it
+/// still yields a usable URL for both host detection and API requests, rather
+/// than being silently dropped.
+fn gitlab_api_url(config: &Config) -> Option<String> {
+    config.gitlab.api_url.as_deref().map(|url| {
+        if url.starts_with("http://") || url.starts_with("https://") {
+            url.to_owned()
+        } else {
+            format!("https://{url}")
+        }
+    })
+}
+
 /// Self-hosted GitLab host derived from `gitlab.api_url`, if configured.
 ///
 /// The host cannot be inferred from a self-hosted remote URL alone, so it is
 /// resolved from the configured API base URL and used to extend forge detection
 /// and credential lookup beyond `gitlab.com`.
-fn gitlab_host(config: &Config) -> Option<&str> {
-    config
-        .gitlab
-        .api_url
-        .as_deref()
-        .and_then(rung_forge::host_from_url)
+fn gitlab_host(config: &Config) -> Option<String> {
+    gitlab_api_url(config).and_then(|url| rung_forge::host_from_url(&url).map(str::to_owned))
 }
 
 /// Parse a git remote URL into forge and repository, honoring a configured
@@ -37,7 +49,8 @@ fn gitlab_host(config: &Config) -> Option<&str> {
 /// # Errors
 /// Returns an error if the remote is not a recognized forge repository.
 pub fn parse_remote(remote_url: &str, config: &Config) -> ForgeResult<RemoteInfo> {
-    let hosts: Vec<&str> = gitlab_host(config).into_iter().collect();
+    let host = gitlab_host(config);
+    let hosts: Vec<&str> = host.as_deref().into_iter().collect();
     rung_forge::parse_remote_with_hosts(remote_url, &hosts)
 }
 
@@ -75,7 +88,7 @@ impl Forge {
         test_token: Option<&str>,
     ) -> Result<Self> {
         let gl_host = gitlab_host(config);
-        let hosts: Vec<&str> = gl_host.into_iter().collect();
+        let hosts: Vec<&str> = gl_host.as_deref().into_iter().collect();
         match ForgeKind::detect_with_hosts(remote_url, &hosts) {
             Some(kind @ ForgeKind::GitHub) => {
                 let auth = test_token.map_or_else(GitHubAuth::auto, |t| {
@@ -85,14 +98,22 @@ impl Forge {
                 Ok(Self::GitHub(client))
             }
             Some(kind @ ForgeKind::GitLab) => {
+                // Apply the configured self-hosted host/API URL only when the
+                // remote actually matched it. A gitlab.com remote is recognized
+                // by literal detection (`detect` with no extra hosts), so it
+                // keeps the standard URL and credentials even when a self-hosted
+                // instance is also configured.
+                let self_hosted = gl_host.filter(|_| ForgeKind::detect(remote_url).is_none());
                 let auth = test_token.map_or_else(
-                    || gl_host.map_or_else(GitLabAuth::auto, GitLabAuth::auto_for_host),
+                    || {
+                        self_hosted
+                            .as_deref()
+                            .map_or_else(GitLabAuth::auto, GitLabAuth::auto_for_host)
+                    },
                     |t| GitLabAuth::Token(rung_gitlab::SecretString::from(t)),
                 );
-                let client = config
-                    .gitlab
-                    .api_url
-                    .as_deref()
+                let client = self_hosted
+                    .and_then(|_| gitlab_api_url(config))
                     .map_or_else(
                         || GitLabClient::new(&auth),
                         |base_url| GitLabClient::with_base_url(&auth, base_url),
@@ -346,5 +367,40 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn test_for_remote_self_hosted_scheme_less_api_url() {
+        // A scheme-less api_url must still yield a usable host so self-hosted
+        // detection works rather than falling back to gitlab.com.
+        let forge = for_remote_with_gitlab_api(
+            "https://gitlab.example.com/group/project.git",
+            "gitlab.example.com/api/v4",
+        )
+        .expect("self-hosted remote should resolve with a scheme-less api_url");
+        assert!(matches!(forge, Forge::GitLab(_)));
+    }
+
+    #[test]
+    fn test_parse_remote_scheme_less_api_url() {
+        let mut config = Config::default();
+        config.gitlab.api_url = Some("gitlab.example.com/api/v4".into());
+        let info = parse_remote("git@gitlab.example.com:group/project.git", &config)
+            .expect("scheme-less api_url should still derive the host");
+        assert_eq!(info.kind, ForgeKind::GitLab);
+        assert_eq!(info.repo.path(), "group/project");
+    }
+
+    #[test]
+    fn test_for_remote_gitlab_com_not_misrouted_by_self_hosted_config() {
+        // With a self-hosted instance configured, a gitlab.com remote must still
+        // resolve (via literal detection) and not be treated as unrecognized or
+        // routed to the self-hosted host.
+        let forge = for_remote_with_gitlab_api(
+            "https://gitlab.com/owner/repo.git",
+            "https://gitlab.example.com/api/v4",
+        )
+        .expect("gitlab.com remote should resolve even with self-hosted config");
+        assert!(matches!(forge, Forge::GitLab(_)));
     }
 }

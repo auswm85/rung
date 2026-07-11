@@ -339,9 +339,19 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             return result;
         };
 
-        // Best-effort: a missing/unreadable config just means no self-hosted
-        // GitLab host, so fall back to defaults rather than failing the check.
-        let config = self.state.load_config().unwrap_or_default();
+        // A missing config is fine (`load_config` returns defaults), but a
+        // malformed/unreadable one is a real problem the doctor should report
+        // rather than silently mask by defaulting.
+        let config = match self.state.load_config() {
+            Ok(config) => config,
+            Err(e) => {
+                result.issues.push(
+                    Issue::error(format!("Could not read rung config: {e}"))
+                        .with_suggestion("Check .git/rung/config.toml for syntax errors"),
+                );
+                return result;
+            }
+        };
 
         let Ok(rung_forge::RemoteInfo {
             repo: repo_id,
