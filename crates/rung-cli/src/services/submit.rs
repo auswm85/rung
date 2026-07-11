@@ -115,7 +115,7 @@ where
     H: ForgeApi,
 {
     git: &'a G,
-    github: &'a H,
+    forge: &'a H,
     repo: RepoId,
 }
 
@@ -126,8 +126,8 @@ where
     H: ForgeApi,
 {
     /// Create a new submit service.
-    pub const fn new(git: &'a G, github: &'a H, repo: RepoId) -> Self {
-        Self { git, github, repo }
+    pub const fn new(git: &'a G, forge: &'a H, repo: RepoId) -> Self {
+        Self { git, forge, repo }
     }
 
     /// Create a submit plan by analyzing the stack and checking existing PRs.
@@ -137,7 +137,7 @@ where
     /// that when creating PRs, the base branch always exists on the remote.
     ///
     /// # Errors
-    /// Returns error if GitHub API calls fail.
+    /// Returns error if forge API calls fail.
     pub async fn create_plan(
         &self,
         stack: &Stack,
@@ -159,16 +159,25 @@ where
 
             // Check if PR already exists
             if let Some(pr_number) = branch.pr {
-                let pr_url = format!("https://github.com/{}/pull/{pr_number}", self.repo);
+                // Fetch the PR to get its forge-provided URL rather than
+                // constructing one, which would be wrong for GitLab (different
+                // host and `/-/merge_requests/` path).
+                let pr = self
+                    .forge
+                    .get_pr(&self.repo, pr_number)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to fetch PR #{pr_number} for '{branch_name}'")
+                    })?;
                 actions.push(PlannedBranchAction::Update {
                     branch: branch_name.to_string(),
                     pr_number,
-                    pr_url,
+                    pr_url: pr.html_url,
                     base: base_branch,
                 });
             } else {
                 let existing = self
-                    .github
+                    .forge
                     .find_pr_for_branch(&self.repo, branch_name)
                     .await
                     .context("Failed to check for existing PR")?;
@@ -207,7 +216,7 @@ where
     /// Returns information about each submitted branch.
     ///
     /// # Errors
-    /// Returns error if git or GitHub operations fail.
+    /// Returns error if git or forge operations fail.
     pub async fn execute(
         &self,
         stack: &mut Stack,
@@ -235,7 +244,7 @@ where
                         body: None,
                         base: Some(base.clone()),
                     };
-                    self.github
+                    self.forge
                         .update_pr(&self.repo, *pr_number, update)
                         .await
                         .with_context(|| format!("Failed to update PR #{pr_number}"))?;
@@ -269,7 +278,7 @@ where
 
                     // Check if PR was created between planning and execution
                     let existing = self
-                        .github
+                        .forge
                         .find_pr_for_branch(&self.repo, branch)
                         .await
                         .context("Failed to check for existing PR")?;
@@ -281,7 +290,7 @@ where
                             body: None,
                             base: Some(base.clone()),
                         };
-                        self.github
+                        self.forge
                             .update_pr(&self.repo, pr.number, update)
                             .await
                             .with_context(|| format!("Failed to update PR #{}", pr.number))?;
@@ -297,7 +306,7 @@ where
                             draft: *draft,
                         };
                         let pr = self
-                            .github
+                            .forge
                             .create_pr(&self.repo, create)
                             .await
                             .with_context(|| format!("Failed to create PR for {branch}"))?;
@@ -332,7 +341,7 @@ where
     /// Update stack navigation comments on all PRs.
     ///
     /// # Errors
-    /// Returns error if GitHub API calls fail.
+    /// Returns error if forge API calls fail.
     pub async fn update_stack_comments(&self, stack: &Stack, default_branch: &str) -> Result<()> {
         for branch in &stack.branches {
             let Some(pr_number) = branch.pr else {
@@ -343,7 +352,7 @@ where
 
             // Find existing rung comment
             let comments = self
-                .github
+                .forge
                 .list_pr_comments(&self.repo, pr_number)
                 .await
                 .with_context(|| format!("Failed to list comments on PR #{pr_number}"))?;
@@ -356,13 +365,13 @@ where
 
             if let Some(comment) = existing_comment {
                 let update = UpdateComment { body: comment_body };
-                self.github
+                self.forge
                     .update_pr_comment(&self.repo, pr_number, comment.id, update)
                     .await
                     .with_context(|| format!("Failed to update comment on PR #{pr_number}"))?;
             } else {
                 let create = CreateComment { body: comment_body };
-                self.github
+                self.forge
                     .create_pr_comment(&self.repo, pr_number, create)
                     .await
                     .with_context(|| format!("Failed to create comment on PR #{pr_number}"))?;
@@ -1086,7 +1095,20 @@ mod tests {
                 number: u64,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
-                async move { Err(rung_github::Error::PrNotFound(number)) }
+                async move {
+                    Ok(rung_github::PullRequest {
+                        number,
+                        title: "Existing".to_string(),
+                        body: None,
+                        state: rung_github::PullRequestState::Open,
+                        base_branch: "main".to_string(),
+                        head_branch: "feature".to_string(),
+                        html_url: format!("https://github.com/test/repo/pull/{number}"),
+                        mergeable: None,
+                        mergeable_state: None,
+                        draft: false,
+                    })
+                }
             }
 
             fn get_prs_batch(
@@ -1308,6 +1330,14 @@ mod tests {
             let plan = service.create_plan(&stack, &config).await.unwrap();
             assert_eq!(plan.count_creates(), 0);
             assert_eq!(plan.count_updates(), 1);
+
+            // The URL must come from the forge (mock returns "test/repo"), not be
+            // fabricated from the RepoId ("owner/repo") — the latter would be
+            // wrong on GitLab.
+            let PlannedBranchAction::Update { pr_url, .. } = &plan.actions[0] else {
+                panic!("expected an Update action");
+            };
+            assert_eq!(pr_url, "https://github.com/test/repo/pull/42");
         }
 
         #[tokio::test]

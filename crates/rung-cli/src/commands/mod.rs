@@ -113,8 +113,8 @@ pub enum Commands {
 
     /// Sync the stack by rebasing all branches. [alias: sy]
     ///
-    /// Detects merged PRs, updates stack topology, rebases branches,
-    /// updates GitHub PR base branches, and pushes all changes.
+    /// Detects merged PRs/MRs, updates stack topology, rebases branches,
+    /// updates PR/MR base branches on the forge, and pushes all changes.
     #[command(alias = "sy")]
     Sync {
         /// Show what would be done without making changes.
@@ -189,10 +189,10 @@ pub enum Commands {
     #[command(alias = "un")]
     Undo,
 
-    /// Merge the current branch's PR and clean up. [alias: m]
+    /// Merge the current branch's PR/MR and clean up. [alias: m]
     ///
-    /// Merges the PR via GitHub API, deletes the remote branch,
-    /// removes it from the stack, and checks out the parent.
+    /// Merges the PR (GitHub) or MR (GitLab) via the forge API, deletes the
+    /// remote branch, removes it from the stack, and checks out the parent.
     #[command(alias = "m")]
     Merge {
         /// Merge method: squash (default), merge, or rebase.
@@ -254,7 +254,7 @@ pub enum Commands {
 
     /// Diagnose issues with the stack and repository. [alias: doc]
     ///
-    /// Checks stack integrity, git state, sync status, and GitHub connectivity.
+    /// Checks stack integrity, git state, sync status, and forge connectivity.
     #[command(alias = "doc")]
     Doctor,
 
