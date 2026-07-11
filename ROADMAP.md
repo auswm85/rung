@@ -88,7 +88,7 @@ _Long-term vision — ideas we're excited about but haven't fully designed_
 
 ### Ecosystem Integration
 
-- [ ] **GitLab support** — Extend forge support beyond GitHub
+- [x] **GitLab support** ([#145](https://github.com/auswm85/rung/issues/145)) — Full merge request, CI status, and comment support over GitLab REST v4, including self-hosted instances via `gitlab.api_url`
 - [ ] **Bitbucket support** — Enterprise Git hosting integration
 - [x] **Editor extensions** — VS Code extension for stack visualization (in `vscode-extension/`)
 

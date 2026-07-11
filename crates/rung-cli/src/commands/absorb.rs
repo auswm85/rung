@@ -40,7 +40,7 @@ pub fn run(dry_run: bool, base: Option<&str>) -> Result<()> {
         b.to_string()
     } else {
         let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(service.detect_base_branch())?
+        rt.block_on(service.detect_base_branch(&state.load_config()?))?
     };
 
     // Create absorb plan

@@ -15,7 +15,7 @@ mod traits;
 mod types;
 
 pub use error::{ForgeError, Result};
-pub use remote::{ForgeKind, RemoteInfo, parse_remote};
+pub use remote::{ForgeKind, RemoteInfo, host_from_url, parse_remote, parse_remote_with_hosts};
 pub use repo_id::RepoId;
 pub use traits::ForgeApi;
 pub use types::{

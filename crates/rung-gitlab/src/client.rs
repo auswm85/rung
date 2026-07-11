@@ -213,7 +213,8 @@ pub struct GitLabClient {
 impl GitLabClient {
     /// Default GitLab API base URL (gitlab.com, REST v4).
     ///
-    /// Self-hosted instances supply their own base URL (see issue #172).
+    /// Self-hosted instances supply their own base URL via
+    /// [`GitLabClient::with_base_url`], configured from `gitlab.api_url`.
     pub const DEFAULT_API_URL: &'static str = "https://gitlab.com/api/v4";
 
     /// Create a new GitLab client targeting gitlab.com.

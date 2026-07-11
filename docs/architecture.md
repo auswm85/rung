@@ -259,6 +259,11 @@ auto_sync = false
 [github]
 # Optional: override for GitHub Enterprise
 # api_url = "https://github.example.com/api/v3"
+
+[gitlab]
+# Optional: self-hosted GitLab instance. The host is derived from this URL,
+# which lets rung recognize remotes on that host (e.g. git@gitlab.example.com:...).
+# api_url = "https://gitlab.example.com/api/v4"
 ```
 
 **Sync state** in `.git/rung/sync_state` (temporary, deleted on completion):
@@ -824,7 +829,7 @@ pub enum RungError {
 
 ### Phase 2 Features (Not in MVP)
 
-1. **GitLab Support**: The `rung-forge` contract, the `rung-gitlab` backend (full `ForgeApi` over GitLab REST v4), and CLI dispatch via the `Forge` factory are all in place; remaining work is self-hosted instance host configuration (#172)
+1. **GitLab Support**: The `rung-forge` contract, the `rung-gitlab` backend (full `ForgeApi` over GitLab REST v4), and CLI dispatch via the `Forge` factory are all in place, including self-hosted instance host configuration via `gitlab.api_url`
 2. **Multi-Root Stacks**: Allow branch to depend on multiple parents
 3. **Auto-Sync**: Watch for upstream changes, notify user
 4. **Team Collaboration**: Shared stacks across team members
