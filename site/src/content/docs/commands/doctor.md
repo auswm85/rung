@@ -36,10 +36,12 @@ rung doctor --json
 - **Branches need rebasing** — Which branches are out of sync
 - **Sync operations in progress** — Interrupted syncs that need attention
 
-### GitHub Connectivity
+### Forge Connectivity
 
-- **Authentication** — GitHub auth is configured and working
-- **PR status** — PRs are open/closed/merged correctly
+Works with both GitHub and GitLab — the check targets whichever forge your `origin` remote points at, and the progress line names it (e.g. `Checking GitLab...`).
+
+- **Authentication** — forge auth is configured and working (GitHub `gh`/`GITHUB_TOKEN`, or GitLab `glab`/`GITLAB_TOKEN`)
+- **PR/MR status** — pull requests (GitHub) or merge requests (GitLab) are open/closed/merged correctly
 
 ## Example Output
 
@@ -48,33 +50,34 @@ rung doctor --json
 ```bash
 $ rung doctor
 
-✓ Stack integrity: OK
-✓ Git state: clean
-✓ Sync state: all branches synced
-✓ GitHub: connected, 3 PRs open
+  Checking rung initialization... ✓
+  Checking git state... ✓
+  Checking stack integrity... ✓
+  Checking sync state... ✓
+  Checking GitHub... ✓
 
-No issues found.
+✓ No issues found!
 ```
+
+(On a GitLab repository, the last check line reads `Checking GitLab... ✓`.)
 
 ### Issues Found
 
 ```bash
 $ rung doctor
 
-✓ Stack integrity: OK
-⚠ Git state: uncommitted changes in 2 files
-✗ Sync state: 2 branches need rebasing
-✓ GitHub: connected
+  Checking rung initialization... ✓
+  Checking git state... ⚠
+  Checking stack integrity... ✓
+  Checking sync state... ✗
+  Checking GitLab... ✓
 
-Issues:
-  warning: Uncommitted changes detected
+  ⚠ Uncommitted changes detected
     → Commit or stash changes before syncing
-
-  error: feat-add-user-api is 3 commits behind parent
+  ✗ feat-add-user-api is 3 commits behind parent
     → Run `rung sync` to update
 
-  error: feat-add-user-tests is 1 commit behind parent
-    → Run `rung sync` to update
+✗ Found 2 issue(s) (1 error(s), 1 warning(s))
 ```
 
 ## Issue Severities
@@ -91,45 +94,29 @@ Issues:
 $ rung doctor --json
 ```
 
+The `--json` output is a flat report: overall health, error/warning counts, and a single list of issues aggregated across all checks (git state, stack integrity, sync state, and forge connectivity). It is forge-neutral — issue messages name the forge where relevant.
+
 ```json
 {
-  "stack_integrity": {
-    "status": "ok",
-    "issues": []
-  },
-  "git_state": {
-    "status": "warning",
-    "issues": [
-      {
-        "severity": "warning",
-        "message": "Uncommitted changes detected",
-        "suggestion": "Commit or stash changes before syncing",
-        "files": ["src/main.rs", "Cargo.toml"]
-      }
-    ]
-  },
-  "sync_state": {
-    "status": "error",
-    "issues": [
-      {
-        "severity": "error",
-        "branch": "feat-add-user-api",
-        "message": "3 commits behind parent",
-        "suggestion": "Run `rung sync` to update"
-      }
-    ]
-  },
-  "github": {
-    "status": "ok",
-    "authenticated": true,
-    "prs": {
-      "open": 3,
-      "merged": 1,
-      "closed": 0
+  "healthy": false,
+  "errors": 1,
+  "warnings": 1,
+  "issues": [
+    {
+      "severity": "warning",
+      "message": "Uncommitted changes detected",
+      "suggestion": "Commit or stash changes before syncing"
+    },
+    {
+      "severity": "error",
+      "message": "feat-add-user-api is 3 commits behind parent",
+      "suggestion": "Run `rung sync` to update"
     }
-  }
+  ]
 }
 ```
+
+Each issue has a `severity` (`error` or `warning`) and `message`; `suggestion` is present only when there's a recommended fix.
 
 ## Common Issues and Solutions
 
@@ -173,18 +160,24 @@ rung sync
 git checkout -b feat-old origin/feat-old
 ```
 
-### GitHub Authentication Failed
+### Forge Authentication Failed
 
 ```
-✗ GitHub: authentication failed
+  ✗ GitHub authentication failed
 ```
 
-**Solution:** Re-authenticate:
+The message names the detected forge — on a GitLab remote it reads `GitLab authentication failed`.
+
+**Solution:** Re-authenticate with the matching forge:
 
 ```bash
+# GitHub
 gh auth login
-# or set GITHUB_TOKEN
-export GITHUB_TOKEN=ghp_...
+# or: export GITHUB_TOKEN=ghp_...
+
+# GitLab
+glab auth login
+# or: export GITLAB_TOKEN=glpat_...
 ```
 
 ### Sync In Progress

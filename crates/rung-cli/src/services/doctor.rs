@@ -87,7 +87,7 @@ pub struct DiagnosticReport {
     pub git_state: CheckResult,
     pub stack_integrity: CheckResult,
     pub sync_state: CheckResult,
-    pub github: CheckResult,
+    pub forge: CheckResult,
 }
 
 #[allow(dead_code)]
@@ -99,7 +99,7 @@ impl DiagnosticReport {
             .iter()
             .chain(self.stack_integrity.issues.iter())
             .chain(self.sync_state.issues.iter())
-            .chain(self.github.issues.iter())
+            .chain(self.forge.issues.iter())
             .collect()
     }
 
@@ -142,12 +142,12 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
     #[allow(dead_code)]
     #[allow(clippy::future_not_send)] // Git operations are sync; future doesn't need to be Send
     pub async fn run_diagnostics(&self) -> Result<DiagnosticReport> {
-        let github_result = self.check_github().await;
+        let forge_result = self.check_forge().await;
         Ok(DiagnosticReport {
             git_state: self.check_git_state(),
             stack_integrity: self.check_stack_integrity(),
             sync_state: self.check_sync_state()?,
-            github: github_result,
+            forge: forge_result,
         })
     }
 
@@ -325,9 +325,24 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         Ok(result)
     }
 
-    /// Check GitHub connectivity and PR state.
+    /// Best-effort name of the forge hosting `origin`, for progress labels.
+    ///
+    /// Returns `"GitHub"` or `"GitLab"` when the remote is recognized (honoring
+    /// a configured self-hosted GitLab host), or `"forge"` when there is no
+    /// origin or it is not a known forge. Purely cosmetic — the connectivity
+    /// check itself reports the authoritative diagnosis.
+    pub fn forge_label(&self) -> &'static str {
+        let Ok(origin_url) = self.repo.origin_url() else {
+            return "forge";
+        };
+        let config = self.state.load_config().unwrap_or_default();
+        crate::forge::parse_remote(&origin_url, &config)
+            .map_or("forge", |info| info.kind.display_name())
+    }
+
+    /// Check forge connectivity (GitHub or GitLab) and PR/MR state.
     #[allow(clippy::future_not_send)] // Git operations are sync; future doesn't need Send
-    pub async fn check_github(&self) -> CheckResult {
+    pub async fn check_forge(&self) -> CheckResult {
         let mut result = CheckResult::default();
 
         // Resolve the remote first so non-forge remotes are reported before any
@@ -509,7 +524,7 @@ mod tests {
             .issues
             .push(Issue::error("stack issue"));
         report.sync_state.issues.push(Issue::warning("sync issue"));
-        report.github.issues.push(Issue::error("github issue"));
+        report.forge.issues.push(Issue::error("forge issue"));
 
         assert_eq!(report.all_issues().len(), 4);
         assert_eq!(report.error_count(), 2);
@@ -624,6 +639,49 @@ mod tests {
             let result = service.check_git_state();
 
             assert!(result.is_clean());
+        }
+
+        #[test]
+        fn test_forge_label_github() {
+            let git = MockGitOps::new().with_origin_url("https://github.com/o/r.git");
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            assert_eq!(service.forge_label(), "GitHub");
+        }
+
+        #[test]
+        fn test_forge_label_gitlab() {
+            let git = MockGitOps::new().with_origin_url("https://gitlab.com/o/r.git");
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            assert_eq!(service.forge_label(), "GitLab");
+        }
+
+        #[test]
+        fn test_forge_label_self_hosted_gitlab_uses_config() {
+            // A self-hosted host is only recognized via configured api_url.
+            let git = MockGitOps::new().with_origin_url("git@gitlab.example.com:o/r.git");
+            let state = MockStateStore::new();
+            state.config.borrow_mut().gitlab.api_url =
+                Some("https://gitlab.example.com/api/v4".to_string());
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            assert_eq!(service.forge_label(), "GitLab");
+        }
+
+        #[test]
+        fn test_forge_label_unrecognized_falls_back() {
+            let git = MockGitOps::new().with_origin_url("https://bitbucket.org/o/r.git");
+            let state = MockStateStore::new();
+            let stack = Stack::default();
+
+            let service = DoctorService::new(&git, &state, &stack);
+            assert_eq!(service.forge_label(), "forge");
         }
 
         #[test]
