@@ -170,13 +170,27 @@ where
 
             // Check if PR already exists
             if let Some(pr_number) = branch.pr {
-                let pr = existing_prs.get(&pr_number).ok_or_else(|| {
-                    anyhow::anyhow!("PR #{pr_number} for '{branch_name}' not found on the forge")
-                })?;
+                // Prefer the batched result. If the batch omitted this PR (it can
+                // skip nodes on a partial forge error, not only when a PR is
+                // absent), fall back to an individual fetch so the user sees the
+                // real underlying error (404 vs auth vs rate limit) rather than a
+                // generic "not found".
+                let pr_url = match existing_prs.get(&pr_number) {
+                    Some(pr) => pr.html_url.clone(),
+                    None => {
+                        self.forge
+                            .get_pr(&self.repo, pr_number)
+                            .await
+                            .with_context(|| {
+                                format!("Failed to fetch PR #{pr_number} for '{branch_name}'")
+                            })?
+                            .html_url
+                    }
+                };
                 actions.push(PlannedBranchAction::Update {
                     branch: branch_name.to_string(),
                     pr_number,
-                    pr_url: pr.html_url.clone(),
+                    pr_url,
                     base: base_branch,
                 });
             } else {
@@ -1076,18 +1090,27 @@ mod tests {
         // Mock ForgeApi for submit testing
         struct MockGitHubClient {
             find_pr_result: Option<rung_github::PullRequest>,
+            /// When true, `get_prs_batch` returns an empty map, forcing the
+            /// per-PR `get_pr` fallback in `create_plan`.
+            empty_batch: bool,
         }
 
         impl MockGitHubClient {
             fn new() -> Self {
                 Self {
                     find_pr_result: None,
+                    empty_batch: false,
                 }
             }
 
             #[allow(dead_code)]
             fn with_existing_pr(mut self, pr: rung_github::PullRequest) -> Self {
                 self.find_pr_result = Some(pr);
+                self
+            }
+
+            fn with_empty_batch(mut self) -> Self {
+                self.empty_batch = true;
                 self
             }
         }
@@ -1111,7 +1134,11 @@ mod tests {
                     std::collections::HashMap<u64, rung_github::PullRequest>,
                 >,
             > + Send {
-                let numbers = numbers.to_vec();
+                let numbers = if self.empty_batch {
+                    Vec::new()
+                } else {
+                    numbers.to_vec()
+                };
                 async move {
                     let map = numbers
                         .into_iter()
@@ -1352,6 +1379,37 @@ mod tests {
                 panic!("expected an Update action");
             };
             assert_eq!(pr_url, "https://github.com/test/repo/pull/42");
+        }
+
+        #[tokio::test]
+        async fn test_create_plan_falls_back_to_get_pr_when_batch_omits() {
+            // When the batch omits a tracked PR (e.g. a partial forge error, not
+            // just an absent PR), create_plan must fall back to a per-PR fetch so
+            // the real error surfaces rather than a generic "not found".
+            let oid = Oid::zero();
+            let git = MockGitOps::new()
+                .with_branch("main", oid)
+                .with_branch("feature/a", oid);
+            let github = MockGitHubClient::new().with_empty_batch();
+
+            let service = SubmitService::new(&git, &github, RepoId::new("owner/repo"));
+
+            let mut stack = Stack::default();
+            let mut branch = StackBranch::try_new("feature/a", None::<&str>).unwrap();
+            branch.pr = Some(42);
+            stack.add_branch(branch);
+
+            let config = SubmitConfig {
+                draft: false,
+                custom_title: None,
+                current_branch: None,
+                default_branch: "main".to_string(),
+            };
+
+            // The mock's get_pr returns PrNotFound(42); the fallback surfaces it
+            // with per-PR context rather than swallowing it.
+            let err = service.create_plan(&stack, &config).await.unwrap_err();
+            assert!(err.to_string().contains("Failed to fetch PR #42"));
         }
 
         #[tokio::test]
