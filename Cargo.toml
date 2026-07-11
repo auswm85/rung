@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.9.0"
+version = "1.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/auswm85/rung"
@@ -11,11 +11,11 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 # Internal crates
-rung-core = { version = "0.9.0", path = "crates/rung-core" }
-rung-forge = { version = "0.9.0", path = "crates/rung-forge" }
-rung-git = { version = "0.9.0", path = "crates/rung-git" }
-rung-github = { version = "0.9.0", path = "crates/rung-github" }
-rung-gitlab = { version = "0.9.0", path = "crates/rung-gitlab" }
+rung-core = { version = "1.0.0", path = "crates/rung-core" }
+rung-forge = { version = "1.0.0", path = "crates/rung-forge" }
+rung-git = { version = "1.0.0", path = "crates/rung-git" }
+rung-github = { version = "1.0.0", path = "crates/rung-github" }
+rung-gitlab = { version = "1.0.0", path = "crates/rung-gitlab" }
 
 # Git operations
 git2 = "0.19"
