@@ -1,6 +1,6 @@
 ---
 title: rung
-description: Stacked PRs made simple. A CLI tool for managing stacked pull requests on GitHub.
+description: Stacked PRs made simple. A CLI tool for managing stacked pull requests on GitHub and merge requests on GitLab.
 template: splash
 hero:
   tagline: Stacked PRs made simple. Build, sync, and ship dependent branches with ease.
@@ -34,9 +34,9 @@ Large features are hard to review. Stacked PRs let you break them into small, fo
     When parent branches change, `rung sync` automatically rebases all children
     with one command.
   </Card>
-  <Card title="GitHub Native" icon="github">
-    Creates real GitHub PRs with automatic stack navigation comments. Works with
-    your existing workflow.
+  <Card title="GitHub & GitLab" icon="github">
+    Creates real GitHub pull requests and GitLab merge requests — including
+    self-hosted GitLab — with automatic stack navigation comments.
   </Card>
 </CardGrid>
 
@@ -92,13 +92,13 @@ $ rung sync
 - **Branch Tracking** — Remembers which branches depend on which
 - **Automatic Rebasing** — One command syncs your entire stack
 - **Conflict Handling** — Pause, resolve, continue with `--continue` / `--abort`
-- **PR Management** — Creates and updates PRs with stack navigation
-- **Stack Comments** — Automatic comments showing the PR hierarchy
+- **PR/MR Management** — Creates and updates GitHub pull requests and GitLab merge requests with stack navigation
+- **Stack Comments** — Automatic comments showing the PR/MR hierarchy
 - **Undo Support** — Made a mistake? `rung undo` restores your stack
 - **JSON Output** — `--json` flag for CI/CD integration
 
 ## Requirements
 
 - Git 2.x
-- GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+- GitHub CLI (`gh`) / `GITHUB_TOKEN`, or GitLab CLI (`glab`) / `GITLAB_TOKEN`
 - Rust 1.88+ (for building from source)

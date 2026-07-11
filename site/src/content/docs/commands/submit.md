@@ -1,10 +1,10 @@
 ---
 title: submit
-description: Push all stack branches and create/update PRs on GitHub.
+description: Push all stack branches and create/update pull requests (GitHub) or merge requests (GitLab).
 since: "0.1.0"
 ---
 
-Push all stack branches and create or update pull requests on GitHub. Each PR includes a stack comment showing the branch hierarchy.
+Push all stack branches and create or update pull requests on GitHub (or merge requests on GitLab). Each PR/MR includes a stack comment showing the branch hierarchy.
 
 ## Usage
 
@@ -56,7 +56,7 @@ $ rung submit
 For each branch in the stack:
 
 1. **Push** — Pushes the branch with `--force-with-lease` (safe force push)
-2. **Create PR** — If no PR exists, creates one via GitHub API
+2. **Create PR** — If no PR/MR exists, creates one via the GitHub or GitLab API
 3. **Update PR** — If PR exists, updates the description with stack navigation
 4. **Stack Comment** — Adds/updates a comment showing the PR hierarchy
 
@@ -189,7 +189,7 @@ $ rung submit --json
 - Branches are pushed with `--force-with-lease` by default (safe force push)
 - PRs have the correct base branch (parent in the stack)
 - Stack comments are automatically updated when the stack changes
-- You need GitHub authentication (via `gh` CLI or `GITHUB_TOKEN`)
+- You need forge authentication: GitHub (`gh` CLI or `GITHUB_TOKEN`) or GitLab (`glab` CLI or `GITLAB_TOKEN`)
 
 ## Related Commands
 

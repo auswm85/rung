@@ -7,19 +7,23 @@ description: Frequently asked questions about rung.
 
 ### What is rung?
 
-Rung is a CLI tool for managing stacked pull requests on GitHub. It tracks branch dependencies, automates rebasing, and manages PRs across your stack.
+Rung is a CLI tool for managing stacked pull requests on GitHub and merge requests on GitLab. It tracks branch dependencies, automates rebasing, and manages PRs/MRs across your stack.
 
 ### Why is it called "rung"?
 
 A rung is a crosspiece on a ladder. Like rungs help you climb, stacked PRs help you build features step by step.
 
+### Does rung work with GitLab?
+
+Yes, as of rung 1.0.0. Both **gitlab.com** and **self-hosted GitLab** instances are supported. gitlab.com remotes are detected automatically; for a self-hosted instance, set `gitlab.api_url` in `.git/rung/config.toml` (see [Configuration](/reference/configuration/)). Authenticate with the `glab` CLI (`glab auth login`) or a `GITLAB_TOKEN` environment variable. On GitLab, rung manages **merge requests** (the equivalent of pull requests).
+
 ### Does rung work with GitHub Enterprise?
 
-Not yet, but it's on the roadmap. Currently rung only works with github.com.
+Not yet. GitHub support currently targets github.com; a self-hosted GitHub Enterprise API URL is on the roadmap. (Self-hosted **GitLab** is supported today — see above.)
 
-### Does rung work with GitLab/Bitbucket?
+### Does rung work with Bitbucket?
 
-Not currently. Rung is GitHub-specific. Support for other platforms may be added in the future.
+Not currently. Bitbucket support may be added in the future.
 
 ## Installation
 
@@ -35,7 +39,8 @@ See the [Installation guide](/getting-started/installation/) for all methods:
 ### What are the requirements?
 
 - Git 2.x
-- GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+- For GitHub: GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+- For GitLab: GitLab CLI (`glab`) authenticated, or `GITLAB_TOKEN` environment variable
 
 ### Do I need Rust installed?
 
@@ -129,14 +134,16 @@ rung sync --abort
 
 This restores all branches to their pre-sync state.
 
-## Pull Requests
+## Pull Requests / Merge Requests
+
+On GitHub these are pull requests (PRs); on GitLab they are merge requests (MRs). Rung handles both the same way — the sections below say "PR" for brevity.
 
 ### How does rung create PRs?
 
-Rung uses the GitHub API to:
+Rung uses the GitHub API (or the GitLab REST API for GitLab remotes) to:
 
-1. Create PRs with correct base branches
-2. Use commit messages as PR titles
+1. Create PRs/MRs with correct base branches
+2. Use commit messages as PR/MR titles
 3. Add stack navigation comments
 
 ### Can I customize PR descriptions?

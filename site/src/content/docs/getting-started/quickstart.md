@@ -8,8 +8,10 @@ This guide walks you through creating your first stack of dependent branches and
 ## Prerequisites
 
 - [rung installed](/getting-started/installation/)
-- A git repository with a GitHub remote
-- GitHub CLI authenticated (`gh auth login`) or `GITHUB_TOKEN` set
+- A git repository with a GitHub or GitLab remote
+- Forge authentication:
+  - GitHub — `gh auth login` or `GITHUB_TOKEN` set
+  - GitLab — `glab auth login` or `GITLAB_TOKEN` set (for self-hosted, also set `gitlab.api_url`)
 
 ## Initialize rung
 

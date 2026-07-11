@@ -1,10 +1,10 @@
 ---
 title: merge
-description: Merge the current branch's PR via GitHub API and update the stack.
+description: Merge the current branch's PR/MR via the forge API and update the stack.
 since: "0.1.0"
 ---
 
-Merge the current branch's pull request via the GitHub API. Automatically handles rebasing descendants and updating PR bases.
+Merge the current branch's pull request (GitHub) or merge request (GitLab) via the forge API. Automatically handles rebasing descendants and updating PR/MR bases.
 
 ## Usage
 
@@ -38,7 +38,7 @@ rung merge --no-delete
 
 When you run `rung merge`:
 
-1. **Merge PR** — Merges the PR via GitHub API using the specified method
+1. **Merge PR** — Merges the PR/MR via the GitHub or GitLab API using the specified method
 2. **Rebase descendants** — Rebases all child branches onto the new base
 3. **Update PR bases** — Updates child PRs to point to the new base branch
 4. **Remove from stack** — Removes the merged branch from the stack
@@ -156,13 +156,13 @@ $ rung merge --json
 
 ## Requirements
 
-- The PR must be approved and all checks passing
+- The PR/MR must be approved and all checks passing
 - You must have write access to the repository
-- GitHub authentication must be configured
+- Forge authentication must be configured (GitHub or GitLab)
 
 ## Notes
 
-- The merge uses GitHub's API, so it respects branch protection rules
+- The merge uses the forge's API (GitHub or GitLab), so it respects branch protection rules
 - If descendant rebasing causes conflicts, you'll need to resolve them
 - After merging, your checkout moves to the first child branch (or main if no children)
 

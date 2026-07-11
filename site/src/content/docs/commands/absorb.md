@@ -23,7 +23,7 @@ rung absorb --base main
 | Option                | Description                                                              |
 | --------------------- | ------------------------------------------------------------------------ |
 | `--dry-run`           | Show what would be absorbed without making changes                       |
-| `-b, --base <branch>` | Base branch to determine rebaseable range (auto-detected from GitHub by default) |
+| `-b, --base <branch>` | Base branch to determine rebaseable range (auto-detected from the forge by default) |
 
 ## How It Works
 
@@ -133,13 +133,13 @@ $ rung absorb
 
 ## Base Branch Detection
 
-By default, rung queries GitHub to detect the default branch. You can override this:
+By default, rung queries the forge (GitHub or GitLab) to detect the default branch. You can override this:
 
 ```bash
 # Explicit base branch
 rung absorb --base develop
 
-# Required if GitHub auth is unavailable
+# Required if forge auth is unavailable
 rung absorb --base main
 ```
 

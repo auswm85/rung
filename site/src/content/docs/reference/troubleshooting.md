@@ -13,7 +13,7 @@ Always start with:
 rung doctor
 ```
 
-This checks stack integrity, git state, sync state, and GitHub connectivity.
+This checks stack integrity, git state, sync state, and forge connectivity (GitHub or GitLab).
 
 ## Common Issues
 
@@ -63,20 +63,39 @@ Error: Current branch 'feature-x' is not part of a rung stack.
 Error: Could not authenticate with GitHub
 ```
 
-**Cause:** No valid GitHub token found.
+(On a GitLab remote, the error names GitLab instead.)
+
+**Cause:** No valid token found for the detected forge.
 
 **Solutions:**
 
-1. Use GitHub CLI:
+For **GitHub**:
+
+1. Use the GitHub CLI:
 
    ```bash
    gh auth login
    ```
 
-2. Or set environment variable:
+2. Or set an environment variable:
    ```bash
    export GITHUB_TOKEN=ghp_your_token_here
    ```
+
+For **GitLab**:
+
+1. Use the GitLab CLI:
+
+   ```bash
+   glab auth login
+   ```
+
+2. Or set an environment variable:
+   ```bash
+   export GITLAB_TOKEN=glpat_your_token_here
+   ```
+
+   For self-hosted GitLab, also set `gitlab.api_url` in `.git/rung/config.toml`.
 
 ### "Branch not found"
 

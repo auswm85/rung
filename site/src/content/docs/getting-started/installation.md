@@ -77,7 +77,9 @@ rung 0.1.0
 ## Requirements
 
 - **Git 2.x** — rung uses git2-rs for git operations
-- **GitHub CLI (`gh`)** authenticated, or `GITHUB_TOKEN` environment variable
+- A forge credential for your remote:
+  - **GitHub** — GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+  - **GitLab** — GitLab CLI (`glab`) authenticated, or `GITLAB_TOKEN` environment variable
 
 ### Setting up GitHub Authentication
 
@@ -109,6 +111,40 @@ Your token needs these scopes:
 
 - `repo` — Full control of private repositories
 - `read:org` — Read org membership (if using organization repos)
+
+### Setting up GitLab Authentication
+
+:::note
+GitLab support (including self-hosted instances) was added in rung 1.0.0.
+:::
+
+For GitLab remotes (gitlab.com or self-hosted), rung needs GitLab access to create and manage merge requests. You have two options:
+
+#### Option 1: GitLab CLI (Recommended)
+
+Install and authenticate the GitLab CLI:
+
+```bash
+# Install glab (if not already installed)
+brew install glab       # macOS
+apt install glab        # Ubuntu/Debian
+winget install glab     # Windows
+
+# Authenticate
+glab auth login
+```
+
+#### Option 2: Personal Access Token
+
+Set the `GITLAB_TOKEN` environment variable:
+
+```bash
+export GITLAB_TOKEN=glpat_your_token_here
+```
+
+Your token needs the `api` scope.
+
+For **self-hosted GitLab**, also set `gitlab.api_url` in `.git/rung/config.toml` so rung can detect and reach your instance — see [Configuration](/reference/configuration/).
 
 ## Next Steps
 
