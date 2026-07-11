@@ -339,10 +339,14 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
             return result;
         };
 
+        // Best-effort: a missing/unreadable config just means no self-hosted
+        // GitLab host, so fall back to defaults rather than failing the check.
+        let config = self.state.load_config().unwrap_or_default();
+
         let Ok(rung_forge::RemoteInfo {
             repo: repo_id,
             kind,
-        }) = rung_forge::parse_remote(&origin_url)
+        }) = crate::forge::parse_remote(&origin_url, &config)
         else {
             result.issues.push(Issue::warning(format!(
                 "Origin is not a recognized repository (supported: {})",
@@ -352,7 +356,7 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
         };
 
         // Authenticate with the detected forge.
-        let Ok(client) = Forge::for_remote(&origin_url) else {
+        let Ok(client) = Forge::for_remote(&origin_url, &config) else {
             result.issues.push(
                 Issue::error(format!("{} authentication failed", kind.display_name()))
                     .with_suggestion(kind.auth_hint()),

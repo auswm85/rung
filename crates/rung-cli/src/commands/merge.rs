@@ -67,7 +67,8 @@ fn setup_merge_context(repo: &Repository, state: &State) -> Result<(MergeContext
     let stack_parent_branch = branch.parent.as_ref().map(ToString::to_string);
 
     let origin_url = repo.origin_url()?;
-    let rung_forge::RemoteInfo { repo: repo_id, .. } = rung_forge::parse_remote(&origin_url)?;
+    let rung_forge::RemoteInfo { repo: repo_id, .. } =
+        crate::forge::parse_remote(&origin_url, &state.load_config()?)?;
 
     let descendants =
         MergeService::<Repository, Forge>::collect_descendants(&stack, &current_branch);
@@ -191,7 +192,7 @@ async fn execute_merge(
     json: bool,
 ) -> Result<(String, usize)> {
     let origin_url = repo.origin_url()?;
-    let client = Forge::for_remote(&origin_url)?;
+    let client = Forge::for_remote(&origin_url, &state.load_config()?)?;
     let service = MergeService::new(repo, &client, ctx.repo_id.clone());
 
     // Step 1: Validate PR is mergeable

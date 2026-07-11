@@ -56,24 +56,57 @@ impl ForgeKind {
 
     /// Detect the forge that hosts a git remote URL.
     ///
-    /// Recognizes both HTTPS and SSH forms. Returns `None` if the host is not
-    /// a known forge.
+    /// Recognizes both HTTPS and SSH forms against the hosted forges
+    /// (`github.com`, `gitlab.com`). Returns `None` if the host is not a known
+    /// forge. Use [`ForgeKind::detect_with_hosts`] to also recognize self-hosted
+    /// GitLab instances.
     #[must_use]
     pub fn detect(url: &str) -> Option<Self> {
-        if url.starts_with("git@github.com:")
-            || url.starts_with("https://github.com/")
-            || url.starts_with("http://github.com/")
-        {
+        Self::detect_with_hosts(url, &[])
+    }
+
+    /// Detect the forge, additionally treating each host in `gitlab_hosts` as a
+    /// self-hosted GitLab instance.
+    ///
+    /// Self-hosted GitLab lives on arbitrary hostnames that cannot be inferred
+    /// from the URL alone, so the configured hosts are supplied by the caller
+    /// (from `.git/rung/config.toml`). Recognizes both HTTPS and SSH forms.
+    #[must_use]
+    pub fn detect_with_hosts(url: &str, gitlab_hosts: &[&str]) -> Option<Self> {
+        if url_has_host(url, "github.com") {
             return Some(Self::GitHub);
         }
-        if url.starts_with("git@gitlab.com:")
-            || url.starts_with("https://gitlab.com/")
-            || url.starts_with("http://gitlab.com/")
+        if url_has_host(url, "gitlab.com")
+            || gitlab_hosts.iter().any(|host| url_has_host(url, host))
         {
             return Some(Self::GitLab);
         }
         None
     }
+}
+
+/// Whether a remote URL points at `host`, in either SSH or HTTPS/HTTP form.
+fn url_has_host(url: &str, host: &str) -> bool {
+    url.starts_with(&format!("git@{host}:"))
+        || url.starts_with(&format!("https://{host}/"))
+        || url.starts_with(&format!("http://{host}/"))
+}
+
+/// Extract the host from an HTTP(S) URL, e.g.
+/// `https://gitlab.example.com/api/v4` → `Some("gitlab.example.com")`.
+///
+/// Strips any userinfo (`user:pass@`) and port. Returns `None` for URLs that
+/// are not HTTP(S) or that have an empty host. Used to derive a self-hosted
+/// GitLab host from a configured API base URL.
+#[must_use]
+pub fn host_from_url(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split('/').next()?;
+    // Drop any `user:pass@` prefix, then any `:port` suffix.
+    let host = authority.rsplit('@').next()?.split(':').next()?;
+    if host.is_empty() { None } else { Some(host) }
 }
 
 /// A repository identified from a git remote URL.
@@ -97,11 +130,32 @@ pub struct RemoteInfo {
 /// Returns [`ForgeError::InvalidRemoteUrl`] if the URL is not a recognized
 /// forge remote or the owner/repo path cannot be extracted.
 pub fn parse_remote(url: &str) -> Result<RemoteInfo> {
-    match ForgeKind::detect(url) {
-        Some(kind @ ForgeKind::GitHub) => parse_host(url, kind, "github.com"),
-        Some(kind @ ForgeKind::GitLab) => parse_host(url, kind, "gitlab.com"),
-        None => Err(ForgeError::InvalidRemoteUrl(url.to_string())),
+    parse_remote_with_hosts(url, &[])
+}
+
+/// Parse a git remote URL, additionally treating each host in `gitlab_hosts` as
+/// a self-hosted GitLab instance.
+///
+/// Mirrors [`ForgeKind::detect_with_hosts`]: the configured hosts extend GitLab
+/// recognition beyond `gitlab.com` so self-hosted remotes resolve to their
+/// project path.
+///
+/// # Errors
+/// Returns [`ForgeError::InvalidRemoteUrl`] if the URL is not a recognized
+/// forge remote or the owner/repo path cannot be extracted.
+pub fn parse_remote_with_hosts(url: &str, gitlab_hosts: &[&str]) -> Result<RemoteInfo> {
+    if url_has_host(url, "github.com") {
+        return parse_host(url, ForgeKind::GitHub, "github.com");
     }
+    if url_has_host(url, "gitlab.com") {
+        return parse_host(url, ForgeKind::GitLab, "gitlab.com");
+    }
+    for host in gitlab_hosts {
+        if url_has_host(url, host) {
+            return parse_host(url, ForgeKind::GitLab, host);
+        }
+    }
+    Err(ForgeError::InvalidRemoteUrl(url.to_string()))
 }
 
 /// Extract `(owner, repo)` from a `host` remote in either SSH or HTTPS form.
@@ -273,6 +327,67 @@ mod tests {
             parse_remote("git@github.com:group/subgroup/project.git").unwrap_err(),
             ForgeError::InvalidRemoteUrl(_)
         ));
+    }
+
+    #[test]
+    fn test_detect_self_hosted_gitlab_https() {
+        let hosts = ["gitlab.example.com"];
+        assert_eq!(
+            ForgeKind::detect_with_hosts("https://gitlab.example.com/group/project.git", &hosts),
+            Some(ForgeKind::GitLab)
+        );
+        // Without the configured host it is unrecognized.
+        assert_eq!(
+            ForgeKind::detect("https://gitlab.example.com/group/project.git"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_detect_self_hosted_gitlab_ssh() {
+        let hosts = ["gitlab.example.com"];
+        assert_eq!(
+            ForgeKind::detect_with_hosts("git@gitlab.example.com:group/project.git", &hosts),
+            Some(ForgeKind::GitLab)
+        );
+    }
+
+    #[test]
+    fn test_parse_self_hosted_gitlab_nested_namespace() {
+        let hosts = ["gitlab.example.com"];
+        let info = parse_remote_with_hosts("git@gitlab.example.com:group/sub/project.git", &hosts)
+            .unwrap();
+        assert_eq!(info.kind, ForgeKind::GitLab);
+        assert_eq!(info.repo.path(), "group/sub/project");
+    }
+
+    #[test]
+    fn test_parse_self_hosted_host_still_honors_hosted_forges() {
+        // A configured self-hosted host must not shadow github.com/gitlab.com.
+        let hosts = ["gitlab.example.com"];
+        let info = parse_remote_with_hosts("https://github.com/octocat/repo.git", &hosts).unwrap();
+        assert_eq!(info.kind, ForgeKind::GitHub);
+    }
+
+    #[test]
+    fn test_host_from_url() {
+        assert_eq!(
+            host_from_url("https://gitlab.example.com/api/v4"),
+            Some("gitlab.example.com")
+        );
+        assert_eq!(
+            host_from_url("http://gitlab.local:8080/api/v4"),
+            Some("gitlab.local")
+        );
+        assert_eq!(
+            host_from_url("https://user:pass@gitlab.example.com/api/v4"),
+            Some("gitlab.example.com")
+        );
+        assert_eq!(
+            host_from_url("git@gitlab.example.com:group/project.git"),
+            None
+        );
+        assert_eq!(host_from_url("https:///api/v4"), None);
     }
 
     #[test]

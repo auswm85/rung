@@ -58,7 +58,9 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
 
     // Fetch PR statuses if requested (best-effort - don't fail status command on GitHub errors)
     let mut pr_cache = HashMap::new();
-    if fetch && let Err(e) = fetch_pr_statuses(&repo, &stack, &mut pr_cache, json) {
+    if fetch
+        && let Err(e) = fetch_pr_statuses(&repo, &stack, &state.load_config()?, &mut pr_cache, json)
+    {
         if json {
             eprintln!("Warning: Could not fetch PR statuses: {e}");
         } else {
@@ -111,6 +113,7 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
 fn fetch_pr_statuses(
     repo: &Repository,
     stack: &rung_core::Stack,
+    config: &rung_core::Config,
     pr_cache: &mut HashMap<u64, rung_github::PullRequest>,
     json: bool,
 ) -> Result<()> {
@@ -122,9 +125,10 @@ fn fetch_pr_statuses(
 
     let origin_url = repo.origin_url().context("No origin remote configured")?;
     let rung_forge::RemoteInfo { repo: repo_id, .. } =
-        rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
+        crate::forge::parse_remote(&origin_url, config)
+            .context("Could not parse forge remote URL")?;
 
-    let client = Forge::for_remote(&origin_url)?;
+    let client = Forge::for_remote(&origin_url, config)?;
     let rt = tokio::runtime::Runtime::new()?;
 
     if !json {

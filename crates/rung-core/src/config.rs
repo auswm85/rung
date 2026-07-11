@@ -17,6 +17,10 @@ pub struct Config {
     /// GitHub-specific settings.
     #[serde(default)]
     pub github: GitHubConfig,
+
+    /// GitLab-specific settings.
+    #[serde(default)]
+    pub gitlab: GitLabConfig,
 }
 
 impl Config {
@@ -95,6 +99,19 @@ pub struct GitHubConfig {
     pub api_url: Option<String>,
 }
 
+/// GitLab-specific settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GitLabConfig {
+    /// Custom API base URL for self-hosted GitLab instances, e.g.
+    /// `https://gitlab.example.com/api/v4`.
+    ///
+    /// The instance host is derived from this URL, which lets rung recognize
+    /// self-hosted remotes (`git@gitlab.example.com:...`) that cannot be
+    /// inferred from the URL alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_url: Option<String>,
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -124,6 +141,9 @@ mod tests {
             github: GitHubConfig {
                 api_url: Some("https://github.example.com/api/v3".into()),
             },
+            gitlab: GitLabConfig {
+                api_url: Some("https://gitlab.example.com/api/v4".into()),
+            },
         };
 
         config.save(&path).unwrap();
@@ -136,6 +156,10 @@ mod tests {
         assert_eq!(
             loaded.github.api_url,
             Some("https://github.example.com/api/v3".into())
+        );
+        assert_eq!(
+            loaded.gitlab.api_url,
+            Some("https://gitlab.example.com/api/v4".into())
         );
     }
 

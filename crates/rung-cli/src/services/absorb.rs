@@ -28,9 +28,11 @@ impl<'a, G: AbsorbOps> AbsorbService<'a, G> {
         Ok(self.repo.has_staged_changes()?)
     }
 
-    /// Detect the base branch by querying GitHub for the default branch.
+    /// Detect the base branch by querying the forge for the default branch.
+    ///
+    /// `config` supplies any self-hosted GitLab host so custom remotes resolve.
     #[allow(clippy::future_not_send)] // Git operations are sync; future doesn't need to be Send
-    pub async fn detect_base_branch(&self) -> Result<String> {
+    pub async fn detect_base_branch(&self, config: &rung_core::Config) -> Result<String> {
         let origin_url = self
             .repo
             .origin_url()
@@ -38,9 +40,10 @@ impl<'a, G: AbsorbOps> AbsorbService<'a, G> {
         let rung_forge::RemoteInfo {
             repo: repo_id,
             kind,
-        } = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
+        } = crate::forge::parse_remote(&origin_url, config)
+            .context("Could not parse forge remote URL")?;
 
-        let client = Forge::for_remote(&origin_url).with_context(|| {
+        let client = Forge::for_remote(&origin_url, config).with_context(|| {
             format!(
                 "{} auth required to detect default branch. \
                  Use --base <branch> to specify manually.",

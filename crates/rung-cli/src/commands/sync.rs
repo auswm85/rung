@@ -8,10 +8,10 @@
 //! 5. Pushes all synced branches
 
 use anyhow::{Context, Result, bail};
-use rung_core::State;
 use rung_core::sync::{
     self, ReconcileResult, SyncConflictPrediction, SyncResult, predict_sync_conflicts,
 };
+use rung_core::{Config, State};
 use rung_git::Repository;
 use rung_github::{ForgeApi, RepoId};
 use serde::Serialize;
@@ -138,18 +138,22 @@ pub fn run(
 
     repo.require_clean()?;
 
+    // Load config once; it carries any self-hosted GitLab host used for forge
+    // detection and client construction below.
+    let config = state.load_config()?;
+
     // Try to get the forge remote info (optional - needed for PR operations)
     let origin_url = repo.origin_url().ok();
     let forge_info = origin_url
         .as_deref()
-        .and_then(|url| rung_forge::parse_remote(url).ok())
+        .and_then(|url| crate::forge::parse_remote(url, &config).ok())
         .map(|info| info.repo);
 
     // Create runtime once for all async operations
     let rt = tokio::runtime::Runtime::new()?;
 
     // Determine base branch
-    let base_branch = determine_base_branch(base, origin_url.as_deref(), &rt)?;
+    let base_branch = determine_base_branch(base, origin_url.as_deref(), &config, &rt)?;
 
     // Fetch base branch (skip for --check to keep it side-effect free)
     if !check {
@@ -166,7 +170,7 @@ pub fn run(
     // Create the forge client (if available)
     let mut forge_auth_unavailable = false;
     let client = match (forge_info.as_ref(), origin_url.as_deref()) {
-        (Some(_), Some(url)) => Forge::for_remote(url)
+        (Some(_), Some(url)) => Forge::for_remote(url, &config)
             .map_err(|_| {
                 forge_auth_unavailable = true;
                 if !json {
@@ -201,11 +205,10 @@ pub fn run(
 ///
 /// Used to annotate `--json` output: `true` only when there is a recognized
 /// forge remote but a client for it cannot be constructed (auth failure).
-fn forge_auth_unavailable(repo: &Repository) -> bool {
-    repo.origin_url()
-        .ok()
-        .as_deref()
-        .is_some_and(|url| rung_forge::parse_remote(url).is_ok() && Forge::for_remote(url).is_err())
+fn forge_auth_unavailable(repo: &Repository, config: &Config) -> bool {
+    repo.origin_url().ok().as_deref().is_some_and(|url| {
+        crate::forge::parse_remote(url, config).is_ok() && Forge::for_remote(url, config).is_err()
+    })
 }
 
 /// Handle --abort flag.
@@ -221,7 +224,7 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
             backup_id: None,
             conflict_branch: None,
             conflict_files: vec![],
-            forge_auth_unavailable: forge_auth_unavailable(repo),
+            forge_auth_unavailable: forge_auth_unavailable(repo, &state.load_config()?),
         });
     }
     output::success("Sync aborted - branches restored from backup");
@@ -245,13 +248,18 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
         push_stack_branches(repo, state, json)?;
     }
 
-    handle_sync_result(result, json, forge_auth_unavailable(repo))
+    handle_sync_result(
+        result,
+        json,
+        forge_auth_unavailable(repo, &state.load_config()?),
+    )
 }
 
 /// Determine base branch from --base flag or the forge API.
 fn determine_base_branch(
     base: Option<&str>,
     origin_url: Option<&str>,
+    config: &Config,
     rt: &tokio::runtime::Runtime,
 ) -> Result<String> {
     if let Some(b) = base {
@@ -264,12 +272,12 @@ fn determine_base_branch(
         )
     })?;
     let rung_forge::RemoteInfo { repo: repo_id, .. } =
-        rung_forge::parse_remote(url).map_err(|_| {
+        crate::forge::parse_remote(url, config).map_err(|_| {
             anyhow::anyhow!(
                 "Could not detect forge remote (unsupported URL). Use --base <branch> to specify manually."
             )
         })?;
-    let client = Forge::for_remote(url).context(
+    let client = Forge::for_remote(url, config).context(
         "Forge auth required to detect default branch. Use --base <branch> to specify manually.",
     )?;
     rt.block_on(client.get_default_branch(&repo_id))

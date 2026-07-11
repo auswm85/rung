@@ -105,10 +105,11 @@ pub fn run(
             .context("Failed to load default branch from config")?,
     };
 
-    let repo_id = get_remote_info(&repo)?;
+    let forge_config = state.load_config()?;
+    let repo_id = get_remote_info(&repo, &forge_config)?;
 
     let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let client = Forge::for_remote(&origin_url)?;
+    let client = Forge::for_remote(&origin_url, &forge_config)?;
     let rt = tokio::runtime::Runtime::new()?;
 
     let service = SubmitService::new(&repo, &client, repo_id.clone());
@@ -326,9 +327,10 @@ fn prompt_and_handle_uncommitted(repo: &Repository) -> Result<()> {
 }
 
 /// Get the forge-neutral repository identifier from the origin remote.
-fn get_remote_info(repo: &Repository) -> Result<rung_forge::RepoId> {
+fn get_remote_info(repo: &Repository, config: &rung_core::Config) -> Result<rung_forge::RepoId> {
     let origin_url = repo.origin_url().context("No origin remote configured")?;
-    let info = rung_forge::parse_remote(&origin_url).context("Could not parse forge remote URL")?;
+    let info = crate::forge::parse_remote(&origin_url, config)
+        .context("Could not parse forge remote URL")?;
     Ok(info.repo)
 }
 
