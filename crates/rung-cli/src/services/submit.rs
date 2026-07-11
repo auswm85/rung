@@ -149,6 +149,17 @@ where
         // are pushed before PRs that depend on them are created.
         let sorted_branches = topological_sort(&stack.branches, &config.default_branch)?;
 
+        // Fetch all already-tracked PRs in a single batch (one round-trip) so we
+        // can reuse each PR's forge-provided URL instead of constructing one,
+        // which would be wrong for GitLab (different host and
+        // `/-/merge_requests/` path).
+        let tracked_prs: Vec<u64> = sorted_branches.iter().filter_map(|b| b.pr).collect();
+        let existing_prs = self
+            .forge
+            .get_prs_batch(&self.repo, &tracked_prs)
+            .await
+            .context("Failed to fetch existing PRs")?;
+
         for branch in sorted_branches {
             let branch_name = &branch.name;
             let base_branch = branch
@@ -159,20 +170,13 @@ where
 
             // Check if PR already exists
             if let Some(pr_number) = branch.pr {
-                // Fetch the PR to get its forge-provided URL rather than
-                // constructing one, which would be wrong for GitLab (different
-                // host and `/-/merge_requests/` path).
-                let pr = self
-                    .forge
-                    .get_pr(&self.repo, pr_number)
-                    .await
-                    .with_context(|| {
-                        format!("Failed to fetch PR #{pr_number} for '{branch_name}'")
-                    })?;
+                let pr = existing_prs.get(&pr_number).ok_or_else(|| {
+                    anyhow::anyhow!("PR #{pr_number} for '{branch_name}' not found on the forge")
+                })?;
                 actions.push(PlannedBranchAction::Update {
                     branch: branch_name.to_string(),
                     pr_number,
-                    pr_url: pr.html_url,
+                    pr_url: pr.html_url.clone(),
                     base: base_branch,
                 });
             } else {
@@ -1095,32 +1099,42 @@ mod tests {
                 number: u64,
             ) -> impl std::future::Future<Output = rung_github::Result<rung_github::PullRequest>> + Send
             {
-                async move {
-                    Ok(rung_github::PullRequest {
-                        number,
-                        title: "Existing".to_string(),
-                        body: None,
-                        state: rung_github::PullRequestState::Open,
-                        base_branch: "main".to_string(),
-                        head_branch: "feature".to_string(),
-                        html_url: format!("https://github.com/test/repo/pull/{number}"),
-                        mergeable: None,
-                        mergeable_state: None,
-                        draft: false,
-                    })
-                }
+                async move { Err(rung_github::Error::PrNotFound(number)) }
             }
 
             fn get_prs_batch(
                 &self,
                 _repo: &rung_github::RepoId,
-                _numbers: &[u64],
+                numbers: &[u64],
             ) -> impl std::future::Future<
                 Output = rung_github::Result<
                     std::collections::HashMap<u64, rung_github::PullRequest>,
                 >,
             > + Send {
-                async { Ok(std::collections::HashMap::new()) }
+                let numbers = numbers.to_vec();
+                async move {
+                    let map = numbers
+                        .into_iter()
+                        .map(|number| {
+                            (
+                                number,
+                                rung_github::PullRequest {
+                                    number,
+                                    title: "Existing".to_string(),
+                                    body: None,
+                                    state: rung_github::PullRequestState::Open,
+                                    base_branch: "main".to_string(),
+                                    head_branch: "feature".to_string(),
+                                    html_url: format!("https://github.com/test/repo/pull/{number}"),
+                                    mergeable: None,
+                                    mergeable_state: None,
+                                    draft: false,
+                                },
+                            )
+                        })
+                        .collect();
+                    Ok(map)
+                }
             }
 
             fn find_pr_for_branch(
