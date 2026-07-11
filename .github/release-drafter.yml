@@ -1,47 +1,62 @@
 name-template: "v$RESOLVED_VERSION"
 tag-template: "v$RESOLVED_VERSION"
 categories:
+  # Labels excluded from the changelog and version resolution
+  - type: "pre-exclude"
+    when:
+      labels:
+        - "skip-changelog"
+        - "extension"
+        - "test"
+  # Changelog categories (labels that also drive version resolution
+  # carry a semver-increment)
   - title: "🚀 Features"
-    labels:
-      - "enhancement"
-      - "feature"
+    semver-increment: "minor"
+    when:
+      labels:
+        - "enhancement"
+        - "feature"
   - title: "🐛 Bug Fixes"
-    labels:
-      - "bug"
-      - "fix"
+    semver-increment: "patch"
+    when:
+      labels:
+        - "bug"
+        - "fix"
   - title: "♻️ Refactoring"
-    labels:
-      - "refactor"
+    when:
+      labels:
+        - "refactor"
   - title: "🧹 Maintenance"
-    labels:
-      - "chore"
-      - "dependencies"
+    when:
+      labels:
+        - "chore"
+        - "dependencies"
   - title: "📚 Documentation"
-    labels:
-      - "documentation"
-      - "docs"
+    when:
+      labels:
+        - "documentation"
+        - "docs"
+  # Version-resolver-only labels (no changelog category of their own)
+  - type: "version-resolver"
+    semver-increment: "major"
+    when:
+      labels:
+        - "major"
+        - "breaking"
+  - type: "version-resolver"
+    semver-increment: "minor"
+    when:
+      labels:
+        - "minor"
+  - type: "version-resolver"
+    semver-increment: "patch"
+    when:
+      labels:
+        - "patch"
 change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
 change-title-escapes: '\<*_&'
 version-resolver:
-  major:
-    labels:
-      - "major"
-      - "breaking"
-  minor:
-    labels:
-      - "minor"
-      - "enhancement"
-      - "feature"
-  patch:
-    labels:
-      - "patch"
-      - "bug"
-      - "fix"
   default: patch
-exclude-labels:
-  - "skip-changelog"
-  - "extension"
-  - "test"
 autolabeler:
   - label: "extension"
     title:
