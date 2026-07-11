@@ -95,17 +95,27 @@ fn url_has_host(url: &str, host: &str) -> bool {
 /// Extract the host from an HTTP(S) URL, e.g.
 /// `https://gitlab.example.com/api/v4` → `Some("gitlab.example.com")`.
 ///
-/// Strips any userinfo (`user:pass@`) and port. Returns `None` for URLs that
-/// are not HTTP(S) or that have an empty host. Used to derive a self-hosted
-/// GitLab host from a configured API base URL.
+/// Strips any userinfo (`user:pass@`) and port. Bracketed IPv6 literals are
+/// returned with their brackets (`https://[::1]:8080/…` → `Some("[::1]")`).
+/// Returns `None` for URLs that are not HTTP(S) or that have an empty host.
+/// Used to derive a self-hosted GitLab host from a configured API base URL.
 #[must_use]
 pub fn host_from_url(url: &str) -> Option<&str> {
     let rest = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))?;
     let authority = rest.split('/').next()?;
-    // Drop any `user:pass@` prefix, then any `:port` suffix.
-    let host = authority.rsplit('@').next()?.split(':').next()?;
+    // Drop any `user:pass@` userinfo prefix.
+    let host_port = authority.rsplit('@').next()?;
+    let host = if host_port.starts_with('[') {
+        // IPv6 literal: the host is the bracketed portion; a `:port` may follow
+        // the closing bracket. Keep the brackets so the host round-trips in URLs.
+        let end = host_port.find(']')?;
+        &host_port[..=end]
+    } else {
+        // Otherwise strip any `:port` suffix.
+        host_port.split(':').next()?
+    };
     if host.is_empty() { None } else { Some(host) }
 }
 
@@ -388,6 +398,12 @@ mod tests {
             None
         );
         assert_eq!(host_from_url("https:///api/v4"), None);
+        // IPv6 literals keep their brackets and drop the port.
+        assert_eq!(host_from_url("https://[::1]:8080/api/v4"), Some("[::1]"));
+        assert_eq!(
+            host_from_url("http://[2001:db8::1]/api/v4"),
+            Some("[2001:db8::1]")
+        );
     }
 
     #[test]

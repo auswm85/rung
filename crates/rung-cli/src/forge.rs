@@ -23,10 +23,12 @@ use rung_gitlab::{Auth as GitLabAuth, GitLabClient};
 ///
 /// A scheme-less value (`gitlab.example.com/api/v4`) is treated as `https` so it
 /// still yields a usable URL for both host detection and API requests, rather
-/// than being silently dropped.
+/// than being silently dropped. A value that already carries a scheme is left
+/// untouched — including a non-HTTP one like `ssh://…`, which then fails host
+/// derivation (rather than being mangled into `https://ssh://…`).
 fn gitlab_api_url(config: &Config) -> Option<String> {
     config.gitlab.api_url.as_deref().map(|url| {
-        if url.starts_with("http://") || url.starts_with("https://") {
+        if url.contains("://") {
             url.to_owned()
         } else {
             format!("https://{url}")
@@ -389,6 +391,16 @@ mod tests {
             .expect("scheme-less api_url should still derive the host");
         assert_eq!(info.kind, ForgeKind::GitLab);
         assert_eq!(info.repo.path(), "group/project");
+    }
+
+    #[test]
+    fn test_non_http_api_url_is_not_coerced() {
+        // A misconfigured non-HTTP scheme must not be mangled into
+        // `https://ssh://…`; it fails host derivation, so a self-hosted remote
+        // is simply not recognized (falls back to the hosted-forge rules).
+        let mut config = Config::default();
+        config.gitlab.api_url = Some("ssh://gitlab.example.com/api/v4".into());
+        assert!(parse_remote("git@gitlab.example.com:group/project.git", &config).is_err());
     }
 
     #[test]

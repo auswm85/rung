@@ -224,7 +224,13 @@ fn handle_abort(repo: &Repository, state: &State, json: bool) -> Result<()> {
             backup_id: None,
             conflict_branch: None,
             conflict_files: vec![],
-            forge_auth_unavailable: forge_auth_unavailable(repo, &state.load_config()?),
+            // Best-effort: aborting must not depend on config parsing, so a
+            // malformed config just yields the default (no self-hosted host)
+            // rather than blocking the abort.
+            forge_auth_unavailable: forge_auth_unavailable(
+                repo,
+                &state.load_config().unwrap_or_default(),
+            ),
         });
     }
     output::success("Sync aborted - branches restored from backup");
@@ -248,10 +254,12 @@ fn handle_continue(repo: &Repository, state: &State, json: bool, no_push: bool) 
         push_stack_branches(repo, state, json)?;
     }
 
+    // Best-effort config load: continuing a sync must not fail on a malformed
+    // config (the value only annotates JSON output).
     handle_sync_result(
         result,
         json,
-        forge_auth_unavailable(repo, &state.load_config()?),
+        forge_auth_unavailable(repo, &state.load_config().unwrap_or_default()),
     )
 }
 
