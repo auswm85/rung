@@ -11,8 +11,8 @@ use rung_core::stack::Stack;
 use rung_core::sync::{
     self, ExternalMergeInfo, ReconcileResult, ReparentedBranch, StaleBranches, SyncPlan, SyncResult,
 };
+use rung_forge::{ForgeApi, PullRequestState, RepoId, UpdatePullRequest};
 use rung_git::GitOps;
-use rung_github::{ForgeApi, PullRequestState, RepoId, UpdatePullRequest};
 
 /// Threshold for switching from individual REST calls to batched GraphQL query.
 const BATCH_THRESHOLD: usize = 5;
@@ -38,7 +38,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
 
     /// Fetch the base branch from remote.
     ///
-    /// Note: Currently unused in CLI (fetch happens before GitHub client is available).
+    /// Note: Currently unused in CLI (fetch happens before the forge client is available).
     /// Kept for API completeness and testability.
     #[allow(dead_code)]
     pub fn fetch_base(&self, base_branch: &str) -> Result<()> {
@@ -50,7 +50,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
     /// Detect merged PRs and validate PR bases.
     ///
     /// This performs two key operations:
-    /// 1. Detects PRs that were merged externally (via GitHub UI)
+    /// 1. Detects PRs/MRs that were merged externally (via the forge's web UI)
     /// 2. Validates that each PR's base branch matches what stack.json expects
     pub async fn detect_and_reconcile_merged<S: StateStore>(
         &self,
@@ -214,7 +214,7 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
 
     /// Continue an in-progress sync.
     ///
-    /// Note: Currently unused in CLI (continue is handled before GitHub client setup).
+    /// Note: Currently unused in CLI (continue is handled before the forge client setup).
     /// Kept for API completeness and testability.
     #[allow(dead_code)]
     pub fn continue_sync<S: StateStore>(&self, state: &S) -> Result<SyncResult> {
@@ -223,14 +223,14 @@ impl<'a, G: GitOps, H: ForgeApi> SyncService<'a, G, H> {
 
     /// Abort an in-progress sync.
     ///
-    /// Note: Currently unused in CLI (abort is handled before GitHub client setup).
+    /// Note: Currently unused in CLI (abort is handled before the forge client setup).
     /// Kept for API completeness and testability.
     #[allow(dead_code)]
     pub fn abort_sync<S: StateStore>(&self, state: &S) -> Result<()> {
         sync::abort_sync(self.repo, state).map_err(Into::into)
     }
 
-    /// Update GitHub PR base branches for reparented and repaired branches.
+    /// Update PR/MR base branches on the forge for reparented and repaired branches.
     pub async fn update_pr_bases(&self, reconcile_result: &ReconcileResult) -> Result<()> {
         // Collect all PRs that need updating
         let updates_needed: Vec<_> = reconcile_result

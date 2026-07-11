@@ -620,6 +620,16 @@ impl ForgeApi for GitLabClient {
         )
         .await
     }
+
+    /// GitLab references merge requests with `!` (a `#` would link to an issue).
+    fn pr_reference_prefix(&self) -> &'static str {
+        "!"
+    }
+
+    /// GitLab calls them merge requests.
+    fn pr_noun(&self) -> &'static str {
+        "MR"
+    }
 }
 
 #[cfg(test)]
@@ -635,6 +645,15 @@ mod tests {
     fn test_client(base_url: &str) -> GitLabClient {
         let auth = Auth::Token(SecretString::from("glpat-test-token"));
         GitLabClient::with_base_url(&auth, base_url).unwrap()
+    }
+
+    #[test]
+    fn test_pr_reference_prefix_is_bang() {
+        // GitLab references merge requests with `!`; `#` would link to an issue.
+        assert_eq!(
+            test_client("https://gitlab.com/api/v4").pr_reference_prefix(),
+            "!"
+        );
     }
 
     /// Standard merge-request response JSON for testing.

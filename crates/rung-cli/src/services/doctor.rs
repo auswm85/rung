@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 use rung_core::Stack;
-use rung_github::{ForgeApi, PullRequestState};
+use rung_forge::{ForgeApi, PullRequestState};
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -405,16 +405,22 @@ impl<'a, G: rung_git::GitOps, S: rung_core::StateStore> DoctorService<'a, G, S> 
                     };
                     result.issues.push(
                         Issue::warning(format!(
-                            "PR #{} for '{}' is {state_str} (not open)",
-                            pr_number, branch.name
+                            "{} {}{} for '{}' is {state_str} (not open)",
+                            client.pr_noun(),
+                            client.pr_reference_prefix(),
+                            pr_number,
+                            branch.name
                         ))
                         .with_suggestion("Run `rung sync` to clean up or merge the branch"),
                     );
                 }
                 Err(e) => {
                     result.issues.push(Issue::warning(format!(
-                        "Could not fetch PR #{} for '{}': {e}",
-                        pr_number, branch.name
+                        "Could not fetch {} {}{} for '{}': {e}",
+                        client.pr_noun(),
+                        client.pr_reference_prefix(),
+                        pr_number,
+                        branch.name
                     )));
                 }
             }

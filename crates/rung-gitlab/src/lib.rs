@@ -6,10 +6,10 @@
 //! # Architecture
 //!
 //! This crate provides the concrete [`GitLabClient`], which implements the
-//! [`ForgeApi`] trait defined in the `rung-forge` contract crate. The forge
-//! types and trait are re-exported here for convenience. Authentication and the
-//! credential-bearing HTTP client are functional today; the merge-request,
-//! pipeline, and comment methods are currently skeletons (see issue #170).
+//! [`ForgeApi`] trait defined in the `rung-forge` contract crate over the GitLab
+//! REST v4 API — merge request CRUD, commit statuses, and notes/comments — for
+//! both gitlab.com and self-hosted instances. The forge types and trait are
+//! re-exported here for convenience.
 //!
 //! # Security
 //!

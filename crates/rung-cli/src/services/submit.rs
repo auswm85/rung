@@ -8,10 +8,10 @@ use std::fmt::Write;
 
 use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
-use rung_git::GitOps;
-use rung_github::{
+use rung_forge::{
     CreateComment, CreatePullRequest, ForgeApi, RepoId, UpdateComment, UpdatePullRequest,
 };
+use rung_git::GitOps;
 use serde::Serialize;
 
 /// A planned action for a single branch.
@@ -361,12 +361,13 @@ where
     /// # Errors
     /// Returns error if forge API calls fail.
     pub async fn update_stack_comments(&self, stack: &Stack, default_branch: &str) -> Result<()> {
+        let ref_prefix = self.forge.pr_reference_prefix();
         for branch in &stack.branches {
             let Some(pr_number) = branch.pr else {
                 continue;
             };
 
-            let comment_body = generate_stack_comment(stack, pr_number, default_branch);
+            let comment_body = generate_stack_comment(stack, pr_number, default_branch, ref_prefix);
 
             // Find existing rung comment
             let comments = self
@@ -477,7 +478,12 @@ fn find_stack_base<'a>(stack: &'a Stack, branch_name: &str, default_branch: &'a 
 }
 
 /// Generate stack comment for a PR.
-fn generate_stack_comment(stack: &Stack, current_pr: u64, default_branch: &str) -> String {
+fn generate_stack_comment(
+    stack: &Stack,
+    current_pr: u64,
+    default_branch: &str,
+    ref_prefix: &str,
+) -> String {
     let mut comment = String::from(STACK_COMMENT_MARKER);
     comment.push('\n');
 
@@ -492,10 +498,10 @@ fn generate_stack_comment(stack: &Stack, current_pr: u64, default_branch: &str) 
         let pointer = if is_current { " 👈" } else { "" };
 
         if let Some(merged) = stack.find_merged(branch_name) {
-            let _ = writeln!(comment, "* ~~**#{}**~~ ✓{pointer}", merged.pr);
+            let _ = writeln!(comment, "* ~~**{ref_prefix}{}**~~ ✓{pointer}", merged.pr);
         } else if let Some(b) = branches.iter().find(|b| &b.name == branch_name) {
             if let Some(pr_num) = b.pr {
-                let _ = writeln!(comment, "* **#{pr_num}**{pointer}");
+                let _ = writeln!(comment, "* **{ref_prefix}{pr_num}**{pointer}");
             } else {
                 let _ = writeln!(comment, "* *(pending)* `{branch_name}`{pointer}");
             }
@@ -982,11 +988,16 @@ mod tests {
             b.pr = Some(42);
         }
 
-        let comment = generate_stack_comment(&stack, 42, "main");
+        let comment = generate_stack_comment(&stack, 42, "main", "#");
         assert!(comment.contains(STACK_COMMENT_MARKER));
         assert!(comment.contains("#42"));
         assert!(comment.contains("main"));
         assert!(comment.contains("rung"));
+
+        // GitLab references merge requests with `!`, not `#`.
+        let gl_comment = generate_stack_comment(&stack, 42, "main", "!");
+        assert!(gl_comment.contains("!42"));
+        assert!(!gl_comment.contains("#42"));
     }
 
     #[test]
@@ -1017,7 +1028,7 @@ mod tests {
             b.pr = Some(20);
         }
 
-        let comment = generate_stack_comment(&stack, 20, "main");
+        let comment = generate_stack_comment(&stack, 20, "main", "#");
         assert!(comment.contains("#10"));
         assert!(comment.contains("#20"));
         assert!(comment.contains("👈")); // Current PR marker
