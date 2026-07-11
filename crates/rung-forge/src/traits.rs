@@ -2,8 +2,8 @@
 //!
 //! This module defines the `ForgeApi` trait which abstracts the pull/merge
 //! request operations a forge backend must provide, enabling dependency
-//! injection, testability, and alternative backends. GitHub is currently the
-//! only implementation, provided by the `rung-github` crate.
+//! injection, testability, and alternative backends. It is implemented by the
+//! `rung-github` and `rung-gitlab` crates.
 
 use std::collections::HashMap;
 
@@ -129,4 +129,24 @@ pub trait ForgeApi: Send + Sync {
         comment_id: u64,
         comment: UpdateComment,
     ) -> impl std::future::Future<Output = Result<IssueComment>> + Send;
+
+    // === Formatting ===
+
+    /// Markdown prefix that references a pull/merge request by number (e.g. in
+    /// stack-navigation comments): `#` on GitHub, `!` on GitLab.
+    ///
+    /// Defaults to `#`; backends that use a different sigil override it. Using
+    /// the wrong prefix links to an unrelated entity (a GitLab `#42` points at
+    /// issue 42, not merge request `!42`).
+    fn pr_reference_prefix(&self) -> &'static str {
+        "#"
+    }
+
+    /// Short noun for a change request in user-facing output: `PR` (pull
+    /// request) on GitHub, `MR` (merge request) on GitLab.
+    ///
+    /// Defaults to `PR`; backends override as needed.
+    fn pr_noun(&self) -> &'static str {
+        "PR"
+    }
 }

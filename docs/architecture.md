@@ -50,9 +50,9 @@ Rung is a two-component system:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-`rung-forge` defines the forge-neutral `ForgeApi` contract; `rung-github` (and
-the in-progress `rung-gitlab`) implement it. The CLI selects a backend from the
-detected git remote.
+`rung-forge` defines the forge-neutral `ForgeApi` contract; `rung-github` and
+`rung-gitlab` both implement it. The CLI selects a backend from the detected git
+remote.
 
 ---
 
@@ -99,10 +99,10 @@ rung/
 │   │   │   └── auth.rs           # gh CLI / GITHUB_TOKEN
 │   │   └── Cargo.toml
 │   │
-│   ├── rung-gitlab/              # GitLab backend (in progress)
+│   ├── rung-gitlab/              # GitLab backend
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── client.rs         # HTTP client + ForgeApi (stubbed, #170)
+│   │   │   ├── client.rs         # HTTP client + ForgeApi (GitLab REST v4)
 │   │   │   └── auth.rs           # glab CLI / GITLAB_TOKEN
 │   │   └── Cargo.toml
 │   │

@@ -264,6 +264,20 @@ impl ForgeApi for Forge {
             }
         }
     }
+
+    fn pr_reference_prefix(&self) -> &'static str {
+        match self {
+            Self::GitHub(c) => ForgeApi::pr_reference_prefix(c),
+            Self::GitLab(c) => ForgeApi::pr_reference_prefix(c),
+        }
+    }
+
+    fn pr_noun(&self) -> &'static str {
+        match self {
+            Self::GitHub(c) => ForgeApi::pr_noun(c),
+            Self::GitLab(c) => ForgeApi::pr_noun(c),
+        }
+    }
 }
 
 #[cfg(test)]

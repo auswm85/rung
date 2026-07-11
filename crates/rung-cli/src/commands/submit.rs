@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, bail};
 use inquire::{Select, Text};
 use rung_core::{State, stack::Stack, sync};
+use rung_forge::ForgeApi;
 use rung_git::{RemoteDivergence, Repository};
 
 use crate::forge::Forge;
@@ -145,16 +146,17 @@ pub fn run(
 
     // Print progress for each result
     if !json {
+        let (noun, refp) = (client.pr_noun(), client.pr_reference_prefix());
         for result in &results {
             match result.action {
                 SubmitAction::Created => {
                     output::success(&format!(
-                        "  Created PR #{}: {}",
+                        "  Created {noun} {refp}{}: {}",
                         result.pr_number, result.pr_url
                     ));
                 }
                 SubmitAction::Updated => {
-                    output::info(&format!("  Updated PR #{}", result.pr_number));
+                    output::info(&format!("  Updated {noun} {refp}{}", result.pr_number));
                 }
             }
         }

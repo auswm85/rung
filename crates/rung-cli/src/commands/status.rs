@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use rung_core::State;
+use rung_forge::{ForgeApi, PullRequestState};
 use rung_git::Repository;
-use rung_github::{ForgeApi, PullRequestState};
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -56,7 +56,7 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Fetch PR statuses if requested (best-effort - don't fail status command on GitHub errors)
+    // Fetch PR/MR statuses if requested (best-effort - don't fail status command on forge errors)
     let mut pr_cache = HashMap::new();
     if fetch
         && let Err(e) = fetch_pr_statuses(&repo, &stack, &state.load_config()?, &mut pr_cache, json)
@@ -109,7 +109,7 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
     Ok(())
 }
 
-/// Fetch PR statuses from GitHub (best-effort).
+/// Fetch PR/MR statuses from the forge (best-effort).
 fn fetch_pr_statuses(
     repo: &Repository,
     stack: &rung_core::Stack,
@@ -132,7 +132,12 @@ fn fetch_pr_statuses(
     let rt = tokio::runtime::Runtime::new()?;
 
     if !json {
-        let label = if pr_numbers.len() == 1 { "PR" } else { "PRs" };
+        let noun = client.pr_noun();
+        let label = if pr_numbers.len() == 1 {
+            noun.to_string()
+        } else {
+            format!("{noun}s")
+        };
         output::info(&format!(
             "Fetching status for {} {label}...",
             pr_numbers.len(),

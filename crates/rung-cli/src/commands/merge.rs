@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 use rung_core::State;
 use rung_core::stack::Stack;
+use rung_forge::{ForgeApi, MergeMethod, RepoId};
 use rung_git::{Oid, Repository};
-use rung_github::{MergeMethod, RepoId};
 
 use crate::forge::Forge;
 use serde::Serialize;
@@ -142,10 +142,10 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
     let (ctx, stack) = setup_merge_context(&repo, &state)?;
 
     if !json {
-        output::info(&format!(
-            "Merging PR #{} for {}...",
-            ctx.pr_number, ctx.current_branch
-        ));
+        // Forge-agnostic: the forge client (which knows PR vs MR) is created in
+        // execute_merge, so reference the branch here and let the success
+        // message carry the forge-specific "PR #N" / "MR !N".
+        output::info(&format!("Merging '{}'...", ctx.current_branch));
     }
 
     let rt = tokio::runtime::Runtime::new()?;
@@ -217,7 +217,12 @@ async fn execute_merge(
     }
 
     if !json {
-        output::success(&format!("Merged PR #{}", ctx.pr_number));
+        output::success(&format!(
+            "Merged {} {}{}",
+            client.pr_noun(),
+            client.pr_reference_prefix(),
+            ctx.pr_number
+        ));
     }
 
     // NOTE: After merge_pr succeeds, the PR/MR is merged on the forge.

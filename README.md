@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-orange.svg)](https://www.rust-lang.org)
 
-A Git workflow tool for managing stacked PRs (pull request chains).
+A Git workflow tool for managing stacked pull requests (GitHub) and merge requests (GitLab) — chains of dependent branches.
 
 ![Demo](https://raw.githubusercontent.com/auswm85/rung/main/assets/demo.gif)
 
@@ -19,7 +19,7 @@ Rung helps you work with dependent branches by:
 
 - Tracking branch relationships in a stack
 - Syncing child branches when parents are updated
-- Managing PR chains on GitHub with automatic stack comments
+- Managing PR/MR chains on GitHub and GitLab (including self-hosted GitLab) with automatic stack comments
 - Handling merges with automatic descendant rebasing
 
 ## Installation
@@ -183,7 +183,7 @@ rung sync --abort
 
 **Options:**
 
-- `--check` - Predict conflicts without performing sync *(v0.8.0+)*
+- `--check` - Predict conflicts without performing sync _(v0.8.0+)_
 - `--dry-run` - Show what would be done without making changes
 - `--continue` - Continue after resolving conflicts
 - `--abort` - Abort and restore from backup
@@ -191,7 +191,7 @@ rung sync --abort
 
 ### `rung submit`
 
-Push all stack branches and create/update PRs on GitHub. Each PR includes a stack comment showing the branch hierarchy.
+Push all stack branches and create/update pull requests (GitHub) or merge requests (GitLab). Each PR/MR includes a stack comment showing the branch hierarchy.
 
 ```bash
 rung submit                          # Submit all branches
@@ -208,15 +208,15 @@ rung submit -m "commit message"      # Create new commit with uncommitted change
 - `--draft` - Create PRs as drafts
 - `--force` - Force push using `--force-with-lease` for safety, even if remote has changes
 - `-t, --title <title>` - Custom PR title for current branch (overrides commit message)
-- `--amend` - Amend staged/unstaged changes to the current commit before pushing *(v0.8.0+)*
-- `-m, --message <message>` - Create a new commit with the given message before pushing *(v0.8.0+)*
+- `--amend` - Amend staged/unstaged changes to the current commit before pushing _(v0.8.0+)_
+- `-m, --message <message>` - Create a new commit with the given message before pushing _(v0.8.0+)_
 
 ### `rung merge`
 
-Merge the current branch's PR via GitHub API. Automatically:
+Merge the current branch's PR/MR via the forge API (GitHub or GitLab). Automatically:
 
 - Rebases all descendant branches onto the new base
-- Updates PR bases on GitHub
+- Updates PR/MR bases on the forge
 - Removes the branch from the stack
 - Deletes local and remote branches
 - Pulls latest changes to keep local up to date
@@ -374,7 +374,7 @@ Diagnose issues with the stack and repository. Checks:
 - **Stack integrity**: Branches exist, parents are valid, no circular dependencies
 - **Git state**: Clean working directory, not detached HEAD, no rebase in progress
 - **Sync state**: Branches that need rebasing, sync operations in progress
-- **GitHub connectivity**: Authentication, PR status (open/closed/merged)
+- **Forge connectivity**: Authentication and PR/MR status (open/closed/merged) on GitHub or GitLab
 
 ```bash
 rung doctor
@@ -439,7 +439,9 @@ Rung stores its state in `.git/rung/`:
 
 - Rust 1.88+
 - Git 2.x
-- GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+- A forge credential for your remote:
+  - **GitHub** — GitHub CLI (`gh`) authenticated, or `GITHUB_TOKEN` environment variable
+  - **GitLab** — GitLab CLI (`glab`) authenticated, or `GITLAB_TOKEN` environment variable. For a self-hosted instance, set `gitlab.api_url` in `.git/rung/config.toml`.
 
 ## Project Structure
 
@@ -450,7 +452,7 @@ crates/
   rung-git/      # Git operations wrapper
   rung-forge/    # Forge-neutral contract (ForgeApi trait, remote detection)
   rung-github/   # GitHub backend
-  rung-gitlab/   # GitLab backend (in progress)
+  rung-gitlab/   # GitLab backend
 ```
 
 ## Development

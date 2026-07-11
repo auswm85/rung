@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use anyhow::{Context, Result, bail};
 use rung_core::stack::Stack;
 use rung_core::{BranchName, StateStore};
+use rung_forge::{ForgeApi, MergeMethod, MergePullRequest, RepoId, UpdatePullRequest};
 use rung_git::{GitOps, Oid};
-use rung_github::{ForgeApi, MergeMethod, MergePullRequest, RepoId, UpdatePullRequest};
 
 /// Information about a descendant branch that was processed.
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
 
     /// Validate that a PR is mergeable.
     ///
-    /// GitHub may return `mergeable: None` while computing merge status.
+    /// The forge may return `mergeable: None` while computing merge status.
     /// This method polls until `mergeable` becomes `Some(true)` or retries exhaust.
     pub async fn validate_mergeable(&self, pr_number: u64) -> Result<rung_github::PullRequest> {
         const MAX_RETRIES: u32 = 5;
@@ -155,7 +155,7 @@ impl<'a, G: GitOps, H: ForgeApi> MergeService<'a, G, H> {
         failures
     }
 
-    /// Merge a PR on GitHub.
+    /// Merge a PR/MR on the forge.
     pub async fn merge_pr(&self, pr_number: u64, merge_method: MergeMethod) -> Result<()> {
         let merge_request = MergePullRequest {
             commit_title: None,

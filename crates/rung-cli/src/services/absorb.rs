@@ -6,8 +6,8 @@
 use anyhow::{Context, Result};
 use rung_core::StateStore;
 use rung_core::absorb::{self, AbsorbPlan, AbsorbResult};
+use rung_forge::ForgeApi;
 use rung_git::AbsorbOps;
-use rung_github::ForgeApi;
 
 use crate::forge::Forge;
 

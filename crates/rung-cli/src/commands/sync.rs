@@ -1,10 +1,10 @@
 //! `rung sync` command - Sync the stack by rebasing all branches.
 //!
 //! This command performs a full sync operation:
-//! 1. Detects PRs merged externally (via GitHub UI)
+//! 1. Detects PRs/MRs merged externally (via the forge's web UI)
 //! 2. Updates stack topology for merged branches
 //! 3. Rebases remaining branches onto their new parents
-//! 4. Updates GitHub PR base branches
+//! 4. Updates PR/MR base branches on the forge
 //! 5. Pushes all synced branches
 
 use anyhow::{Context, Result, bail};
@@ -12,8 +12,8 @@ use rung_core::sync::{
     self, ReconcileResult, SyncConflictPrediction, SyncResult, predict_sync_conflicts,
 };
 use rung_core::{Config, State};
+use rung_forge::{ForgeApi, RepoId};
 use rung_git::Repository;
-use rung_github::{ForgeApi, RepoId};
 use serde::Serialize;
 
 use crate::forge::Forge;
@@ -118,12 +118,12 @@ pub fn run(
         bail!("Cannot use --continue and --abort together");
     }
 
-    // Handle abort (no GitHub needed)
+    // Handle abort (no forge needed)
     if abort {
         return handle_abort(&repo, &state, json);
     }
 
-    // Handle continue (no GitHub needed)
+    // Handle continue (no forge needed)
     if continue_ {
         return handle_continue(&repo, &state, json, no_push);
     }
@@ -307,7 +307,7 @@ fn run_sync_phases(
     no_push: bool,
     forge_auth_unavailable: bool,
 ) -> Result<()> {
-    // Create SyncService once if GitHub is available
+    // Create SyncService once if the forge client is available
     let service = match (client, forge_info) {
         (Some(client), Some(repo_id)) => Some(SyncService::new(repo, client, repo_id.clone())),
         _ => None,
@@ -471,7 +471,7 @@ fn execute_sync_plan(
     }
 }
 
-/// Phase 4 & 5: Update PR bases on GitHub and push branches.
+/// Phase 4 & 5: Update PR/MR bases on the forge and push branches.
 fn run_phase_finalize(
     service: Option<&SyncService<'_, Repository, Forge>>,
     state: &State,
