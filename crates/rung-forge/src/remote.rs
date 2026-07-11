@@ -32,6 +32,19 @@ impl ForgeKind {
         }
     }
 
+    /// Markdown/reference prefix for a change request number: `#` on GitHub,
+    /// `!` on GitLab (where `#` refers to an issue). Mirrors
+    /// [`ForgeApi::pr_reference_prefix`](crate::ForgeApi::pr_reference_prefix)
+    /// for contexts that have a [`ForgeKind`] but no authenticated client (e.g.
+    /// rendering the status tree without contacting the forge).
+    #[must_use]
+    pub const fn reference_prefix(self) -> &'static str {
+        match self {
+            Self::GitHub => "#",
+            Self::GitLab => "!",
+        }
+    }
+
     /// Hint describing how to authenticate with this forge, for error messages.
     #[must_use]
     pub const fn auth_hint(self) -> &'static str {

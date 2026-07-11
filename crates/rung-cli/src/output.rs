@@ -103,14 +103,15 @@ pub enum PrStatus {
     Closed,
 }
 
-/// Format a PR reference.
+/// Format a PR/MR reference, using the forge's number prefix (`#` on GitHub,
+/// `!` on GitLab).
 #[must_use]
-pub fn pr_ref(number: Option<u64>, status: Option<PrStatus>) -> String {
+pub fn pr_ref(number: Option<u64>, status: Option<PrStatus>, prefix: &str) -> String {
     let Some(n) = number else {
         return String::new();
     };
 
-    let text = format!("#{n}");
+    let text = format!("{prefix}{n}");
 
     match status {
         Some(PrStatus::Open) => text,                       // Default/White
@@ -141,21 +142,24 @@ mod tests {
         colored::control::set_override(true);
 
         let text = "#42";
-        assert_eq!(pr_ref(None, Some(PrStatus::Open)), "");
-        assert_eq!(pr_ref(Some(42), Some(PrStatus::Open)), text);
+        assert_eq!(pr_ref(None, Some(PrStatus::Open), "#"), "");
+        assert_eq!(pr_ref(Some(42), Some(PrStatus::Open), "#"), text);
         assert_eq!(
-            pr_ref(Some(42), Some(PrStatus::Draft)),
+            pr_ref(Some(42), Some(PrStatus::Draft), "#"),
             text.yellow().to_string()
         );
         assert_eq!(
-            pr_ref(Some(42), Some(PrStatus::Merged)),
+            pr_ref(Some(42), Some(PrStatus::Merged), "#"),
             text.green().to_string()
         );
         assert_eq!(
-            pr_ref(Some(42), Some(PrStatus::Closed)),
+            pr_ref(Some(42), Some(PrStatus::Closed), "#"),
             text.red().to_string()
         );
-        assert_eq!(pr_ref(Some(42), None), text.dimmed().to_string());
+        assert_eq!(pr_ref(Some(42), None, "#"), text.dimmed().to_string());
+
+        // GitLab uses `!` for merge-request references.
+        assert_eq!(pr_ref(Some(42), Some(PrStatus::Open), "!"), "!42");
 
         colored::control::set_override(false);
     }
@@ -204,14 +208,14 @@ mod tests {
 
     #[test]
     fn test_pr_ref_some() {
-        let pr = pr_ref(Some(123), None);
+        let pr = pr_ref(Some(123), None, "#");
         assert!(pr.contains("123"));
         assert!(pr.contains('#'));
     }
 
     #[test]
     fn test_pr_ref_none() {
-        let pr = pr_ref(None, None);
+        let pr = pr_ref(None, None, "#");
         assert!(pr.is_empty());
     }
 

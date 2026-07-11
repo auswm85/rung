@@ -559,12 +559,21 @@ impl ForgeApi for GitLabClient {
         // The forge-neutral ref name is a branch name; tolerate a `refs/heads/`
         // prefix, then encode it as GitLab addresses branches by name.
         let branch = ref_name.strip_prefix("refs/heads/").unwrap_or(ref_name);
-        self.delete(&format!(
-            "/projects/{}/repository/branches/{}",
-            project(repo),
-            encode(branch)
-        ))
-        .await
+        let result = self
+            .delete(&format!(
+                "/projects/{}/repository/branches/{}",
+                project(repo),
+                encode(branch)
+            ))
+            .await;
+        // GitLab often auto-deletes the source branch when a merge request is
+        // merged, so a follow-up delete can 404. Deletion is idempotent: treat
+        // an already-gone branch as success rather than surfacing a scary
+        // "failed to delete" warning.
+        match result {
+            Err(Error::ApiError { status: 404, .. }) => Ok(()),
+            other => other,
+        }
     }
 
     async fn get_default_branch(&self, repo: &RepoId) -> Result<String> {
@@ -1217,6 +1226,30 @@ mod tests {
         assert!(
             client
                 .delete_ref(&RepoId::new("owner/repo"), "feature-branch")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_ref_already_deleted_is_ok() {
+        // GitLab auto-deletes the source branch on merge, so a follow-up delete
+        // 404s; deletion is idempotent and must not surface an error.
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path(
+                "/projects/owner%2Frepo/repository/branches/gone-branch",
+            ))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "message": "404 Branch Not Found"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = test_client(&server.uri());
+        assert!(
+            client
+                .delete_ref(&RepoId::new("owner/repo"), "gone-branch")
                 .await
                 .is_ok()
         );
