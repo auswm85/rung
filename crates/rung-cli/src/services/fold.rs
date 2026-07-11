@@ -355,7 +355,16 @@ impl<'a> FoldService<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
     use super::*;
+    use rung_core::stack::{Stack, StackBranch};
+    use rung_core::state::State;
+    use std::fs;
+    use std::process::Command as StdCommand;
+    use tempfile::TempDir;
+
+    // === struct tests ===
 
     #[test]
     fn test_fold_branch_info() {
@@ -391,5 +400,293 @@ mod tests {
         assert_eq!(result.total_commits, 5);
         assert_eq!(result.branches_folded.len(), 2);
         assert_eq!(result.prs_to_close.len(), 2);
+    }
+
+    // === real-repo integration helpers ===
+
+    /// Run a git command in the repo, asserting success.
+    fn git(temp: &TempDir, args: &[&str]) {
+        let out = StdCommand::new("git")
+            .args(args)
+            .current_dir(temp)
+            .output()
+            .expect("failed to run git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Create a temp git repo (branch `main`) with an initial commit, plus an
+    /// initialized rung `State`.
+    fn setup_repo() -> (TempDir, Repository, State) {
+        let temp = TempDir::new().expect("temp dir");
+        git(&temp, &["init"]);
+        git(&temp, &["config", "user.email", "test@example.com"]);
+        git(&temp, &["config", "user.name", "Test User"]);
+        fs::write(temp.path().join("README.md"), "# Test\n").expect("write README");
+        git(&temp, &["add", "."]);
+        git(&temp, &["commit", "-m", "Initial commit"]);
+        git(&temp, &["branch", "-M", "main"]);
+
+        let repo = Repository::open(temp.path()).expect("open repo");
+        let state = State::new(temp.path()).expect("state");
+        state.init().expect("init state");
+        (temp, repo, state)
+    }
+
+    /// Create `branch` off the current HEAD and add one commit touching `file`.
+    fn branch_with_commit(temp: &TempDir, branch: &str, file: &str, msg: &str) {
+        git(temp, &["checkout", "-b", branch]);
+        fs::write(temp.path().join(file), format!("{file} content")).expect("write file");
+        git(temp, &["add", "."]);
+        git(temp, &["commit", "-m", msg]);
+    }
+
+    fn checkout(temp: &TempDir, branch: &str) {
+        git(temp, &["checkout", branch]);
+    }
+
+    /// Build a linear chain main -> feature-a -> feature-b -> feature-c and
+    /// persist the matching stack. PRs: a=None, b=7, c=8.
+    fn linear_chain(temp: &TempDir, state: &State) -> Stack {
+        branch_with_commit(temp, "feature-a", "a.txt", "commit a");
+        branch_with_commit(temp, "feature-b", "b.txt", "commit b");
+        branch_with_commit(temp, "feature-c", "c.txt", "commit c");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some("main")).unwrap());
+        let mut b = StackBranch::try_new("feature-b", Some("feature-a")).unwrap();
+        b.pr = Some(7);
+        stack.add_branch(b);
+        let mut c = StackBranch::try_new("feature-c", Some("feature-b")).unwrap();
+        c.pr = Some(8);
+        stack.add_branch(c);
+        state.save_stack(&stack).unwrap();
+        stack
+    }
+
+    // === analyze ===
+
+    #[test]
+    fn test_analyze_linear_chain() {
+        let (temp, repo, state) = setup_repo();
+        linear_chain(&temp, &state);
+        checkout(&temp, "feature-a");
+
+        let service = FoldService::new(&repo);
+        let analysis = service.analyze(&state, "feature-a").unwrap();
+
+        assert_eq!(analysis.parent_branch.as_deref(), Some("main"));
+        assert_eq!(analysis.children.len(), 2);
+        assert_eq!(analysis.children[0].name, "feature-b");
+        assert_eq!(analysis.children[0].commit_count, 1);
+        assert_eq!(analysis.children[0].pr, Some(7));
+        assert_eq!(analysis.children[1].name, "feature-c");
+        assert_eq!(analysis.children[1].pr, Some(8));
+    }
+
+    #[test]
+    fn test_analyze_stops_at_branching() {
+        let (temp, repo, state) = setup_repo();
+        branch_with_commit(&temp, "feature-a", "a.txt", "commit a");
+        checkout(&temp, "feature-a");
+        branch_with_commit(&temp, "feature-b", "b.txt", "commit b");
+        checkout(&temp, "feature-a");
+        branch_with_commit(&temp, "feature-c", "c.txt", "commit c");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-b", Some("feature-a")).unwrap());
+        stack.add_branch(StackBranch::try_new("feature-c", Some("feature-a")).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        let service = FoldService::new(&repo);
+        let analysis = service.analyze(&state, "feature-a").unwrap();
+
+        // Two children => branching, so nothing is foldable as a linear chain.
+        assert!(analysis.children.is_empty());
+    }
+
+    #[test]
+    fn test_analyze_branch_not_found() {
+        let (_temp, repo, state) = setup_repo();
+        let service = FoldService::new(&repo);
+        assert!(service.analyze(&state, "does-not-exist").is_err());
+    }
+
+    // === execute ===
+
+    #[test]
+    fn test_execute_fold_child_into_parent() {
+        let (temp, repo, state) = setup_repo();
+        branch_with_commit(&temp, "feature-a", "a.txt", "commit a");
+        branch_with_commit(&temp, "feature-b", "b.txt", "commit b");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some("main")).unwrap());
+        let mut b = StackBranch::try_new("feature-b", Some("feature-a")).unwrap();
+        b.pr = Some(7);
+        stack.add_branch(b);
+        state.save_stack(&stack).unwrap();
+
+        let b_tip = repo.branch_commit("feature-b").unwrap();
+        checkout(&temp, "feature-a");
+
+        let service = FoldService::new(&repo);
+        let config = FoldConfig {
+            target_branch: "feature-a".to_string(),
+            branches_to_fold: vec!["feature-b".to_string()],
+            new_parent: "main".to_string(),
+        };
+        let result = service.execute(&state, &config).unwrap();
+
+        assert_eq!(result.target_branch, "feature-a");
+        assert_eq!(result.branches_folded, vec!["feature-b".to_string()]);
+        assert_eq!(result.prs_to_close, vec![7]);
+        assert_eq!(result.total_commits, 2);
+
+        // feature-a now points at feature-b's old tip; feature-b is gone.
+        assert_eq!(repo.branch_commit("feature-a").unwrap(), b_tip);
+        assert!(!repo.branch_exists("feature-b"));
+
+        let saved = state.load_stack().unwrap();
+        assert!(saved.find_branch("feature-b").is_none());
+        assert!(saved.find_branch("feature-a").is_some());
+        assert!(!state.is_fold_in_progress());
+    }
+
+    #[test]
+    fn test_execute_fold_reparents_grandchildren() {
+        let (temp, repo, state) = setup_repo();
+        linear_chain(&temp, &state);
+        checkout(&temp, "feature-a");
+
+        let service = FoldService::new(&repo);
+        // Fold feature-b into feature-a; feature-c (child of b) must reparent to a.
+        let config = FoldConfig {
+            target_branch: "feature-a".to_string(),
+            branches_to_fold: vec!["feature-b".to_string()],
+            new_parent: "main".to_string(),
+        };
+        service.execute(&state, &config).unwrap();
+
+        let saved = state.load_stack().unwrap();
+        assert!(saved.find_branch("feature-b").is_none());
+        assert_eq!(
+            saved.find_branch("feature-c").unwrap().parent.as_deref(),
+            Some("feature-a")
+        );
+    }
+
+    #[test]
+    fn test_execute_fold_multiple_children() {
+        let (temp, repo, state) = setup_repo();
+        linear_chain(&temp, &state);
+        let c_tip = repo.branch_commit("feature-c").unwrap();
+        checkout(&temp, "feature-a");
+
+        let service = FoldService::new(&repo);
+        // Fold both feature-b and feature-c into feature-a.
+        let config = FoldConfig {
+            target_branch: "feature-a".to_string(),
+            branches_to_fold: vec!["feature-b".to_string(), "feature-c".to_string()],
+            new_parent: "main".to_string(),
+        };
+        let result = service.execute(&state, &config).unwrap();
+
+        assert_eq!(
+            result.branches_folded,
+            vec!["feature-b".to_string(), "feature-c".to_string()]
+        );
+        assert_eq!(result.prs_to_close, vec![7, 8]);
+        assert_eq!(repo.branch_commit("feature-a").unwrap(), c_tip);
+        assert!(!repo.branch_exists("feature-b"));
+        assert!(!repo.branch_exists("feature-c"));
+
+        let saved = state.load_stack().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert!(saved.find_branch("feature-a").is_some());
+    }
+
+    #[test]
+    fn test_execute_empty_branches_errors() {
+        let (temp, repo, state) = setup_repo();
+        branch_with_commit(&temp, "feature-a", "a.txt", "commit a");
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some("main")).unwrap());
+        state.save_stack(&stack).unwrap();
+        checkout(&temp, "feature-a");
+
+        let service = FoldService::new(&repo);
+        let config = FoldConfig {
+            target_branch: "feature-a".to_string(),
+            branches_to_fold: vec![],
+            new_parent: "main".to_string(),
+        };
+        assert!(service.execute(&state, &config).is_err());
+    }
+
+    // === abort ===
+
+    #[test]
+    fn test_abort_no_fold_in_progress() {
+        let (_temp, repo, state) = setup_repo();
+        let service = FoldService::new(&repo);
+        assert!(service.abort(&state).is_err());
+    }
+
+    #[test]
+    fn test_abort_restores_after_interrupted_fold() {
+        // Uses slash-style branch names because the backup ref store maps
+        // '/' <-> '-', so hyphenated names do not round-trip.
+        let (temp, repo, state) = setup_repo();
+        branch_with_commit(&temp, "feature/a", "a.txt", "commit a");
+        branch_with_commit(&temp, "feature/b", "b.txt", "commit b");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature/a", Some("main")).unwrap());
+        stack.add_branch(StackBranch::try_new("feature/b", Some("feature/a")).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        let a_sha = repo.branch_commit("feature/a").unwrap().to_string();
+        let b_sha = repo.branch_commit("feature/b").unwrap().to_string();
+        let original_stack_json = serde_json::to_string(&stack).unwrap();
+
+        // Simulate an interrupted fold: back up both branches, then delete
+        // feature/b and drop it from the persisted stack.
+        checkout(&temp, "feature/a");
+        let backup_id = state
+            .create_backup(&[("feature/a", &a_sha), ("feature/b", &b_sha)])
+            .unwrap();
+
+        let mut reduced = stack.clone();
+        reduced.remove_branch("feature/b");
+        state.save_stack(&reduced).unwrap();
+        git(&temp, &["branch", "-D", "feature/b"]);
+
+        let mut fold_state = FoldState::new(
+            backup_id,
+            "feature/a".to_string(),
+            vec!["feature/b".to_string()],
+            "main".to_string(),
+            "feature/a".to_string(),
+            vec![],
+        );
+        fold_state.set_original_stack(original_stack_json);
+        fold_state.mark_stack_updated();
+        state.save_fold_state(&fold_state).unwrap();
+        assert!(state.is_fold_in_progress());
+
+        let service = FoldService::new(&repo);
+        service.abort(&state).unwrap();
+
+        // feature/b is recreated at its backed-up commit and the stack restored.
+        assert!(repo.branch_exists("feature/b"));
+        assert_eq!(repo.branch_commit("feature/b").unwrap().to_string(), b_sha);
+        let restored = state.load_stack().unwrap();
+        assert!(restored.find_branch("feature/b").is_some());
+        assert!(!state.is_fold_in_progress());
     }
 }

@@ -632,4 +632,199 @@ mod tests {
             "feature-a should have the new commit, not the original"
         );
     }
+
+    // === execute_sync / continue_sync / abort_sync edge cases ===
+
+    #[test]
+    fn test_execute_sync_already_synced() {
+        let (temp, rung_repo, _git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let plan = SyncPlan { branches: vec![] };
+        let result = execute_sync(&rung_repo, &state, plan).unwrap();
+        assert!(matches!(result, SyncResult::AlreadySynced));
+    }
+
+    #[test]
+    fn test_execute_sync_invalid_new_base_errors() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        let plan = SyncPlan {
+            branches: vec![SyncAction {
+                branch: "feature-a".to_string(),
+                old_base: head.id().to_string(),
+                new_base: "not-a-valid-oid".to_string(),
+                parent_branch: "main".to_string(),
+            }],
+        };
+        // The bad base can't be parsed once the branch is checked out mid-sync.
+        assert!(execute_sync(&rung_repo, &state, plan).is_err());
+    }
+
+    #[test]
+    fn test_execute_sync_completes() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // feature-a sits on the old main tip.
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Advance main with an unrelated file so a rebase is required but clean.
+        add_commit(&temp, &git_repo, "main-only.txt", "main update");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.as_str())).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        assert!(!plan.is_empty());
+        let result = execute_sync(&rung_repo, &state, plan).unwrap();
+        match result {
+            SyncResult::Complete {
+                branches_rebased, ..
+            } => assert_eq!(branches_rebased, 1),
+            other => panic!("expected Complete, got {other:?}"),
+        }
+        assert!(!state.is_sync_in_progress());
+    }
+
+    #[test]
+    fn test_continue_sync_after_conflict_resolution() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+        // The `git rebase --continue` subprocess needs a committer identity and a
+        // non-interactive editor. `git --version` is a portable no-op editor that
+        // exists on every platform (unlike `true`, which is absent on Windows).
+        {
+            let mut cfg = git_repo.config().unwrap();
+            cfg.set_str("user.name", "Test").unwrap();
+            cfg.set_str("user.email", "test@example.com").unwrap();
+            cfg.set_str("core.editor", "git --version").unwrap();
+        }
+
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // Commit `conflict.txt` with explicit content (the shared add_commit
+        // helper always writes a fixed string, which wouldn't diverge).
+        let commit_conflict = |content: &str, msg: &str| {
+            fs::write(temp.path().join("conflict.txt"), content).unwrap();
+            let mut index = git_repo.index().unwrap();
+            index
+                .add_path(std::path::Path::new("conflict.txt"))
+                .unwrap();
+            index.write().unwrap();
+            let tree_id = index.write_tree().unwrap();
+            let tree = git_repo.find_tree(tree_id).unwrap();
+            let parent = git_repo.head().unwrap().peel_to_commit().unwrap();
+            let sig = git2::Signature::now("Test", "test@example.com").unwrap();
+            git_repo
+                .commit(Some("HEAD"), &sig, &sig, msg, &tree, &[&parent])
+                .unwrap();
+        };
+
+        commit_conflict("Original\n", "Initial");
+
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Diverging change on main.
+        commit_conflict("Main content\n", "Main change");
+
+        // Diverging change on feature-a.
+        git_repo.set_head("refs/heads/feature-a").unwrap();
+        git_repo
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        commit_conflict("Feature content\n", "Feature change");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.clone())).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        let plan = create_sync_plan(&rung_repo, &stack, &main_branch).unwrap();
+        let paused = execute_sync(&rung_repo, &state, plan).unwrap();
+        assert!(matches!(paused, SyncResult::Paused { .. }));
+        assert!(state.is_sync_in_progress());
+
+        // Resolve the conflict and stage it via the git CLI (so the
+        // `git rebase --continue` subprocess sees the resolution the same way
+        // a user would — git2 index writes aren't reliably picked up mid-rebase).
+        fs::write(temp.path().join("conflict.txt"), "Resolved\n").unwrap();
+        let add = std::process::Command::new("git")
+            .args(["add", "conflict.txt"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        assert!(
+            add.status.success(),
+            "git add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        );
+
+        let result = continue_sync(&rung_repo, &state).unwrap();
+        assert!(matches!(result, SyncResult::Complete { .. }));
+        assert!(!state.is_sync_in_progress());
+    }
+
+    #[test]
+    fn test_continue_sync_manual_completion() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+        let main_branch = rung_repo.current_branch().unwrap();
+
+        // feature-a already rests on main's tip (parent is an ancestor).
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature-a", Some(main_branch.as_str())).unwrap());
+        state.save_stack(&stack).unwrap();
+
+        // Simulate a paused sync whose rebase was finished manually: state is
+        // saved but no rebase is in progress.
+        let backup_id = state
+            .create_backup(&[("feature-a", &head.id().to_string())])
+            .unwrap();
+        let sync_state = crate::state::SyncState::new(backup_id, vec!["feature-a".to_string()]);
+        state.save_sync_state(&sync_state).unwrap();
+
+        let result = continue_sync(&rung_repo, &state).unwrap();
+        match result {
+            SyncResult::Complete {
+                branches_rebased, ..
+            } => assert_eq!(branches_rebased, 1),
+            other => panic!("expected Complete, got {other:?}"),
+        }
+        assert!(!state.is_sync_in_progress());
+    }
+
+    #[test]
+    fn test_abort_sync_invalid_backup_sha_errors() {
+        let (temp, rung_repo, git_repo) = init_test_repo();
+        let state = State::new(temp.path()).unwrap();
+        state.init().unwrap();
+
+        let head = git_repo.head().unwrap().peel_to_commit().unwrap();
+        git_repo.branch("feature-a", &head, false).unwrap();
+
+        // Backup holds an unparseable commit sha.
+        let backup_id = state
+            .create_backup(&[("feature-a", "not-a-valid-sha")])
+            .unwrap();
+        let sync_state = crate::state::SyncState::new(backup_id, vec!["feature-a".to_string()]);
+        state.save_sync_state(&sync_state).unwrap();
+
+        assert!(abort_sync(&rung_repo, &state).is_err());
+    }
 }
