@@ -203,8 +203,15 @@ async fn execute_merge(
         .clone()
         .unwrap_or_else(|| pr.base_branch.clone());
 
-    // Step 2: Shift child PR bases before merge
-    print_child_relinks(stack, ctx, &parent_branch, json);
+    // Step 2: Shift child PR/MR bases before merge
+    print_child_relinks(
+        stack,
+        ctx,
+        &parent_branch,
+        client.pr_noun(),
+        client.pr_reference_prefix(),
+        json,
+    );
 
     let shifted_prs = service
         .shift_child_pr_bases(stack, &ctx.current_branch, &parent_branch, &ctx.descendants)
@@ -268,7 +275,14 @@ async fn execute_merge(
 }
 
 /// Print info about child PR relinking.
-fn print_child_relinks(stack: &Stack, ctx: &MergeContext, parent_branch: &str, json: bool) {
+fn print_child_relinks(
+    stack: &Stack,
+    ctx: &MergeContext,
+    parent_branch: &str,
+    noun: &str,
+    ref_prefix: &str,
+    json: bool,
+) {
     if json || ctx.descendants.is_empty() {
         return;
     }
@@ -283,7 +297,7 @@ fn print_child_relinks(stack: &Stack, ctx: &MergeContext, parent_branch: &str, j
                 && let Some(child_pr_num) = branch_info.pr
             {
                 output::info(&format!(
-                    "Relinking PR #{child_pr_num} to '{parent_branch}' before merge..."
+                    "Relinking {noun} {ref_prefix}{child_pr_num} to '{parent_branch}' before merge..."
                 ));
             }
         }

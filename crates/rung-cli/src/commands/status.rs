@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use rung_core::State;
-use rung_forge::{ForgeApi, PullRequestState};
+use rung_forge::{ForgeApi, ForgeKind, PullRequestState};
 use rung_git::Repository;
 
 use crate::forge::Forge;
@@ -103,7 +103,19 @@ pub fn run(json: bool, fetch: bool) -> Result<()> {
         let output = JsonOutput::from_branches(&branches_with_pr_status, status.current_branch);
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_tree(&branches_with_pr_status);
+        // Best-effort forge reference prefix ("#" GitHub / "!" GitLab); no auth
+        // needed — detected from the remote, defaults to "#" when unknown.
+        let ref_prefix = repo
+            .origin_url()
+            .ok()
+            .and_then(|url| {
+                let config = state.load_config().ok()?;
+                crate::forge::parse_remote(&url, &config)
+                    .ok()
+                    .map(|info| info.kind.reference_prefix())
+            })
+            .unwrap_or_else(|| ForgeKind::GitHub.reference_prefix());
+        print_tree(&branches_with_pr_status, ref_prefix);
     }
 
     Ok(())
@@ -148,7 +160,7 @@ fn fetch_pr_statuses(
 }
 
 /// Print a tree view of the stack.
-fn print_tree(branches: &[BranchWithPrStatus]) {
+fn print_tree(branches: &[BranchWithPrStatus], ref_prefix: &str) {
     println!();
     println!("  {}", "Stack".bold());
     output::hr();
@@ -156,7 +168,7 @@ fn print_tree(branches: &[BranchWithPrStatus]) {
     for branch in branches {
         let state_icon = output::state_indicator(&branch.info.state);
         let name = output::branch_name(&branch.info.name, branch.info.is_current);
-        let pr = output::pr_ref(branch.info.pr, branch.display_status);
+        let pr = output::pr_ref(branch.info.pr, branch.display_status, ref_prefix);
 
         let parent_info = branch
             .info

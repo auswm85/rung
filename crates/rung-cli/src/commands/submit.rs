@@ -125,7 +125,13 @@ pub fn run(
 
     // Single dry-run check point
     if dry_run {
-        return handle_dry_run_output(&plan, json, &config.default_branch);
+        return handle_dry_run_output(
+            &plan,
+            json,
+            &config.default_branch,
+            client.pr_noun(),
+            client.pr_reference_prefix(),
+        );
     }
 
     // Phase 2: Execute the plan (mutations only)
@@ -186,7 +192,7 @@ pub fn run(
         });
     }
 
-    print_summary(created, updated);
+    print_summary(created, updated, client.pr_noun());
 
     Ok(())
 }
@@ -384,12 +390,18 @@ struct DryRunOutput {
 }
 
 /// Handle dry-run output (both JSON and human-readable).
-fn handle_dry_run_output(plan: &SubmitPlan, json: bool, default_branch: &str) -> Result<()> {
+fn handle_dry_run_output(
+    plan: &SubmitPlan,
+    json: bool,
+    default_branch: &str,
+    noun: &str,
+    ref_prefix: &str,
+) -> Result<()> {
     if json {
         return output_dry_run_json(plan);
     }
 
-    print_dry_run_summary(plan, default_branch);
+    print_dry_run_summary(plan, default_branch, noun, ref_prefix);
     Ok(())
 }
 
@@ -433,7 +445,7 @@ fn output_dry_run_json(plan: &SubmitPlan) -> Result<()> {
 }
 
 /// Print human-readable summary for dry-run mode.
-fn print_dry_run_summary(plan: &SubmitPlan, default_branch: &str) {
+fn print_dry_run_summary(plan: &SubmitPlan, default_branch: &str, noun: &str, ref_prefix: &str) {
     if plan.is_empty() {
         output::info("No branches to submit");
         return;
@@ -464,14 +476,14 @@ fn print_dry_run_summary(plan: &SubmitPlan, default_branch: &str) {
     if !updates.is_empty() {
         parts.push(format!("→ Would push {} branches:", updates.len()));
         for (branch, pr_number) in &updates {
-            parts.push(format!("  - {branch} (PR #{pr_number})"));
+            parts.push(format!("  - {branch} ({noun} {ref_prefix}{pr_number})"));
         }
         parts.push(String::new());
     }
 
     if !creates.is_empty() {
         parts.push(format!(
-            "→ Would create {} new PRs for branches:",
+            "→ Would create {} new {noun}s for branches:",
             creates.len()
         ));
         for (branch, base) in &creates {
@@ -533,7 +545,7 @@ fn validate_sync_state(
     Ok(())
 }
 /// Print summary of submit operation.
-fn print_summary(created: usize, updated: usize) {
+fn print_summary(created: usize, updated: usize, noun: &str) {
     if created > 0 || updated > 0 {
         let mut parts = vec![];
         if created > 0 {
@@ -542,7 +554,7 @@ fn print_summary(created: usize, updated: usize) {
         if updated > 0 {
             parts.push(format!("{updated} updated"));
         }
-        output::success(&format!("Done! PRs: {}", parts.join(", ")));
+        output::success(&format!("Done! {noun}s: {}", parts.join(", ")));
     } else {
         output::info("No changes to submit");
     }
