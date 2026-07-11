@@ -179,7 +179,7 @@ pub fn run(json: bool, method: &str, no_delete: bool) -> Result<()> {
     Ok(())
 }
 
-/// Execute the GitHub merge operation.
+/// Execute the forge merge operation.
 /// Returns (`parent_branch`, `descendants_rebased_count`).
 #[allow(clippy::too_many_arguments, clippy::future_not_send)]
 async fn execute_merge(
@@ -220,7 +220,7 @@ async fn execute_merge(
         output::success(&format!("Merged PR #{}", ctx.pr_number));
     }
 
-    // NOTE: After merge_pr succeeds, the PR is merged on GitHub.
+    // NOTE: After merge_pr succeeds, the PR/MR is merged on the forge.
     // Subsequent failures should NOT abort - we log warnings and continue.
 
     // Step 4: Update stack after merge (non-fatal after merge)

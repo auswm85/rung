@@ -87,12 +87,12 @@ pub fn run(json: bool) -> Result<()> {
     }
 
     if !json {
-        print_check("Checking GitHub...");
+        print_check(&format!("Checking {}...", service.forge_label()));
     }
     let rt = tokio::runtime::Runtime::new()?;
-    let github_result = rt.block_on(service.check_github());
+    let forge_result = rt.block_on(service.check_forge());
     if !json {
-        print_status(&github_result);
+        print_status(&forge_result);
     }
 
     // Collect all issues using DiagnosticReport
@@ -100,7 +100,7 @@ pub fn run(json: bool) -> Result<()> {
         git_state: git_result,
         stack_integrity: stack_result,
         sync_state: sync_result,
-        github: github_result,
+        forge: forge_result,
     };
     let all_issues = report.all_issues();
 

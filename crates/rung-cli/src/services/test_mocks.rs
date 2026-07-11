@@ -24,6 +24,7 @@ pub struct MockGitOps {
     pub push_results: RefCell<HashMap<String, bool>>,
     pub has_staged_changes: RefCell<bool>,
     pub rebase_should_fail: RefCell<bool>,
+    pub origin_url: RefCell<String>,
 }
 
 impl Default for MockGitOps {
@@ -44,7 +45,14 @@ impl MockGitOps {
             push_results: RefCell::new(HashMap::new()),
             has_staged_changes: RefCell::new(false),
             rebase_should_fail: RefCell::new(false),
+            origin_url: RefCell::new("https://github.com/test/repo.git".to_string()),
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_origin_url(self, url: &str) -> Self {
+        *self.origin_url.borrow_mut() = url.to_string();
+        self
     }
 
     #[allow(dead_code)]
@@ -242,7 +250,7 @@ impl GitOps for MockGitOps {
     }
 
     fn origin_url(&self) -> GitResult<String> {
-        Ok("https://github.com/test/repo.git".to_string())
+        Ok(self.origin_url.borrow().clone())
     }
 
     fn remote_divergence(&self, branch: &str) -> GitResult<RemoteDivergence> {

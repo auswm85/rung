@@ -486,7 +486,7 @@ fn run_phase_finalize(
         && (!reconcile_result.reparented.is_empty() || !reconcile_result.repaired.is_empty())
     {
         if !json {
-            output::info("Updating PR base branches on GitHub...");
+            output::info("Updating PR/MR base branches on the forge...");
         }
         rt.block_on(service.update_pr_bases(reconcile_result))?;
         print_pr_updates(reconcile_result, json);
