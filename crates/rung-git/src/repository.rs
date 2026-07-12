@@ -1564,4 +1564,338 @@ mod tests {
             "Expected shared.txt to be the conflicting file"
         );
     }
+
+    // === Repository metadata ===
+
+    #[test]
+    fn test_git_dir_and_workdir() {
+        let (temp, repo) = init_test_repo();
+        assert!(repo.git_dir().ends_with(".git"));
+        // Canonicalize to normalize macOS /var -> /private/var and trailing slashes.
+        let workdir = repo.workdir().unwrap().canonicalize().unwrap();
+        assert_eq!(workdir, temp.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn test_state_and_is_rebasing_when_clean() {
+        let (_temp, repo) = init_test_repo();
+        assert!(!repo.is_rebasing());
+        assert!(matches!(repo.state(), RepositoryState::Clean));
+    }
+
+    #[test]
+    fn test_head_detached() {
+        let (_temp, repo) = init_test_repo();
+        assert!(!repo.head_detached().unwrap());
+
+        // Detach HEAD onto the current commit.
+        let tip = repo.branch_commit(&repo.current_branch().unwrap()).unwrap();
+        repo.inner.set_head_detached(tip).unwrap();
+        assert!(repo.head_detached().unwrap());
+    }
+
+    #[test]
+    fn test_open_and_debug() {
+        let (temp, _repo) = init_test_repo();
+        let reopened = Repository::open(temp.path()).unwrap();
+        assert!(reopened.branch_exists(&reopened.current_branch().unwrap()));
+        // Debug impl reports the git dir.
+        assert!(format!("{reopened:?}").contains("Repository"));
+    }
+
+    #[test]
+    fn test_open_missing_repo_errors() {
+        let temp = TempDir::new().unwrap();
+        assert!(Repository::open(temp.path()).is_err());
+    }
+
+    // === History / commit ops ===
+
+    #[test]
+    fn test_merge_base_and_commits_between() {
+        let (temp, repo) = init_test_repo();
+        let base = repo.branch_commit(&repo.current_branch().unwrap()).unwrap();
+        let c1 = create_commit_with_file(&temp, &repo, "a.txt", "a", "commit 1");
+        let c2 = create_commit_with_file(&temp, &repo, "b.txt", "b", "commit 2");
+
+        assert_eq!(repo.merge_base(c1, c2).unwrap(), c1);
+        assert_eq!(repo.count_commits_between(base, c2).unwrap(), 2);
+        let between = repo.commits_between(base, c2).unwrap();
+        assert_eq!(between, vec![c2, c1]); // newest first
+    }
+
+    #[test]
+    fn test_find_commit_and_branch_commit_message() {
+        let (temp, repo) = init_test_repo();
+        let oid = create_commit_with_file(&temp, &repo, "a.txt", "a", "hello world");
+        assert_eq!(repo.find_commit(oid).unwrap().id(), oid);
+
+        let msg = repo
+            .branch_commit_message(&repo.current_branch().unwrap())
+            .unwrap();
+        assert!(msg.starts_with("hello world"));
+    }
+
+    #[test]
+    fn test_branch_commit_missing_errors() {
+        let (_temp, repo) = init_test_repo();
+        assert!(repo.branch_commit("nope").is_err());
+        assert!(repo.branch_commit_message("nope").is_err());
+    }
+
+    #[test]
+    fn test_reset_branch() {
+        let (temp, repo) = init_test_repo();
+        let c1 = create_commit_with_file(&temp, &repo, "a.txt", "a", "commit 1");
+        repo.create_branch("feature").unwrap();
+        let _c2 = create_commit_with_file(&temp, &repo, "b.txt", "b", "commit 2");
+
+        // feature is at c1; move it forward then back.
+        assert_eq!(repo.branch_commit("feature").unwrap(), c1);
+        repo.reset_branch("feature", repo.branch_commit("main").unwrap_or(c1))
+            .unwrap();
+
+        // Reset the current branch (main) back to c1 — updates the working dir too.
+        let main = repo.current_branch().unwrap();
+        repo.reset_branch(&main, c1).unwrap();
+        assert_eq!(repo.branch_commit(&main).unwrap(), c1);
+    }
+
+    #[test]
+    fn test_signature() {
+        let (_temp, repo) = init_test_repo();
+        assert!(repo.signature().is_ok());
+    }
+
+    // === Working directory / staging ===
+
+    #[test]
+    fn test_require_clean() {
+        let (temp, repo) = init_test_repo();
+        assert!(repo.require_clean().is_ok());
+
+        create_commit_with_file(&temp, &repo, "a.txt", "a", "add a");
+        fs::write(temp.path().join("a.txt"), "modified").unwrap();
+        assert!(repo.require_clean().is_err());
+    }
+
+    #[test]
+    fn test_has_staged_changes() {
+        let (temp, repo) = init_test_repo();
+        assert!(!repo.has_staged_changes().unwrap());
+
+        fs::write(temp.path().join("a.txt"), "a").unwrap();
+        repo.stage_all().unwrap();
+        assert!(repo.has_staged_changes().unwrap());
+    }
+
+    #[test]
+    fn test_delete_branch() {
+        let (_temp, repo) = init_test_repo();
+        repo.create_branch("feature").unwrap();
+        assert!(repo.branch_exists("feature"));
+        repo.delete_branch("feature").unwrap();
+        assert!(!repo.branch_exists("feature"));
+        assert!(repo.delete_branch("feature").is_err());
+    }
+
+    // === Rebase ops (exercised through the GitOps trait) ===
+
+    #[test]
+    fn test_rebase_onto_and_conflicting_files() {
+        let (temp, repo) = init_test_repo();
+        let main = repo.current_branch().unwrap();
+
+        // feature diverges from main on a different file (no conflict).
+        repo.create_branch("feature").unwrap();
+        repo.checkout("feature").unwrap();
+        create_commit_with_file(&temp, &repo, "feature.txt", "f", "feature work");
+
+        force_checkout(&repo, &main);
+        let main_tip = create_commit_with_file(&temp, &repo, "main.txt", "m", "main work");
+
+        force_checkout(&repo, "feature");
+        let g: &dyn GitOps = &repo;
+        g.rebase_onto(main_tip).unwrap();
+
+        assert!(g.conflicting_files().unwrap().is_empty());
+        // feature now sits on top of main's new commit.
+        assert_eq!(
+            repo.merge_base(main_tip, repo.branch_commit("feature").unwrap())
+                .unwrap(),
+            main_tip
+        );
+    }
+
+    #[test]
+    fn test_rebase_onto_from() {
+        let (temp, repo) = init_test_repo();
+        let main = repo.current_branch().unwrap();
+        let old_base = repo.branch_commit(&main).unwrap();
+
+        repo.create_branch("feature").unwrap();
+        repo.checkout("feature").unwrap();
+        create_commit_with_file(&temp, &repo, "feature.txt", "f", "feature work");
+
+        force_checkout(&repo, &main);
+        let new_base = create_commit_with_file(&temp, &repo, "main.txt", "m", "new base");
+
+        force_checkout(&repo, "feature");
+        let g: &dyn GitOps = &repo;
+        g.rebase_onto_from(new_base, old_base).unwrap();
+        assert_eq!(
+            repo.merge_base(new_base, repo.branch_commit("feature").unwrap())
+                .unwrap(),
+            new_base
+        );
+    }
+
+    // === Remote ops against a bare "origin" (exercised through GitOps) ===
+
+    /// Create a working repo wired to a fresh bare remote named `origin`,
+    /// with `main` pushed and `origin/HEAD` set.
+    fn init_repo_with_remote() -> (TempDir, TempDir, Repository) {
+        let (temp, repo) = init_test_repo();
+
+        // Ensure the default branch is named `main` for deterministic assertions.
+        run_git(temp.path(), &["branch", "-M", "main"]);
+
+        let bare = TempDir::new().unwrap();
+        run_git(bare.path(), &["init", "--bare"]);
+        run_git(
+            temp.path(),
+            &["remote", "add", "origin", bare.path().to_str().unwrap()],
+        );
+        run_git(temp.path(), &["push", "-u", "origin", "main"]);
+        run_git(temp.path(), &["remote", "set-head", "origin", "main"]);
+
+        (temp, bare, repo)
+    }
+
+    fn run_git(dir: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn test_origin_url_and_missing() {
+        let (_temp, _bare, repo) = init_repo_with_remote();
+        assert!(!repo.origin_url().unwrap().is_empty());
+
+        let (_t2, no_remote) = init_test_repo();
+        assert!(no_remote.origin_url().is_err());
+    }
+
+    #[test]
+    fn test_detect_default_branch() {
+        let (_temp, _bare, repo) = init_repo_with_remote();
+        let g: &dyn GitOps = &repo;
+        assert_eq!(g.detect_default_branch().as_deref(), Some("main"));
+
+        // No remote HEAD => None.
+        let (_t2, plain) = init_test_repo();
+        assert!(plain.detect_default_branch().is_none());
+    }
+
+    #[test]
+    fn test_push_fetch_and_remote_divergence() {
+        let (temp, _bare, repo) = init_repo_with_remote();
+        let g: &dyn GitOps = &repo;
+
+        // Freshly pushed: local == remote.
+        assert_eq!(
+            repo.remote_branch_commit("main").unwrap(),
+            repo.branch_commit("main").unwrap()
+        );
+        assert!(matches!(
+            g.remote_divergence("main").unwrap(),
+            RemoteDivergence::InSync
+        ));
+
+        // A new local commit puts us ahead of origin.
+        create_commit_with_file(&temp, &repo, "new.txt", "n", "local ahead");
+        assert!(matches!(
+            g.remote_divergence("main").unwrap(),
+            RemoteDivergence::Ahead { commits: 1 }
+        ));
+
+        // Push it, then fetch-all/pull are no-ops that still succeed.
+        g.push("main", false).unwrap();
+        g.fetch_all().unwrap();
+        g.pull_ff().unwrap();
+        assert!(matches!(
+            g.remote_divergence("main").unwrap(),
+            RemoteDivergence::InSync
+        ));
+    }
+
+    #[test]
+    fn test_fetch_single_branch() {
+        let (_temp, _bare, repo) = init_repo_with_remote();
+        // Create and push a second branch, then fetch it while `main` stays
+        // checked out (fetching a non-current branch is allowed).
+        repo.create_branch("other").unwrap();
+        let g: &dyn GitOps = &repo;
+        g.push("other", false).unwrap();
+        g.fetch("other").unwrap();
+    }
+
+    #[test]
+    fn test_remote_divergence_no_remote() {
+        let (_temp, repo) = init_test_repo();
+        assert!(matches!(
+            repo.remote_divergence(&repo.current_branch().unwrap())
+                .unwrap(),
+            RemoteDivergence::NoRemote
+        ));
+    }
+
+    // === GitOps trait delegation (read-only surface) ===
+
+    #[test]
+    fn test_gitops_trait_delegation() {
+        let (temp, repo) = init_test_repo();
+        create_commit_with_file(&temp, &repo, "a.txt", "a", "add a");
+        let g: &dyn GitOps = &repo;
+
+        assert!(g.workdir().is_some());
+        let branch = g.current_branch().unwrap();
+        assert!(!g.head_detached().unwrap());
+        assert!(!g.is_rebasing());
+        assert!(g.branch_exists(&branch));
+        assert!(!g.list_branches().unwrap().is_empty());
+        let tip = g.branch_commit(&branch).unwrap();
+        assert!(g.is_clean().unwrap());
+        assert!(g.require_clean().is_ok());
+        assert!(!g.has_staged_changes().unwrap());
+        assert!(
+            g.branch_commit_message(&branch)
+                .unwrap()
+                .starts_with("add a")
+        );
+        assert_eq!(g.merge_base(tip, tip).unwrap(), tip);
+        assert_eq!(g.count_commits_between(tip, tip).unwrap(), 0);
+        assert!(g.commits_between(tip, tip).unwrap().is_empty());
+        assert!(g.predict_rebase_conflicts(&branch, tip).unwrap().is_empty());
+        assert!(g.detect_default_branch().is_none());
+
+        // Mutating delegations.
+        let new_oid = g.create_branch("via-trait").unwrap();
+        assert_ne!(new_oid, Oid::zero());
+        g.checkout("via-trait").unwrap();
+        assert_eq!(g.current_branch().unwrap(), "via-trait");
+        g.reset_branch("via-trait", tip).unwrap();
+        g.stage_all().unwrap();
+        g.checkout(&branch).unwrap();
+        g.delete_branch("via-trait").unwrap();
+        assert!(!g.branch_exists("via-trait"));
+    }
 }

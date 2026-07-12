@@ -347,7 +347,15 @@ impl<'a> SplitService<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
     use super::*;
+    use chrono::Utc;
+    use rung_core::stack::{Stack, StackBranch};
+    use rung_core::state::{SplitState, State};
+    use std::fs;
+    use std::process::Command as StdCommand;
+    use tempfile::TempDir;
 
     #[test]
     fn test_commit_info_creation() {
@@ -422,5 +430,229 @@ mod tests {
         // Only special characters also falls back
         let name = SplitService::suggest_branch_name("!!!", "feature", 1);
         assert_eq!(name, "feature-part-2");
+    }
+
+    // === real-repo integration helpers ===
+
+    /// Run a git command in the repo, asserting success.
+    fn git(temp: &TempDir, args: &[&str]) {
+        let out = StdCommand::new("git")
+            .args(args)
+            .current_dir(temp)
+            .output()
+            .expect("failed to run git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Create a temp git repo (branch `main`) with an initial commit, plus an
+    /// initialized rung `State`.
+    fn setup_repo() -> (TempDir, Repository, State) {
+        let temp = TempDir::new().expect("temp dir");
+        git(&temp, &["init"]);
+        git(&temp, &["config", "user.email", "test@example.com"]);
+        git(&temp, &["config", "user.name", "Test User"]);
+        fs::write(temp.path().join("README.md"), "# Test\n").expect("write README");
+        git(&temp, &["add", "."]);
+        git(&temp, &["commit", "-m", "Initial commit"]);
+        git(&temp, &["branch", "-M", "main"]);
+
+        let repo = Repository::open(temp.path()).expect("open repo");
+        let state = State::new(temp.path()).expect("state");
+        state.init().expect("init state");
+        (temp, repo, state)
+    }
+
+    fn add_commit(temp: &TempDir, file: &str, msg: &str) {
+        fs::write(temp.path().join(file), format!("{file} content")).expect("write file");
+        git(temp, &["add", "."]);
+        git(temp, &["commit", "-m", msg]);
+    }
+
+    /// Build main -> feature with three commits on feature, and persist the stack.
+    fn feature_with_three_commits(temp: &TempDir, state: &State) {
+        git(temp, &["checkout", "-b", "feature"]);
+        add_commit(temp, "one.txt", "commit one");
+        add_commit(temp, "two.txt", "commit two");
+        add_commit(temp, "three.txt", "commit three");
+
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature", Some("main")).unwrap());
+        state.save_stack(&stack).unwrap();
+    }
+
+    // === analyze ===
+
+    #[test]
+    fn test_analyze_returns_commits_oldest_first() {
+        let (temp, repo, state) = setup_repo();
+        feature_with_three_commits(&temp, &state);
+
+        let service = SplitService::new(&repo);
+        let analysis = service.analyze(&state, "feature").unwrap();
+
+        assert_eq!(analysis.source_branch, "feature");
+        assert_eq!(analysis.parent_branch, "main");
+        assert_eq!(analysis.commits.len(), 3);
+        assert_eq!(analysis.commits[0].summary, "commit one");
+        assert_eq!(analysis.commits[2].summary, "commit three");
+        // Short SHA is a prefix of the full oid.
+        assert!(
+            analysis.commits[0]
+                .oid
+                .starts_with(&analysis.commits[0].short_sha)
+        );
+    }
+
+    #[test]
+    fn test_analyze_root_branch_errors() {
+        let (temp, repo, state) = setup_repo();
+        // A branch with no parent cannot be split.
+        let mut stack = Stack::new();
+        stack.add_branch(StackBranch::try_new("feature", None::<String>).unwrap());
+        state.save_stack(&stack).unwrap();
+        git(&temp, &["checkout", "-b", "feature"]);
+
+        let service = SplitService::new(&repo);
+        assert!(service.analyze(&state, "feature").is_err());
+    }
+
+    #[test]
+    fn test_analyze_branch_not_found() {
+        let (_temp, repo, state) = setup_repo();
+        let service = SplitService::new(&repo);
+        assert!(service.analyze(&state, "does-not-exist").is_err());
+    }
+
+    // === execute ===
+
+    #[test]
+    fn test_execute_split_creates_branches() {
+        let (temp, repo, state) = setup_repo();
+        feature_with_three_commits(&temp, &state);
+
+        let service = SplitService::new(&repo);
+        let commits = service.analyze(&state, "feature").unwrap().commits;
+        let one = &commits[0]; // "commit one"
+        let two = &commits[1]; // "commit two"
+
+        let config = SplitConfig {
+            source_branch: "feature".to_string(),
+            parent_branch: "main".to_string(),
+            split_points: vec![
+                SplitPoint {
+                    commit_sha: one.oid.clone(),
+                    message: one.summary.clone(),
+                    branch_name: "part-one".to_string(),
+                },
+                SplitPoint {
+                    commit_sha: two.oid.clone(),
+                    message: two.summary.clone(),
+                    branch_name: "part-two".to_string(),
+                },
+            ],
+        };
+        let result = service.execute(&state, &config).unwrap();
+
+        assert_eq!(
+            result.branches_created,
+            vec!["part-one".to_string(), "part-two".to_string()]
+        );
+        assert!(repo.branch_exists("part-one"));
+        assert!(repo.branch_exists("part-two"));
+        assert_eq!(repo.branch_commit("part-one").unwrap().to_string(), one.oid);
+
+        // Topology: main -> part-one -> part-two -> feature.
+        let saved = state.load_stack().unwrap();
+        assert_eq!(
+            saved.find_branch("part-one").unwrap().parent.as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            saved.find_branch("part-two").unwrap().parent.as_deref(),
+            Some("part-one")
+        );
+        assert_eq!(
+            saved.find_branch("feature").unwrap().parent.as_deref(),
+            Some("part-two")
+        );
+        assert!(!state.is_split_in_progress());
+    }
+
+    #[test]
+    fn test_execute_split_no_points_is_noop() {
+        let (temp, repo, state) = setup_repo();
+        feature_with_three_commits(&temp, &state);
+
+        let service = SplitService::new(&repo);
+        let config = SplitConfig {
+            source_branch: "feature".to_string(),
+            parent_branch: "main".to_string(),
+            split_points: vec![],
+        };
+        let result = service.execute(&state, &config).unwrap();
+
+        assert!(result.branches_created.is_empty());
+        // Source branch parent is unchanged.
+        let saved = state.load_stack().unwrap();
+        assert_eq!(
+            saved.find_branch("feature").unwrap().parent.as_deref(),
+            Some("main")
+        );
+        assert!(!state.is_split_in_progress());
+    }
+
+    // === abort ===
+
+    #[test]
+    fn test_abort_no_split_in_progress() {
+        let (_temp, repo, state) = setup_repo();
+        let service = SplitService::new(&repo);
+        assert!(service.abort(&state).is_err());
+    }
+
+    #[test]
+    fn test_abort_restores_source_branch() {
+        let (temp, repo, state) = setup_repo();
+        git(&temp, &["checkout", "-b", "feature"]);
+        add_commit(&temp, "one.txt", "commit one");
+
+        let original_sha = repo.branch_commit("feature").unwrap().to_string();
+
+        // Back up feature at its current tip, then advance it (simulating an
+        // interrupted split that mutated the branch).
+        let backup_id = state.create_backup(&[("feature", &original_sha)]).unwrap();
+        add_commit(&temp, "two.txt", "commit two");
+        assert_ne!(
+            repo.branch_commit("feature").unwrap().to_string(),
+            original_sha
+        );
+
+        let split_state = SplitState {
+            started_at: Utc::now(),
+            backup_id,
+            source_branch: "feature".to_string(),
+            parent_branch: "main".to_string(),
+            original_branch: "feature".to_string(),
+            split_points: vec![],
+            current_index: 0,
+            completed: vec![],
+            stack_updated: false,
+        };
+        state.save_split_state(&split_state).unwrap();
+        assert!(state.is_split_in_progress());
+
+        let service = SplitService::new(&repo);
+        service.abort(&state).unwrap();
+
+        // feature is reset back to its backed-up tip and state is cleared.
+        assert_eq!(
+            repo.branch_commit("feature").unwrap().to_string(),
+            original_sha
+        );
+        assert!(!state.is_split_in_progress());
     }
 }

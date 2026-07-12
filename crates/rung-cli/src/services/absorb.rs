@@ -253,4 +253,49 @@ mod tests {
         let has_changes = service.has_staged_changes().unwrap();
         assert!(has_changes);
     }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_create_plan_empty_when_no_staged_hunks() {
+        use crate::services::test_mocks::MockStateStore;
+
+        let mock_repo = MockAbsorbOps::new();
+        let state = MockStateStore::new();
+        let service = AbsorbService::new(&mock_repo);
+
+        // No staged hunks => plan has no actions and nothing unmapped.
+        let plan = service.create_plan(&state, "main").unwrap();
+        assert!(plan.actions.is_empty());
+        assert!(plan.unmapped.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_execute_plan_empty_creates_no_fixups() {
+        use crate::services::test_mocks::MockStateStore;
+
+        let mock_repo = MockAbsorbOps::new();
+        let state = MockStateStore::new();
+        let service = AbsorbService::new(&mock_repo);
+
+        let plan = service.create_plan(&state, "main").unwrap();
+        let result = service.execute_plan(&plan).unwrap();
+        assert_eq!(result.fixups_created, 0);
+        assert!(result.targeted_commits.is_empty());
+    }
+
+    #[tokio::test]
+    #[allow(clippy::unwrap_used)]
+    async fn test_detect_base_branch_unparseable_remote_errors() {
+        // An origin on an unrecognized host cannot be parsed as a forge remote,
+        // so detection fails before any network/auth is attempted.
+        let mock_repo = MockAbsorbOps {
+            inner: MockGitOps::new().with_origin_url("https://example.com/foo/bar.git"),
+            staged_changes: false,
+        };
+        let service = AbsorbService::new(&mock_repo);
+        let config = rung_core::Config::default();
+
+        assert!(service.detect_base_branch(&config).await.is_err());
+    }
 }
