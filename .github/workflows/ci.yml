@@ -43,11 +43,12 @@ jobs:
       # Lint on the MSRV toolchain (not floating stable) so clippy/rustfmt
       # behavior is tied to the compiler version the project commits to
       # support. This keeps lint results deterministic: a newer stable clippy
-      # cannot introduce lints that break CI without an MSRV bump. The `@1.88`
-      # ref is the action's version-pinned branch, avoiding the moving `@master`.
+      # cannot introduce lints that break CI without an MSRV bump. Keep the
+      # toolchain here in sync with `rust-version` in Cargo.toml.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.97"
           components: rustfmt, clippy
 
       - name: Cache cargo registry
@@ -130,7 +131,7 @@ jobs:
 
   # MSRV check
   msrv:
-    name: MSRV (1.88)
+    name: MSRV (1.97)
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -140,7 +141,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.88"
+          toolchain: "1.97"
 
       - name: Cache cargo registry
         uses: actions/cache@v6
