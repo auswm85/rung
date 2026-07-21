@@ -250,8 +250,9 @@ fn test_create_branch() {
         .expect("Failed to get current branch");
 
     let current_branch = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        current_branch.trim() == "feature-1",
+    assert_eq!(
+        current_branch.trim(),
+        "feature-1",
         "Should be on feature-1 branch"
     );
 
@@ -353,7 +354,7 @@ fn test_navigate_up_down() {
         .expect("Failed to get current branch");
 
     let current_branch = String::from_utf8_lossy(&output.stdout);
-    assert!(current_branch.trim() == "main", "Should be on main branch");
+    assert_eq!(current_branch.trim(), "main", "Should be on main branch");
 
     // Navigate to child (feature-1)
     rung().arg("nxt").current_dir(&temp).assert().success();
@@ -365,8 +366,9 @@ fn test_navigate_up_down() {
         .expect("Failed to get current branch");
 
     let current_branch = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        current_branch.trim() == "feature-1",
+    assert_eq!(
+        current_branch.trim(),
+        "feature-1",
         "Should be on feature-1 branch"
     );
 }
@@ -1969,7 +1971,7 @@ fn test_prv_alias() {
         .expect("Failed to get current branch");
 
     let branch = String::from_utf8_lossy(&output.stdout);
-    assert!(branch.trim() == "main");
+    assert_eq!(branch.trim(), "main");
 }
 
 #[test]
@@ -2002,7 +2004,7 @@ fn test_nxt_alias() {
         .expect("Failed to get current branch");
 
     let branch = String::from_utf8_lossy(&output.stdout);
-    assert!(branch.trim() == "feature-nav-2");
+    assert_eq!(branch.trim(), "feature-nav-2");
 }
 
 #[test]
