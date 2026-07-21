@@ -23,7 +23,7 @@ jobs:
     outputs:
       extension: ${{ steps.filter.outputs.extension }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -38,10 +38,10 @@ jobs:
     if: needs.changes.outputs.extension == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
@@ -62,10 +62,10 @@ jobs:
     if: needs.changes.outputs.extension == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: "npm"
