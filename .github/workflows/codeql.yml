@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "27 4 * * 1"
 
 permissions:
   security-events: write
@@ -14,11 +16,13 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       typescript: ${{ steps.filter.outputs.typescript }}
+      actions: ${{ steps.filter.outputs.actions }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -31,15 +35,17 @@ jobs:
               - 'vscode-extension/**/*.ts'
               - 'vscode-extension/**/*.js'
               - 'vscode-extension/package.json'
+            actions:
+              - '.github/workflows/**'
 
   analyze-rust:
     name: CodeQL Analyze Rust
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: always() && (needs.changes.outputs.rust == 'true' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -55,14 +61,14 @@ jobs:
   analyze-typescript:
     name: CodeQL Analyze TypeScript
     needs: changes
-    if: needs.changes.outputs.typescript == 'true'
+    if: always() && (needs.changes.outputs.typescript == 'true' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: vscode-extension
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -75,18 +81,47 @@ jobs:
         with:
           category: "/language:javascript-typescript"
 
+  analyze-actions:
+    name: CodeQL Analyze Actions
+    needs: changes
+    if: always() && (needs.changes.outputs.actions == 'true' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:actions"
+
   # Required status check that always passes
   # This allows PRs with only non-code changes (e.g., README) to merge
   codeql-status:
     name: CodeQL
     runs-on: ubuntu-latest
-    needs: [changes, analyze-rust, analyze-typescript]
+    needs: [changes, analyze-rust, analyze-typescript, analyze-actions]
     if: always()
     steps:
       - name: Check status
         run: |
+          # A broken Detect Changes silently skips every analyzer, so treat it
+          # as a failure rather than reporting green on an unscanned tree.
+          changes="${{ needs.changes.result }}"
+          if [[ "$changes" == "failure" || "$changes" == "cancelled" ]]; then
+            echo "Detect Changes did not complete ($changes); analyzer gating is unreliable"
+            exit 1
+          fi
+
           if [[ "${{ needs.analyze-rust.result }}" == "failure" ]] || \
-             [[ "${{ needs.analyze-typescript.result }}" == "failure" ]]; then
+             [[ "${{ needs.analyze-typescript.result }}" == "failure" ]] || \
+             [[ "${{ needs.analyze-actions.result }}" == "failure" ]]; then
             echo "CodeQL analysis failed"
             exit 1
           fi
