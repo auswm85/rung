@@ -30,9 +30,22 @@ Download the `.zip` from [releases](https://github.com/auswm85/rung/releases) an
 ## Homebrew (macOS/Linux)
 
 ```bash
-brew tap auswm85/rung https://github.com/auswm85/rung
+brew tap auswm85/rung
+brew trust --formula auswm85/rung/rung
 brew install rung
 ```
+
+Homebrew requires third-party tap formulae to be trusted before it will load them.
+
+Installed from the tap before it moved to
+[auswm85/homebrew-rung](https://github.com/auswm85/homebrew-rung)? Untap the old one first:
+
+```bash
+brew uninstall rung
+brew untap auswm85/rung
+```
+
+Then follow the steps above.
 
 ## From crates.io
 
