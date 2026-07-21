@@ -110,6 +110,80 @@ jobs:
         with:
           files: rung-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
 
+  # Bump the formula in the Homebrew tap
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: [create-release, build]
+    if: ${{ !contains(github.ref, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: auswm85/homebrew-rung
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          for target in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu; do
+            curl -sSfL -o "$target.tar.gz" \
+              "https://github.com/auswm85/rung/releases/download/v${VERSION}/rung-${VERSION}-${target}.tar.gz"
+            sha256sum "$target.tar.gz" | cut -d' ' -f1 > "$target.sha256"
+          done
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          version = os.environ["VERSION"]
+          targets = [
+              "aarch64-apple-darwin",
+              "x86_64-apple-darwin",
+              "x86_64-unknown-linux-gnu",
+          ]
+          shas = {t: pathlib.Path(f"{t}.sha256").read_text().strip() for t in targets}
+
+          formula = pathlib.Path("Formula/rung.rb")
+          out, pending = [], None
+          for line in formula.read_text().splitlines(keepends=True):
+              if 'url "' in line:
+                  pending = next((t for t in targets if t in line), None)
+                  if pending:
+                      line = re.sub(
+                          r'url "[^"]*"',
+                          f'url "https://github.com/auswm85/rung/releases/download/'
+                          f'v{version}/rung-{version}-{pending}.tar.gz"',
+                          line,
+                      )
+              elif 'sha256 "' in line and pending:
+                  line = re.sub(r'sha256 "[^"]*"', f'sha256 "{shas[pending]}"', line)
+                  pending = None
+              out.append(line)
+          formula.write_text("".join(out))
+
+          updated = formula.read_text()
+          for target, sha in shas.items():
+              assert f"rung-{version}-{target}.tar.gz" in updated, target
+              assert sha in updated, target
+          PY
+          rm -f ./*.tar.gz ./*.sha256
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: update rung to v${VERSION}"
+          git push
+
   # Publish to crates.io
   publish-crates:
     name: Publish to crates.io
