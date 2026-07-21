@@ -1,0 +1,17 @@
+version: 2
+
+updates:
+  # GitHub Actions were drifting several majors behind (checkout sat on v5 while
+  # v7 shipped) because default Dependabot only covers vulnerable dependencies,
+  # not version currency.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(deps)"
