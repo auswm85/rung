@@ -3,6 +3,10 @@
 # Runs cargo fmt --check and cargo clippy before commits.
 #
 # Setup: git config core.hooksPath .githooks
+#
+# Checks run on the MSRV toolchain to mirror the CI Lint job. Linting on
+# floating stable instead would surface lints that do not exist at MSRV, so
+# commits would be blocked by errors CI never reports (see ci.yml, job `lint`).
 
 # Ensure cargo is in PATH
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -11,16 +15,26 @@ set -e
 
 echo "Running pre-commit checks..."
 
+# Read MSRV from the workspace manifest so this never drifts from Cargo.toml.
+MSRV=$(grep -m1 '^rust-version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+
+TOOLCHAIN=""
+if [ -n "$MSRV" ] && rustup toolchain list 2>/dev/null | grep -q "^$MSRV"; then
+    TOOLCHAIN="+$MSRV"
+    echo "  using Rust $MSRV (MSRV)"
+else
+    echo "  ⚠ Rust $MSRV not installed; using default toolchain."
+    echo "    CI lints on $MSRV — install it to match: rustup toolchain install $MSRV"
+fi
+
 echo "→ cargo fmt --check"
-cargo fmt --check
-if [ $? -ne 0 ]; then
-    echo "✗ Format check failed. Run 'cargo fmt' to fix."
+if ! cargo $TOOLCHAIN fmt --all -- --check; then
+    echo "✗ Format check failed. Run 'cargo fmt --all' to fix."
     exit 1
 fi
 
 echo "→ cargo clippy"
-cargo clippy --workspace --all-targets -- -D warnings
-if [ $? -ne 0 ]; then
+if ! cargo $TOOLCHAIN clippy --workspace --all-targets --all-features -- -D warnings; then
     echo "✗ Clippy found issues."
     exit 1
 fi
