@@ -46,7 +46,7 @@ jobs:
       # cannot introduce lints that break CI without an MSRV bump. The `@1.88`
       # ref is the action's version-pinned branch, avoiding the moving `@master`.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.88
+        uses: dtolnay/rust-toolchain@1.100
         with:
           components: rustfmt, clippy
 
