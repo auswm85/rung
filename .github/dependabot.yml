@@ -15,3 +15,5 @@ updates:
           - "*"
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
