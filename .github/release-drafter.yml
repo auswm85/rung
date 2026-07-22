@@ -61,6 +61,7 @@ autolabeler:
   - label: "extension"
     title:
       - "/\\(extension\\)/i"
+      - "/\\/vscode-extension/i"
   - label: "chore"
     title:
       - "/^chore/i"
