@@ -119,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: auswm85/homebrew-rung
+          repository: auswm85/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Update formula

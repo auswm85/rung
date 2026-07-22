@@ -41,13 +41,18 @@ INSTALL_DIR=~/bin curl -sSf https://rungstack.com/install.sh | sh
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew tap auswm85/rung
-brew trust --formula auswm85/rung/rung
+brew tap auswm85/tap
 brew install rung
 ```
 
-Installed from the tap before it moved? See the
-[migration steps](https://github.com/auswm85/homebrew-rung#upgrading-from-the-old-tap).
+Installed from the previous tap (`auswm85/rung`)? Switch to the shared tap:
+
+```bash
+brew uninstall rung
+brew untap auswm85/rung
+brew tap auswm85/tap
+brew install rung
+```
 
 ### From crates.io
 
