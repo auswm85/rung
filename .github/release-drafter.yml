@@ -62,6 +62,9 @@ autolabeler:
     title:
       - "/\\(extension\\)/i"
       - "/\\/vscode-extension/i"
+  - label: "skip-changelog"
+    title:
+      - "/\\/site/i"
   - label: "chore"
     title:
       - "/^chore/i"
