@@ -7,7 +7,7 @@ version = "1.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/auswm85/rung"
-rust-version = "1.88"
+rust-version = "1.97"
 
 [workspace.dependencies]
 # Internal crates
