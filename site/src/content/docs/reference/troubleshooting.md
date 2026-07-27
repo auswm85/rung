@@ -91,6 +91,7 @@ For **GitLab**:
    ```
 
 2. Or set an environment variable:
+
    ```bash
    export GITLAB_TOKEN=glpat_your_token_here
    ```

@@ -15,8 +15,8 @@ rung log --json
 
 ## Options
 
-| Option   | Description                                                      |
-| -------- | ---------------------------------------------------------------- |
+| Option   | Description                                                       |
+| -------- | ----------------------------------------------------------------- |
 | `--json` | Output as JSON (includes branch name, parent, and commit details) |
 
 ## Example
@@ -43,7 +43,11 @@ $ rung log --json
 ```json
 {
   "commits": [
-    { "hash": "a1b2c3d", "message": "Add user authentication", "author": "alice" },
+    {
+      "hash": "a1b2c3d",
+      "message": "Add user authentication",
+      "author": "alice"
+    },
     { "hash": "e4f5g6h", "message": "Fix login redirect", "author": "alice" }
   ],
   "branch": "feat-auth",

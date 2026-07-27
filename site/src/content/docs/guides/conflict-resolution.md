@@ -18,6 +18,7 @@ $ rung sync --check
 ```
 
 This tells you which branches and files will conflict, and which commits cause them. You can then:
+
 - Prepare by reviewing the conflicting files
 - Coordinate with teammates if their changes are involved
 - Choose to resolve issues before syncing (e.g., by rebasing interactively)

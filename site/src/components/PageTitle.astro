@@ -9,11 +9,15 @@ const title = entryData?.title ?? "";
 
 <div class="page-title-wrapper">
   <h1 id={PAGE_TITLE_ID}>{title}</h1>
-  {since && (
-    <span class:list={["version-badge", { unreleased: since === "unreleased" }]}>
-      {since === "unreleased" ? "unreleased" : `v${since}+`}
-    </span>
-  )}
+  {
+    since && (
+      <span
+        class:list={["version-badge", { unreleased: since === "unreleased" }]}
+      >
+        {since === "unreleased" ? "unreleased" : `v${since}+`}
+      </span>
+    )
+  }
 </div>
 
 <style>

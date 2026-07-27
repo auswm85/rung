@@ -18,7 +18,7 @@
 :root[data-theme="dark"] {
   /* Teal accent for dark mode - matches logo #21B3B7 */
   --sl-color-accent-low: #1a8a8d;
-  --sl-color-accent: #21B3B7;
+  --sl-color-accent: #21b3b7;
   --sl-color-accent-high: #5dd9dd;
 }
 
@@ -36,8 +36,8 @@
 
 /* Hero button styling - teal for dark mode (matches logo) */
 :root[data-theme="dark"] .hero a.primary {
-  background: #21B3B7 !important;
-  border-color: #21B3B7 !important;
+  background: #21b3b7 !important;
+  border-color: #21b3b7 !important;
   color: #000000 !important;
 }
 
@@ -53,7 +53,7 @@
 }
 
 :root[data-theme="dark"] .site-title {
-  color: #21B3B7 !important;
+  color: #21b3b7 !important;
 }
 
 /* Brighten logo in dark mode so navy is visible */

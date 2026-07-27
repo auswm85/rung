@@ -95,10 +95,10 @@ $ rung status --json
 
 ## Options
 
-| Option    | Description                                                                 |
-| --------- | --------------------------------------------------------------------------- |
-| `--fetch` | Run `git fetch` before showing status to get fresh remote divergence info   |
-| `--json`  | Output as JSON for tooling integration                                      |
+| Option    | Description                                                               |
+| --------- | ------------------------------------------------------------------------- |
+| `--fetch` | Run `git fetch` before showing status to get fresh remote divergence info |
+| `--json`  | Output as JSON for tooling integration                                    |
 
 ## Notes
 

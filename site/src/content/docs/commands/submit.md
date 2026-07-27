@@ -24,14 +24,14 @@ rung submit --dry-run
 
 ## Options
 
-| Option                    | Description                                                        |
-| ------------------------- | ------------------------------------------------------------------ |
-| `--draft`                 | Create PRs as drafts                                               |
-| `--force`                 | Force push even if lease check fails                               |
-| `-t, --title <title>`     | Custom PR title for current branch (overrides commit message)      |
-| `--amend`                 | Amend uncommitted changes to the current commit before push *(v0.8.0+)* |
-| `-m, --message <message>` | Create a new commit with the given message before push *(v0.8.0+)* |
-| `--dry-run`               | Preview what would happen without pushing or creating PRs          |
+| Option                    | Description                                                             |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `--draft`                 | Create PRs as drafts                                                    |
+| `--force`                 | Force push even if lease check fails                                    |
+| `-t, --title <title>`     | Custom PR title for current branch (overrides commit message)           |
+| `--amend`                 | Amend uncommitted changes to the current commit before push _(v0.8.0+)_ |
+| `-m, --message <message>` | Create a new commit with the given message before push _(v0.8.0+)_      |
+| `--dry-run`               | Preview what would happen without pushing or creating PRs               |
 
 ## Example
 
@@ -110,7 +110,7 @@ Force pushing overwrites the remote branch. Only use this when you know your loc
 
 ## Handling Uncommitted Changes
 
-*Added in v0.8.0*
+_Added in v0.8.0_
 
 If you have uncommitted changes (staged or unstaged), rung will prompt you with options:
 

@@ -20,9 +20,9 @@ rung absorb --base main
 
 ## Options
 
-| Option                | Description                                                              |
-| --------------------- | ------------------------------------------------------------------------ |
-| `--dry-run`           | Show what would be absorbed without making changes                       |
+| Option                | Description                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `--dry-run`           | Show what would be absorbed without making changes                                  |
 | `-b, --base <branch>` | Base branch to determine rebaseable range (auto-detected from the forge by default) |
 
 ## How It Works
@@ -116,13 +116,13 @@ $ rung absorb
 
 ### Reasons for Unmapped Hunks
 
-| Reason                          | Description                                              |
-| ------------------------------- | -------------------------------------------------------- |
-| new file                        | New files have no blame history                          |
+| Reason                               | Description                                               |
+| ------------------------------------ | --------------------------------------------------------- |
+| new file                             | New files have no blame history                           |
 | multiple commits touched these lines | The changed lines were last modified by different commits |
-| target commit not in stack      | The blamed commit is not between base and HEAD           |
-| target commit already on base branch | The blamed commit is already merged                   |
-| blame error                     | Git blame failed for this file/range                     |
+| target commit not in stack           | The blamed commit is not between base and HEAD            |
+| target commit already on base branch | The blamed commit is already merged                       |
+| blame error                          | Git blame failed for this file/range                      |
 
 ## Limitations
 

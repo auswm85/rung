@@ -21,11 +21,11 @@ rung adopt --dry-run
 
 ## Options
 
-| Option              | Description                                                              |
-| ------------------- | ------------------------------------------------------------------------ |
-| `[branch]`          | Branch to adopt. Defaults to the current branch.                         |
-| `-p, --parent`      | Parent branch for the adopted branch. Shows interactive picker if omitted. |
-| `--dry-run`         | Preview what would happen without making changes.                        |
+| Option         | Description                                                                |
+| -------------- | -------------------------------------------------------------------------- |
+| `[branch]`     | Branch to adopt. Defaults to the current branch.                           |
+| `-p, --parent` | Parent branch for the adopted branch. Shows interactive picker if omitted. |
+| `--dry-run`    | Preview what would happen without making changes.                          |
 
 ## Examples
 

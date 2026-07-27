@@ -25,15 +25,15 @@ rung sync --no-push
 
 ## Options
 
-| Option                | Description                                                              |
-| --------------------- | ------------------------------------------------------------------------ |
-| `--check`             | Predict conflicts without performing sync *(v0.8.0+)*                    |
-| `--dry-run`           | Show what would be done without making changes                           |
-| `-b, --base <branch>` | Base branch to sync against (default: repository's default branch)       |
-| `--force`             | Proceed even if branches have diverged from remote                       |
-| `--continue`          | Continue after resolving conflicts                                       |
-| `--abort`             | Abort and restore from backup                                            |
-| `--no-push`           | Skip pushing branches to remote after sync                               |
+| Option                | Description                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `--check`             | Predict conflicts without performing sync _(v0.8.0+)_              |
+| `--dry-run`           | Show what would be done without making changes                     |
+| `-b, --base <branch>` | Base branch to sync against (default: repository's default branch) |
+| `--force`             | Proceed even if branches have diverged from remote                 |
+| `--continue`          | Continue after resolving conflicts                                 |
+| `--abort`             | Abort and restore from backup                                      |
+| `--no-push`           | Skip pushing branches to remote after sync                         |
 
 ## How It Works
 
@@ -83,6 +83,7 @@ $ rung sync --check
 ```
 
 This simulates the rebase without making any changes, showing you:
+
 - Which branches would conflict
 - Which files would conflict
 - Which commits cause each conflict

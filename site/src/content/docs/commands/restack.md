@@ -24,14 +24,14 @@ rung restack --abort
 
 ## Options
 
-| Option               | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `--onto <branch>`    | New parent branch to rebase onto (required)                      |
-| `--include-children` | Also rebase all descendant branches                              |
-| `--dry-run`          | Show what would be done without making changes                   |
-| `--force`            | Proceed even if branches have diverged from remote               |
-| `--continue`         | Continue after resolving conflicts                               |
-| `--abort`            | Abort and restore from backup                                    |
+| Option               | Description                                        |
+| -------------------- | -------------------------------------------------- |
+| `--onto <branch>`    | New parent branch to rebase onto (required)        |
+| `--include-children` | Also rebase all descendant branches                |
+| `--dry-run`          | Show what would be done without making changes     |
+| `--force`            | Proceed even if branches have diverged from remote |
+| `--continue`         | Continue after resolving conflicts                 |
+| `--abort`            | Abort and restore from backup                      |
 
 ## How It Works
 

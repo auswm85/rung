@@ -14,7 +14,11 @@ export default defineConfig({
         replacesTitle: false,
       },
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/auswm85/rung" },
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/auswm85/rung",
+        },
       ],
       editLink: {
         baseUrl: "https://github.com/auswm85/rung/edit/main/site/",
