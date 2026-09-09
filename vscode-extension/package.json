@@ -2,7 +2,7 @@
   "name": "rung-vscode",
   "displayName": "Rung - Stacked PRs",
   "description": "Visualize and manage stacked PRs with rung",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "rung",
   "license": "MIT",
   "icon": "resources/rung-logo.png",
