@@ -53,20 +53,30 @@ describe("isBranchInfo", () => {
 
 describe("isRungError", () => {
   it("returns true for valid RungError", () => {
-    const error: RungError = {
-      type: ErrorType.NotInitialized,
-      message: "Rung is not initialized",
-    };
+    const error = new RungError(
+      ErrorType.NotInitialized,
+      "Rung is not initialized"
+    );
     expect(isRungError(error)).toBe(true);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("RungError");
+    expect(error.type).toBe(ErrorType.NotInitialized);
+    expect(error.message).toBe("Rung is not initialized");
+    expect(error.details).toBeUndefined();
   });
 
   it("returns true for RungError with details", () => {
-    const error: RungError = {
-      type: ErrorType.ConflictDetected,
-      message: "Conflicts detected",
-      details: "file1.ts, file2.ts",
-    };
+    const error = new RungError(
+      ErrorType.ConflictDetected,
+      "Conflicts detected",
+      "file1.ts, file2.ts"
+    );
     expect(isRungError(error)).toBe(true);
+    expect(error.details).toBe("file1.ts, file2.ts");
+  });
+
+  it("returns false for plain object with RungError shape", () => {
+    expect(isRungError({ type: ErrorType.Unknown, message: "error" })).toBe(false);
   });
 
   it("returns false for null", () => {

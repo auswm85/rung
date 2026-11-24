@@ -52,10 +52,15 @@ export enum ErrorType {
   Unknown = "UNKNOWN",
 }
 
-export interface RungError {
-  type: ErrorType;
-  message: string;
-  details?: string;
+export class RungError extends Error {
+  constructor(
+    public readonly type: ErrorType,
+    message: string,
+    public readonly details?: string
+  ) {
+    super(message);
+    this.name = "RungError";
+  }
 }
 
 // Helper type guards
@@ -70,10 +75,5 @@ export function isBranchInfo(data: unknown): data is BranchInfo {
 }
 
 export function isRungError(error: unknown): error is RungError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "type" in error &&
-    "message" in error
-  );
+  return error instanceof RungError;
 }
