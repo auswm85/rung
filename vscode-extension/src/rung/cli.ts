@@ -138,7 +138,7 @@ export class RungCli {
     message: string,
     details?: string
   ): RungError {
-    return { type, message, details };
+    return new RungError(type, message, details);
   }
 
   // --- Public API ---
